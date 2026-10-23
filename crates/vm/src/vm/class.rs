@@ -20,6 +20,7 @@ pub struct PropInfo {
     pub ty: Option<TypeHint>,
     pub default: Option<Init>,
     pub module: u32,
+    pub attributes: Vec<AttributeDecl>,
 }
 
 #[derive(Clone, Debug)]
@@ -231,6 +232,7 @@ impl Vm {
                         ty: p.ty.clone(),
                         default: p.default.clone(),
                         module: midx,
+                        attributes: p.attributes.clone(),
                     },
                 );
             }

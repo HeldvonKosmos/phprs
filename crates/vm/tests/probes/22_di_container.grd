@@ -1,0 +1,10 @@
+<?php
+interface Logger { public function log(string $m): string; }
+class StdLogger implements Logger { public function log(string $m): string { return "log:$m"; } }
+class Service { public function __construct(private Logger $logger, private int $retries = 3) {} public function run(): string { return $this->logger->log("run x{$this->retries}"); } }
+class Container { private array $bindings = [];
+  public function bind(string $abs, string $impl): void { $this->bindings[$abs] = $impl; }
+  public function make(string $cls): object { $cls = $this->bindings[$cls] ?? $cls; $ctor = (new ReflectionClass($cls))->getConstructor(); if (!$ctor) { return new $cls; }
+    $args = []; foreach ($ctor->getParameters() as $p) { $t = $p->getType(); $args[] = ($t && !$t->isBuiltin()) ? $this->make($t->getName()) : $p->getDefaultValue(); } return new $cls(...$args); } }
+$c = new Container(); $c->bind(Logger::class, StdLogger::class);
+echo $c->make(Service::class)->run(), "\n";

@@ -271,3 +271,280 @@ function date_create_immutable(string $datetime = 'now', ?DateTimeZone $timezone
     try { return new DateTimeImmutable($datetime, $timezone); } catch (Exception) { return false; }
 }
 function date_diff(DateTimeInterface $a, DateTimeInterface $b, bool $absolute = false): DateInterval { return $a->diff($b, $absolute); }
+
+// ---- Reflection ------------------------------------------------------------
+
+class ReflectionException extends Exception {}
+
+#[Attribute]
+final class Attribute {
+    public const TARGET_CLASS = 1; public const TARGET_FUNCTION = 2; public const TARGET_METHOD = 4;
+    public const TARGET_PROPERTY = 8; public const TARGET_CLASS_CONSTANT = 16; public const TARGET_PARAMETER = 32;
+    public const TARGET_ALL = 63; public const IS_REPEATABLE = 64;
+    public function __construct(public int $flags = Attribute::TARGET_ALL) {}
+}
+#[Attribute]
+final class AllowDynamicProperties { public function __construct() {} }
+#[Attribute]
+final class SensitiveParameter { public function __construct() {} }
+#[Attribute]
+final class Override { public function __construct() {} }
+#[Attribute]
+final class ReturnTypeWillChange { public function __construct() {} }
+
+class ReflectionAttribute {
+    public function __construct(private string $attrName, private string $kind, private string $owner, private string $member, private int $paramIndex, private int $index) {}
+    public function getName(): string { return $this->attrName; }
+    public function getArguments(): array { return __grd_eval_attr_args($this->kind, $this->owner, $this->member, $this->paramIndex, $this->index); }
+    public function newInstance(): object { $c = $this->attrName; return new $c(...$this->getArguments()); }
+    public function getTarget(): int { return match ($this->kind) { 'class' => 1, 'function' => 2, 'method' => 4, 'property' => 8, 'param' => 32, default => 0 }; }
+    public function isRepeated(): bool { return false; }
+}
+
+trait GrdHasAttributes {
+    /** @return ReflectionAttribute[] */
+    protected function buildAttributes(array $raw, string $kind, string $owner, string $member, int $paramIndex, ?string $filter, int $flags): array {
+        $out = [];
+        foreach ($raw as $i => $a) {
+            if ($filter !== null) {
+                $match = strcasecmp(ltrim($a['name'], '\\'), ltrim($filter, '\\')) === 0 || (($flags & 2) && is_a($a['name'], $filter, true));
+                if (!$match) { continue; }
+            }
+            $out[] = new ReflectionAttribute($a['name'], $kind, $owner, $member, $paramIndex, $i);
+        }
+        return $out;
+    }
+}
+
+class ReflectionNamedType {
+    public function __construct(private array $info) {}
+    public function getName(): string { return $this->info['name']; }
+    public function allowsNull(): bool { return $this->info['nullable']; }
+    public function isBuiltin(): bool { return $this->info['builtin']; }
+    public function __toString(): string { return ($this->info['nullable'] && $this->info['name'] !== 'mixed' && $this->info['name'] !== 'null' ? '?' : '') . $this->info['name']; }
+}
+class ReflectionUnionType extends ReflectionNamedType {
+    public function getTypes(): array { return array_map(fn($t) => ReflectionType::make($t), $this->typesRaw()); }
+    private function typesRaw(): array { return (new ReflectionObject($this))->getProperty('info')->getValue($this)['types'] ?? []; }
+}
+class ReflectionIntersectionType extends ReflectionUnionType {}
+abstract class ReflectionType {
+    public static function make(?array $info): ?ReflectionNamedType {
+        if ($info === null) { return null; }
+        return match ($info['kind']) { 'union' => new ReflectionUnionType($info), 'intersection' => new ReflectionIntersectionType($info), default => new ReflectionNamedType($info) };
+    }
+}
+
+class ReflectionParameter {
+    use GrdHasAttributes;
+    public string $name;
+    public function __construct(private array $info, private string $ownerClass, private string $function) { $this->name = $info['name']; }
+    public function getName(): string { return $this->info['name']; }
+    public function getPosition(): int { return $this->info['position']; }
+    public function hasType(): bool { return $this->info['type'] !== null; }
+    public function getType(): ?ReflectionNamedType { return ReflectionType::make($this->info['type']); }
+    public function allowsNull(): bool { return $this->info['type'] === null || $this->info['type']['nullable']; }
+    public function isOptional(): bool { return $this->info['optional']; }
+    public function isDefaultValueAvailable(): bool { return $this->info['hasDefault']; }
+    public function getDefaultValue(): mixed { return __grd_eval_default($this->ownerClass === '' ? null : $this->ownerClass, $this->function, $this->info['position']); }
+    public function isVariadic(): bool { return $this->info['variadic']; }
+    public function isPromoted(): bool { return $this->info['promoted']; }
+    public function isPassedByReference(): bool { return false; }
+    public function getAttributes(?string $name = null, int $flags = 0): array { return $this->buildAttributes($this->info['attributes'], 'param', $this->ownerClass, $this->function, $this->info['position'], $name, $flags); }
+    public function getDeclaringClass(): ?ReflectionClass { return $this->ownerClass === '' ? null : new ReflectionClass($this->ownerClass); }
+}
+
+abstract class ReflectionFunctionAbstract {
+    use GrdHasAttributes;
+    public string $name = '';
+    protected array $info = [];
+    protected string $ownerClass = '';
+    public function getName(): string { return $this->info['name']; }
+    public function getShortName(): string { $n = $this->info['name']; $p = strrpos($n, '\\'); return $p === false ? $n : substr($n, $p + 1); }
+    public function getParameters(): array { return array_map(fn($p) => new ReflectionParameter($p, $this->ownerClass, $this->info['name']), $this->info['params']); }
+    public function getNumberOfParameters(): int { return count($this->info['params']); }
+    public function getNumberOfRequiredParameters(): int { return $this->info['required']; }
+    public function hasReturnType(): bool { return $this->info['returnType'] !== null; }
+    public function getReturnType(): ?ReflectionNamedType { return ReflectionType::make($this->info['returnType']); }
+    public function isGenerator(): bool { return $this->info['generator']; }
+    public function isVariadic(): bool { foreach ($this->info['params'] as $p) { if ($p['variadic']) { return true; } } return false; }
+    public function returnsReference(): bool { return false; }
+    public function isInternal(): bool { return $this->info['native'] ?? false; }
+    public function isUserDefined(): bool { return !$this->isInternal(); }
+}
+
+class ReflectionFunction extends ReflectionFunctionAbstract {
+    private mixed $callable;
+    public function __construct(Closure|string $function) {
+        $this->callable = $function;
+        $this->info = $function instanceof Closure ? __grd_closure_info($function) : __grd_function_info($function);
+        $this->name = $this->info['name'];
+    }
+    public function invoke(mixed ...$args): mixed { return ($this->callable)(...$args); }
+    public function invokeArgs(array $args = []): mixed { return ($this->callable)(...$args); }
+    public function isClosure(): bool { return $this->callable instanceof Closure; }
+    public function getClosure(): Closure { return $this->callable instanceof Closure ? $this->callable : Closure::fromCallable($this->callable); }
+    public function getAttributes(?string $name = null, int $flags = 0): array { return $this->buildAttributes($this->info['attributes'], 'function', '', $this->info['name'], -1, $name, $flags); }
+}
+
+class ReflectionMethod extends ReflectionFunctionAbstract {
+    public const IS_STATIC = 16; public const IS_PUBLIC = 1; public const IS_PROTECTED = 2; public const IS_PRIVATE = 4; public const IS_ABSTRACT = 64; public const IS_FINAL = 32;
+    public string $class = '';
+    public function __construct(object|string $objectOrMethod, ?string $method = null) {
+        if ($method === null && is_string($objectOrMethod) && str_contains($objectOrMethod, '::')) { [$objectOrMethod, $method] = explode('::', $objectOrMethod, 2); }
+        $cls = is_object($objectOrMethod) ? get_class($objectOrMethod) : $objectOrMethod;
+        $ci = __grd_class_info($cls);
+        if ($ci === false) { throw new ReflectionException("Class \"$cls\" does not exist"); }
+        foreach ($ci['methods'] as $m) { if (strcasecmp($m['name'], (string) $method) === 0) { $this->info = $m; } }
+        if ($this->info === []) { throw new ReflectionException("Method {$ci['name']}::$method() does not exist"); }
+        $this->name = $this->info['name'];
+        $this->class = $this->info['class'];
+        $this->ownerClass = $this->info['class'];
+    }
+    public function isStatic(): bool { return $this->info['static']; }
+    public function isPublic(): bool { return $this->info['visibility'] === 'public'; }
+    public function isProtected(): bool { return $this->info['visibility'] === 'protected'; }
+    public function isPrivate(): bool { return $this->info['visibility'] === 'private'; }
+    public function isAbstract(): bool { return $this->info['abstract']; }
+    public function isFinal(): bool { return $this->info['final']; }
+    public function isConstructor(): bool { return strcasecmp($this->info['name'], '__construct') === 0; }
+    public function getDeclaringClass(): ReflectionClass { return new ReflectionClass($this->info['class']); }
+    public function getModifiers(): int { return ($this->isStatic() ? 16 : 0) | ($this->isPublic() ? 1 : 0) | ($this->isProtected() ? 2 : 0) | ($this->isPrivate() ? 4 : 0) | ($this->isAbstract() ? 64 : 0) | ($this->isFinal() ? 32 : 0); }
+    public function setAccessible(bool $accessible): void {}
+    public function invoke(?object $object = null, mixed ...$args): mixed { return __grd_invoke_method($object, $this->info['class'], $this->info['name'], $args); }
+    public function invokeArgs(?object $object = null, array $args = []): mixed { return __grd_invoke_method($object, $this->info['class'], $this->info['name'], array_values($args)); }
+    public function getClosure(?object $object = null): Closure { return $object === null ? Closure::fromCallable([$this->info['class'], $this->info['name']]) : Closure::fromCallable([$object, $this->info['name']]); }
+    public function getAttributes(?string $name = null, int $flags = 0): array { return $this->buildAttributes($this->info['attributes'], 'method', $this->info['class'], $this->info['name'], -1, $name, $flags); }
+}
+
+class ReflectionProperty {
+    use GrdHasAttributes;
+    public const IS_STATIC = 16; public const IS_READONLY = 128; public const IS_PUBLIC = 1; public const IS_PROTECTED = 2; public const IS_PRIVATE = 4;
+    public string $name = '';
+    public string $class = '';
+    private array $info;
+    public function __construct(object|string $class, string $property) {
+        $cls = is_object($class) ? get_class($class) : $class;
+        $ci = __grd_class_info($cls);
+        if ($ci === false) { throw new ReflectionException("Class \"$cls\" does not exist"); }
+        foreach ($ci['properties'] as $p) { if ($p['name'] === $property) { $this->info = $p; } }
+        if (!isset($this->info)) { throw new ReflectionException("Property {$ci['name']}::\$$property does not exist"); }
+        $this->name = $property;
+        $this->class = $this->info['class'];
+    }
+    public static function fromInfo(array $info): static { $p = new static($info['class'], $info['name']); return $p; }
+    public function getName(): string { return $this->info['name']; }
+    public function getValue(?object $object = null): mixed { return $this->info['static'] ? __grd_static_get($this->info['class'], $this->info['name']) : __grd_prop_get($object, $this->info['name']); }
+    public function setValue(mixed $objectOrValue, mixed $value = null): void { if ($this->info['static']) { __grd_static_set($this->info['class'], $this->info['name'], is_object($objectOrValue) ? $value : $objectOrValue); } else { __grd_prop_set($objectOrValue, $this->info['name'], $value); } }
+    public function isInitialized(?object $object = null): bool { return $this->info['static'] ? true : __grd_prop_initialized($object, $this->info['name']); }
+    public function isPublic(): bool { return $this->info['visibility'] === 'public'; }
+    public function isProtected(): bool { return $this->info['visibility'] === 'protected'; }
+    public function isPrivate(): bool { return $this->info['visibility'] === 'private'; }
+    public function isStatic(): bool { return $this->info['static']; }
+    public function isReadOnly(): bool { return $this->info['readonly']; }
+    public function isPromoted(): bool { return false; }
+    public function hasType(): bool { return $this->info['type'] !== null; }
+    public function getType(): ?ReflectionNamedType { return ReflectionType::make($this->info['type']); }
+    public function hasDefaultValue(): bool { return $this->info['hasDefault']; }
+    public function getDefaultValue(): mixed { return $this->info['hasDefault'] ? __grd_prop_get(__grd_new_without_ctor($this->info['class']), $this->info['name']) : null; }
+    public function getDeclaringClass(): ReflectionClass { return new ReflectionClass($this->info['class']); }
+    public function getModifiers(): int { return ($this->isStatic() ? 16 : 0) | ($this->isPublic() ? 1 : 0) | ($this->isProtected() ? 2 : 0) | ($this->isPrivate() ? 4 : 0) | ($this->isReadOnly() ? 128 : 0); }
+    public function setAccessible(bool $accessible): void {}
+    public function getAttributes(?string $name = null, int $flags = 0): array { return $this->buildAttributes($this->info['attributes'], 'property', $this->info['class'], $this->info['name'], -1, $name, $flags); }
+    public function getDocComment(): string|false { return false; }
+}
+
+class ReflectionClassConstant {
+    public function __construct(public string $class, public string $name, private mixed $value) {}
+    public function getName(): string { return $this->name; }
+    public function getValue(): mixed { return $this->value; }
+    public function getDeclaringClass(): ReflectionClass { return new ReflectionClass($this->class); }
+}
+
+class ReflectionClass {
+    use GrdHasAttributes;
+    public const IS_IMPLICIT_ABSTRACT = 16; public const IS_EXPLICIT_ABSTRACT = 64; public const IS_FINAL = 32; public const IS_READONLY = 65536;
+    public string $name = '';
+    protected array $info;
+    public function __construct(object|string $objectOrClass) {
+        $cls = is_object($objectOrClass) ? get_class($objectOrClass) : $objectOrClass;
+        $info = __grd_class_info($cls);
+        if ($info === false) { throw new ReflectionException("Class \"$cls\" does not exist"); }
+        $this->info = $info;
+        $this->name = $info['name'];
+    }
+    public function getName(): string { return $this->info['name']; }
+    public function getShortName(): string { return $this->info['short']; }
+    public function getNamespaceName(): string { return $this->info['namespace']; }
+    public function inNamespace(): bool { return $this->info['namespace'] !== ''; }
+    public function isInterface(): bool { return $this->info['kind'] === 'interface'; }
+    public function isTrait(): bool { return $this->info['kind'] === 'trait'; }
+    public function isEnum(): bool { return $this->info['kind'] === 'enum'; }
+    public function isAbstract(): bool { return $this->info['abstract'] || $this->info['kind'] === 'interface'; }
+    public function isFinal(): bool { return $this->info['final']; }
+    public function isInstantiable(): bool { return $this->info['kind'] === 'class' && !$this->info['abstract'] && ($this->getConstructor()?->isPublic() ?? true); }
+    public function isInternal(): bool { return false; }
+    public function isUserDefined(): bool { return true; }
+    public function isAnonymous(): bool { return str_contains($this->info['name'], '@anonymous'); }
+    public function isInstance(object $object): bool { return is_a($object, $this->info['name']); }
+    public function isSubclassOf(string|ReflectionClass $class): bool { $n = $class instanceof ReflectionClass ? $class->getName() : $class; return strcasecmp($n, $this->info['name']) !== 0 && is_a($this->info['name'], $n, true); }
+    public function implementsInterface(string|ReflectionClass $interface): bool { $n = ltrim($interface instanceof ReflectionClass ? $interface->getName() : $interface, '\\'); foreach ($this->info['interfaces'] as $i) { if (strcasecmp($i, $n) === 0) { return true; } } return false; }
+    public function getParentClass(): ReflectionClass|false { return $this->info['parent'] === null ? false : new ReflectionClass($this->info['parent']); }
+    public function getInterfaceNames(): array { return $this->info['interfaces']; }
+    public function getInterfaces(): array { $out = []; foreach ($this->info['interfaces'] as $i) { $out[$i] = new ReflectionClass($i); } return $out; }
+    public function getTraitNames(): array { return []; }
+    public function getConstructor(): ?ReflectionMethod { return $this->hasMethod('__construct') ? new ReflectionMethod($this->info['name'], '__construct') : null; }
+    public function hasMethod(string $name): bool { foreach ($this->info['methods'] as $m) { if (strcasecmp($m['name'], $name) === 0) { return true; } } return false; }
+    public function getMethod(string $name): ReflectionMethod { return new ReflectionMethod($this->info['name'], $name); }
+    public function getMethods(?int $filter = null): array {
+        $out = [];
+        foreach ($this->info['methods'] as $m) {
+            $rm = new ReflectionMethod($this->info['name'], $m['name']);
+            if ($filter === null || ($rm->getModifiers() & $filter)) { $out[] = $rm; }
+        }
+        return $out;
+    }
+    public function hasProperty(string $name): bool { foreach ($this->info['properties'] as $p) { if ($p['name'] === $name) { return true; } } return false; }
+    public function getProperty(string $name): ReflectionProperty { return new ReflectionProperty($this->info['name'], $name); }
+    public function getProperties(?int $filter = null): array {
+        $out = [];
+        foreach ($this->info['properties'] as $p) {
+            $rp = new ReflectionProperty($this->info['name'], $p['name']);
+            if ($filter === null || ($rp->getModifiers() & $filter)) { $out[] = $rp; }
+        }
+        return $out;
+    }
+    public function hasConstant(string $name): bool { return array_key_exists($name, $this->info['constants']); }
+    public function getConstants(?int $filter = null): array { return $this->info['constants']; }
+    public function getConstant(string $name): mixed { return $this->info['constants'][$name] ?? false; }
+    public function getReflectionConstants(?int $filter = null): array { $out = []; foreach ($this->info['constants'] as $k => $v) { $out[] = new ReflectionClassConstant($this->info['name'], $k, $v); } return $out; }
+    public function getAttributes(?string $name = null, int $flags = 0): array { return $this->buildAttributes($this->info['attributes'], 'class', $this->info['name'], '', -1, $name, $flags); }
+    public function newInstance(mixed ...$args): object { $c = $this->info['name']; return new $c(...$args); }
+    public function newInstanceArgs(array $args = []): object { $c = $this->info['name']; return new $c(...$args); }
+    public function newInstanceWithoutConstructor(): object { return __grd_new_without_ctor($this->info['name']); }
+    public function getModifiers(): int { return ($this->info['abstract'] ? 64 : 0) | ($this->info['final'] ? 32 : 0); }
+    public function getDocComment(): string|false { return false; }
+    public function getFileName(): string|false { return false; }
+    public function isIterable(): bool { return $this->implementsInterface('Traversable'); }
+    public function isCloneable(): bool { return $this->isInstantiable(); }
+    public function getStaticPropertyValue(string $name, mixed $default = null): mixed { return __grd_static_get($this->info['name'], $name); }
+    public function setStaticPropertyValue(string $name, mixed $value): void { __grd_static_set($this->info['name'], $name, $value); }
+}
+
+class ReflectionObject extends ReflectionClass {
+    public function __construct(object $object) { parent::__construct($object); }
+}
+
+class ReflectionEnum extends ReflectionClass {
+    public function getCases(): array { $out = []; foreach ($this->info['cases'] as $c) { $out[] = new ReflectionEnumBackedCase($this->info['name'], $c); } return $out; }
+    public function getCase(string $name): ReflectionEnumBackedCase { return new ReflectionEnumBackedCase($this->info['name'], $name); }
+    public function hasCase(string $name): bool { return in_array($name, $this->info['cases'], true); }
+    public function isBacked(): bool { return $this->implementsInterface('BackedEnum'); }
+}
+class ReflectionEnumUnitCase extends ReflectionClassConstant {
+    public function __construct(string $class, string $name) { parent::__construct($class, $name, __grd_class_constant($class, $name)); }
+    public function getEnum(): ReflectionEnum { return new ReflectionEnum($this->class); }
+}
+class ReflectionEnumBackedCase extends ReflectionEnumUnitCase {
+    public function getBackingValue(): int|string { return $this->getValue()->value; }
+}

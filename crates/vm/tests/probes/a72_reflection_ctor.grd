@@ -1,0 +1,2 @@
+<?php
+class S { public function __construct(private stdClass $o, private int $r = 3) {} } $c = (new ReflectionClass(S::class))->getConstructor(); foreach ($c->getParameters() as $p) { $t = $p->getType(); echo $t->getName(), $t->isBuiltin() ? "b" : "c", ","; } echo "\n";

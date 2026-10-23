@@ -253,8 +253,12 @@ impl Compiler<'_> {
                 seen_optional = true;
             }
             let attributes = self.compile_attributes(&p.attribute_lists)?;
+            let default_init = match &p.default_value {
+                Some(dv) => Some(self.init_expr(dv.value)?),
+                None => None,
+            };
             let name = self.intern(&pname);
-            params.push(Param { name, slot, ty, has_default, variadic, promote, promote_readonly, attributes });
+            params.push(Param { name, slot, ty, has_default, default_init, variadic, promote, promote_readonly, attributes });
         }
         // default-value prologue
         for (index, p) in spec.params.parameters.iter().enumerate() {

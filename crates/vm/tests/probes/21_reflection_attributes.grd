@@ -1,0 +1,8 @@
+<?php
+#[Attribute]
+class Route { public function __construct(public string $method, public string $path) {} }
+class Ctl { #[Route('GET', '/tasks')] public function index(): array { return []; } }
+$m = new ReflectionMethod(Ctl::class, 'index');
+foreach ($m->getAttributes(Route::class) as $a) { $r = $a->newInstance(); echo $r->method, " ", $r->path, " "; }
+$rc = new ReflectionClass(Ctl::class); echo $rc->getShortName(), " ", count($rc->getMethods()), " ";
+$p = (new ReflectionFunction(fn(int $a, ?Ctl $b = null) => 1))->getParameters(); echo $p[1]->getType()->getName(), $p[1]->allowsNull() ? '?' : '', "\n";

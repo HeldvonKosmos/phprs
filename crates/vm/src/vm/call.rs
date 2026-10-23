@@ -9,7 +9,7 @@ use crate::error::Throw;
 use crate::value::*;
 
 /// Result of starting a call from the dispatch loop.
-pub(crate) enum CallOutcome {
+pub enum CallOutcome {
     /// A frame was pushed; the loop must switch to it.
     Pushed,
     /// The call completed natively; this is its value.

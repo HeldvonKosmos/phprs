@@ -1,0 +1,2 @@
+<?php
+#[Attribute] class Rt { public function __construct(public string $p) {} } class C { #[Rt("/t")] public function i(): void {} } foreach ((new ReflectionMethod(C::class, "i"))->getAttributes(Rt::class) as $a) { echo $a->newInstance()->p; } echo "\n";

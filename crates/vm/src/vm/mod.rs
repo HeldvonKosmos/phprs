@@ -21,6 +21,7 @@ use crate::bytecode::*;
 use crate::error::Throw;
 use crate::value::*;
 
+pub use call::CallOutcome;
 pub use class::{MethodInfo, PropInfo, RtClass};
 pub use generator::GeneratorState;
 pub use iter::IterState;

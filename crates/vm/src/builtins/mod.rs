@@ -8,6 +8,7 @@ mod json;
 mod math;
 mod misc;
 mod output;
+mod reflect;
 mod regex;
 mod string;
 
@@ -104,6 +105,7 @@ pub fn register(vm: &mut Vm) {
     regex::register(vm);
     datetime::register(vm);
     misc::register(vm);
+    reflect::register(vm);
 }
 
 /// Argument helpers shared by the builtin modules.

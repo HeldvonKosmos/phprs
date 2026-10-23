@@ -266,6 +266,8 @@ pub struct Param {
     pub slot: Slot,
     pub ty: Option<TypeHint>,
     pub has_default: bool,
+    /// The default as a link-time value (for reflection).
+    pub default_init: Option<Init>,
     pub variadic: bool,
     pub promote: Option<Visibility>,
     pub promote_readonly: bool,
