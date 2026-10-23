@@ -1,0 +1,19 @@
+<?php
+// Full expression precedence in call / array / constructor arguments
+echo "comparisons: ";
+var_dump(1 < 2);
+var_dump(3 >= 4);
+
+echo "logical: ";
+function id($x) { return $x; }
+echo id(1 < 2 && 3 > 1) ? "and-ok" : "and-fail";
+echo "\n";
+
+echo "ternary-arg: ";
+echo id(strlen("hi") > 1 ? "long" : "short");
+echo "\n";
+
+echo "array: ";
+$flags = [1 < 2, false || true];
+echo ($flags[0] && $flags[1]) ? "flags-ok" : "flags-fail";
+echo "\n";

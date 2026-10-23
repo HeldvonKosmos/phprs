@@ -908,7 +908,7 @@ fn compile_unset_stmt(lexer: &mut Lexer, context: &mut CompileContext) -> Result
         while token_is_punct(&current, ",") {
             let next_arg = lexer.next_token()?;
             let (arg_val, after_arg) =
-                super::expression::parse_additive_expr_with_initial(lexer, context, next_arg)?;
+                super::expression::parse_expr_with_initial(lexer, context, next_arg)?;
             context.emit_opcode(Opcode::SendVal, arg_val, null_val(), null_val());
             current = after_arg;
         }
@@ -930,13 +930,13 @@ fn compile_unset_stmt(lexer: &mut Lexer, context: &mut CompileContext) -> Result
     context.emit_opcode(Opcode::InitFCall, null_val(), null_val(), null_val());
     if !token_is_punct(&current, ")") {
         let (arg_val, after_arg) =
-            super::expression::parse_additive_expr_with_initial(lexer, context, current)?;
+            super::expression::parse_expr_with_initial(lexer, context, current)?;
         context.emit_opcode(Opcode::SendVal, arg_val, null_val(), null_val());
         current = after_arg;
         while token_is_punct(&current, ",") {
             let next_arg = lexer.next_token()?;
             let (arg_val, after_arg) =
-                super::expression::parse_additive_expr_with_initial(lexer, context, next_arg)?;
+                super::expression::parse_expr_with_initial(lexer, context, next_arg)?;
             context.emit_opcode(Opcode::SendVal, arg_val, null_val(), null_val());
             current = after_arg;
         }

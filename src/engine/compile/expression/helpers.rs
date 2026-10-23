@@ -127,7 +127,7 @@ pub(crate) fn parse_match_expression(
         let (condition, next) = if is_default {
             (facade::null_val(), lexer.next_token()?)
         } else {
-            super::operators::parse_additive_expr_with_initial(lexer, context, token)?
+            super::operators::parse_ternary_expr_with_initial(lexer, context, token)?
         };
 
         if next.token_type != TokenType::T_DOUBLE_ARROW {
@@ -494,7 +494,7 @@ pub(crate) fn compile_new_obj(
             let mut arg_token = lexer.next_token()?;
             while !token_is_punct(&arg_token, ")") {
                 let (arg_val, after_arg) =
-                    super::operators::parse_additive_expr_with_initial(lexer, context, arg_token)?;
+                    super::operators::parse_ternary_expr_with_initial(lexer, context, arg_token)?;
                 ctor_args.push(arg_val);
                 if token_is_punct(&after_arg, ",") {
                     arg_token = lexer.next_token()?;
@@ -565,7 +565,7 @@ pub(crate) fn compile_new_obj(
         let mut arg_token = lexer.next_token()?;
         while !token_is_punct(&arg_token, ")") {
             let (arg_val, after_arg) =
-                super::operators::parse_additive_expr_with_initial(lexer, context, arg_token)?;
+                super::operators::parse_ternary_expr_with_initial(lexer, context, arg_token)?;
             args.push(arg_val);
             if token_is_punct(&after_arg, ",") {
                 arg_token = lexer.next_token()?;
@@ -892,7 +892,7 @@ fn parse_array_elements(
     if !token_is_punct(&next, close) {
         loop {
             let (val_zval, after_val) =
-                super::operators::parse_additive_expr_with_initial(lexer, context, next)?;
+                super::operators::parse_ternary_expr_with_initial(lexer, context, next)?;
 
             if after_val.token_type == TokenType::T_DOUBLE_ARROW {
                 let key_zval = val_zval;
@@ -998,9 +998,11 @@ pub(crate) fn parse_call_arg(
         }
     }
 
-    // Positional argument (or non-named T_STRING)
+    // Positional argument (or non-named T_STRING).
+    // Full expression precedence (through ternary) so `foo(1 < 2)`, `bar($a && $b)`,
+    // and `baz($x ? $y : $z)` parse correctly — not just additive level.
     let (arg_val, after) =
-        super::operators::parse_additive_expr_with_initial(lexer, context, first_token)?;
+        super::operators::parse_ternary_expr_with_initial(lexer, context, first_token)?;
     context.emit_opcode(
         Opcode::SendVal,
         arg_val,

@@ -193,6 +193,7 @@
 - **77 opcodes** (dispatch table)
 - **210+ built-in functions** — see `builtin_capability_tests.rs` for exercised surface
 - **610+ workspace tests** (`cargo test --workspace` — all passing; see `tests/exception_propagation.rs`, `tests/string_interpolation.rs`, `tests/php8x_features.rs` for the new surface)
+- **Call arguments accept full expression precedence** (2026-10-22): positional args, constructor args, array elements, and match arms parse through ternary (`parse_ternary_expr_with_initial` / `parse_expr_with_initial`), so `var_dump(1 < 2)` compiles. Covered by `tests/call_arg_expressions.rs` and `examples/call_arg_expressions.php`.
 - **24+ root PHP examples** — all run via `examples_root_php_scripts_all_run`
 - **Known gaps** (verified during testing — tracked, not blocking):
   - All 77 opcodes now have dispatch handlers. The previously no-op opcodes (`AssignObj`, `TypeCheck`, `IsSet`, `Empty`, `Count`, `Keys`, `Values`, `ArrayDiff`) are wired up, and a new `Yield` opcode (76) implements generator suspension.

@@ -33,6 +33,16 @@ pub fn parse_additive_expr_with_initial(
     operators::parse_additive_expr_with_initial(lexer, context, initial_token)
 }
 
+/// Parse a full expression (through ternary) with a pre-consumed initial token.
+/// Use this for call arguments, array elements, and other full-expr contexts.
+pub fn parse_expr_with_initial(
+    lexer: &mut Lexer,
+    context: &mut CompileContext,
+    initial_token: Token,
+) -> Result<(Val, Token), String> {
+    operators::parse_ternary_expr_with_initial(lexer, context, initial_token)
+}
+
 /// Public wrapper for parse_function_call (used by statement parser)
 pub fn parse_function_call_public(
     lexer: &mut Lexer,
