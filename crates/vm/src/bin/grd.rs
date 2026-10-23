@@ -15,12 +15,34 @@ fn main() -> ExitCode {
             println!("parsed {} files, {} with errors", args.len() - 2, failed);
             if failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
+        Some("compile") if args.len() > 2 => {
+            let mut failed = 0usize;
+            for path in &args[2..] {
+                let source = match std::fs::read(path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        println!("ERR  {path}: {e}");
+                        failed += 1;
+                        continue;
+                    }
+                };
+                match grd_vm::compile::compile_source(path, &source) {
+                    Ok(m) => println!("OK   {path} ({} units, {} classes, {} functions)", m.units.len(), m.classes.len(), m.functions.len()),
+                    Err(e) => {
+                        println!("ERR  {path}: {}", e.to_string().replace('\n', " | "));
+                        failed += 1;
+                    }
+                }
+            }
+            println!("compiled {} files, {} with errors", args.len() - 2, failed);
+            if failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
+        }
         Some("run") => {
             eprintln!("grd: `run` is not implemented yet (phase 0: parser only)");
             ExitCode::from(2)
         }
         _ => {
-            eprintln!("usage: grd parse <file.grd>… | grd run <file.grd>");
+            eprintln!("usage: grd parse <file.grd>… | grd compile <file.grd>… | grd run <file.grd>");
             ExitCode::from(64)
         }
     }
