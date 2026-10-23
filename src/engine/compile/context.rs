@@ -27,6 +27,10 @@ pub struct CompileContext {
     pub yield_slot: Option<u32>,
     /// True if the function body contains `yield` (makes it a generator).
     pub is_generator: bool,
+    /// Class whose body is being compiled (`self` resolves to it).
+    pub current_class: Option<String>,
+    /// Parent of `current_class` (`parent` resolves to it).
+    pub current_parent: Option<String>,
 }
 
 impl CompileContext {
@@ -43,6 +47,8 @@ impl CompileContext {
             use_imports: std::collections::HashMap::new(),
             yield_slot: None,
             is_generator: false,
+            current_class: None,
+            current_parent: None,
         }
     }
 
@@ -71,9 +77,23 @@ impl CompileContext {
 
     /// Resolve a class/trait name using current namespace and imports
     pub fn resolve_class_name(&self, name: &str) -> String {
+        if matches!(name, "self" | "parent" | "static") {
+            return name.to_string();
+        }
+        // Fully qualified: \Foo\Bar
+        if let Some(fq) = name.strip_prefix('\\') {
+            return fq.to_string();
+        }
+        // Imported alias (whole name or first segment of a qualified name)
         if let Some(imported) = self.use_imports.get(name) {
             return imported.clone();
         }
+        if let Some((first, rest)) = name.split_once('\\')
+            && let Some(imported) = self.use_imports.get(first)
+        {
+            return format!("{imported}\\{rest}");
+        }
+        // Relative to the current namespace
         if let Some(ns) = &self.current_namespace {
             if ns.is_empty() {
                 return name.to_string();
@@ -81,6 +101,40 @@ impl CompileContext {
             return format!("{}\\{}", ns, name);
         }
         name.to_string()
+    }
+
+    /// Resolve the class part of `Name::member` / `new Name`. `self` and
+    /// `parent` are bound at compile time, like PHP does; `static` stays
+    /// late-bound and is resolved by the VM.
+    pub fn resolve_scope_class(&self, name: &str) -> Result<String, String> {
+        match name {
+            "self" => self
+                .current_class
+                .clone()
+                .ok_or_else(|| "Cannot use \"self\" when no class scope is active".to_string()),
+            "parent" => match (&self.current_class, &self.current_parent) {
+                (_, Some(p)) => Ok(p.clone()),
+                (Some(c), None) => Err(format!(
+                    "Cannot use \"parent\" when current class scope ({c}) has no parent"
+                )),
+                (None, None) => Err("Cannot use \"parent\" when no class scope is active".to_string()),
+            },
+            other => Ok(self.resolve_class_name(other)),
+        }
+    }
+
+    /// Context for a nested body (method, function, closure): fresh op array
+    /// and temps, but the lexical environment of the enclosing scope.
+    pub fn child(&self) -> Self {
+        let mut ctx = Self::new();
+        if let Some(f) = &self.filename {
+            ctx.set_filename(f);
+        }
+        ctx.current_namespace = self.current_namespace.clone();
+        ctx.use_imports = self.use_imports.clone();
+        ctx.current_class = self.current_class.clone();
+        ctx.current_parent = self.current_parent.clone();
+        ctx
     }
 
     /// Create context with filename

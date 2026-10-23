@@ -385,3 +385,23 @@ impl ExecuteData {
         }
     }
 }
+
+/// Find `method` on `class` or the nearest ancestor that declares it,
+/// walking the user class table's `parent_name` chain (PHP method
+/// inheritance). Returns the method together with the name of the class
+/// that declares it.
+pub(crate) fn lookup_method<'a>(
+    class_table: &'a std::collections::HashMap<String, crate::engine::types::ClassEntry>,
+    class: &str,
+    method: &str,
+) -> Option<(&'a str, &'a crate::engine::types::ClassMethod)> {
+    let mut current = class;
+    for _ in 0..64 {
+        let ce = class_table.get(current)?;
+        if let Some(m) = ce.methods.get(method) {
+            return Some((ce.name.as_str(), m));
+        }
+        current = ce.parent_name.as_deref()?;
+    }
+    None
+}

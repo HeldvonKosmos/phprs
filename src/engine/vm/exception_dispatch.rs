@@ -61,6 +61,78 @@ pub fn is_standard_throwable(class: &str) -> bool {
     class == "Throwable" || standard_parent(class).is_some()
 }
 
+/// The built-in Throwable at the top of `class`'s user-defined parent chain,
+/// e.g. `"Exception"` for `class V extends Exception {}`. `None` when the
+/// chain does not end in a built-in Throwable.
+pub fn throwable_root(
+    class: &str,
+    class_table: &std::collections::HashMap<String, crate::engine::types::ClassEntry>,
+) -> Option<String> {
+    let mut current = class;
+    let mut hops = 0;
+    while hops < 64 {
+        if is_standard_throwable(current) {
+            return Some(current.to_string());
+        }
+        current = class_table.get(current)?.parent_name.as_deref()?;
+        hops += 1;
+    }
+    None
+}
+
+/// True if a user-defined class in `class`'s parent chain declares `method`.
+pub fn user_chain_defines_method(
+    class: &str,
+    method: &str,
+    class_table: &std::collections::HashMap<String, crate::engine::types::ClassEntry>,
+) -> bool {
+    let mut current = class;
+    let mut hops = 0;
+    while hops < 64 {
+        let Some(ce) = class_table.get(current) else { return false };
+        if ce.methods.contains_key(method) {
+            return true;
+        }
+        match ce.parent_name.as_deref() {
+            Some(p) => {
+                current = p;
+                hops += 1;
+            }
+            None => return false,
+        }
+    }
+    false
+}
+
+/// Fill `message`, `code` and `file` on a Throwable object from constructor
+/// arguments, as `Exception::__construct($message, $code)` does.
+pub fn init_throwable_from_args(obj_val: &Val, args: &[Val], file: Option<&Val>) -> Val {
+    use crate::engine::types::PhpType;
+    let msg = args
+        .first()
+        .map(|v| crate::engine::operators::zval_get_string(v).as_str().to_string())
+        .unwrap_or_default();
+    let code = args
+        .get(1)
+        .map(crate::engine::operators::zval_get_long)
+        .unwrap_or(0);
+    let mut updated = super::execute_data::clone_val(obj_val);
+    if let PhpValue::Object(ref mut o) = updated.value {
+        o.properties.insert(
+            "message".to_string(),
+            Val::new(
+                PhpValue::String(Box::new(crate::engine::string::string_init(&msg, false))),
+                PhpType::String,
+            ),
+        );
+        o.properties.insert("code".to_string(), Val::new(PhpValue::Long(code), PhpType::Long));
+        if let Some(file) = file {
+            o.properties.insert("file".to_string(), super::execute_data::clone_val(file));
+        }
+    }
+    updated
+}
+
 /// True if `thrown` is the same class or a descendant of `catch_class`.
 /// Walks the user class table's parent chain first, then falls back to the
 /// standard PHP exception hierarchy for built-in Throwables.
@@ -90,9 +162,8 @@ pub fn exception_is_a(
             None => break,
         }
     }
-    // Fall back to the standard hierarchy (handles built-in Throwables that are
-    // not registered as user classes).
-    current = thrown;
+    // Continue in the standard hierarchy from where the user chain ended
+    // (e.g. `class E2 extends RuntimeException` caught as `Exception`).
     let mut hops = 0;
     while hops < 64 {
         if current == catch_class {
@@ -270,12 +341,9 @@ pub fn is_throwable_object(val: &Val) -> bool {
 /// These classes are not user-defined, so their getters are resolved here.
 /// Returns `None` when `method` is not a known Throwable getter, letting the
 /// caller fall through to normal undefined-method handling.
-pub fn execute_throwable_getter(class: &str, method: &str, obj_val: &Val) -> Option<Val> {
+pub fn execute_throwable_getter(_class: &str, method: &str, obj_val: &Val) -> Option<Val> {
     use crate::engine::types::PhpType;
 
-    if !is_standard_throwable(class) {
-        return None;
-    }
     let PhpValue::Object(obj) = &obj_val.value else {
         return None;
     };

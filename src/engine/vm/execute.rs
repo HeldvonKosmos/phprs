@@ -97,6 +97,9 @@ fn init_dispatch_table() {
         table[Opcode::ArrayDiff as usize] = execute_array_diff;
         table[Opcode::Yield as usize] = execute_yield;
         table[Opcode::Cast as usize] = execute_cast;
+        table[Opcode::CreateClosure as usize] = execute_create_closure;
+        table[Opcode::InstanceOf as usize] = execute_instanceof;
+        table[Opcode::SendUnpack as usize] = execute_send_unpack;
 
         // Exception handling
         table[Opcode::TryCatchBegin as usize] = execute_try_catch_begin;
@@ -393,27 +396,9 @@ pub fn execute_ex(execute_data: &mut ExecuteData, op_array: &OpArray) -> PhpResu
                 new_ce.final_constants.insert(const_name.clone());
             }
             for (method_name, method) in &ce.methods {
-                let method_file = method
+                let new_op_arr = method
                     .op_array
-                    .filename
-                    .clone()
-                    .filter(|f| !f.is_empty())
-                    .unwrap_or_else(|| format!("{}::{}", name, method_name));
-                let mut new_op_arr = OpArray::with_capacity(method.op_array.ops.len(), method_file);
-                new_op_arr.ops = method
-                    .op_array
-                    .ops
-                    .iter()
-                    .map(|op| {
-                        Op::new(
-                            op.opcode,
-                            clone_val(&op.op1),
-                            clone_val(&op.op2),
-                            clone_val(&op.result),
-                            op.extended_value,
-                        )
-                    })
-                    .collect();
+                    .deep_clone_with_name(&format!("{}::{}", name, method_name));
                 new_ce.methods.insert(
                     method_name.clone(),
                     crate::engine::types::ClassMethod {
@@ -535,6 +520,6 @@ mod dispatch_table_tests {
         // The sentinel must be strictly greater than every real opcode so the
         // table size always covers all dispatchable indices. Update when a
         // new opcode is added (the compiler will point here).
-        assert_eq!(Opcode::COUNT, (Opcode::Cast as usize) + 1);
+        assert_eq!(Opcode::COUNT, (Opcode::SendUnpack as usize) + 1);
     }
 }

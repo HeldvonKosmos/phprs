@@ -331,7 +331,7 @@ pub(crate) fn is_builtin_function(name: &str) -> bool {
         | "json_decode" | "file_get_contents" | "file_exists" | "define" | "defined"
         | "constant" | "class_exists" | "interface_exists" | "trait_exists"
         | "method_exists" | "property_exists" | "function_exists" | "get_class"
-        | "get_parent_class" | "gettype" | "spl_autoload_register"
+        | "get_parent_class" | "get_called_class" | "gettype" | "spl_autoload_register"
         | "spl_autoload_unregister" | "spl_autoload_functions" | "phpversion"
         | "phpinfo" | "ob_start" | "ob_end_clean" | "ob_end_flush" | "ob_get_clean"
         | "ob_get_flush" | "ob_get_contents" | "ob_get_level" | "ob_clean" | "ob_flush"
@@ -585,6 +585,7 @@ pub(crate) fn execute_builtin_function(
                 &args[0]
             };
             let is_cb = match &callable.value {
+                PhpValue::Object(o) if o.class_name == "Closure" => true,
                 PhpValue::String(s) => {
                     let n = s.as_str();
                     is_builtin_function(n)
@@ -1988,6 +1989,10 @@ pub(crate) fn execute_builtin_function(
                 None => Ok(Some(bool_val(false))),
             }
         }
+        "get_called_class" => Ok(Some(match &_execute_data.called_class {
+            Some(c) => string_val(c),
+            None => bool_val(false),
+        })),
         "get_parent_class" => {
             let class_name = if args.is_empty() {
                 match &_execute_data.get_var("this").value {

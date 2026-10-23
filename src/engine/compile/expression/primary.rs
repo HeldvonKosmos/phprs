@@ -143,10 +143,13 @@ fn parse_primary_inner(
             } else {
                 let next_token = lexer.next_token()?;
                 if token_is_punct(&next_token, "(") {
+                    if val == "fn" {
+                        return crate::engine::compile::function::compile_arrow_fn(lexer, context, token.lineno);
+                    }
                     let (result, next) = parse_function_call(lexer, context, val)?;
                     parse_access_chain(lexer, context, result, next)
                 } else if next_token.token_type == TokenType::T_PAAMAYIM_NEKUDOTAYIM {
-                    let class_val = facade::string_val(val);
+                    let class_val = facade::string_val(&context.resolve_scope_class(val)?);
                     parse_access_chain(lexer, context, class_val, next_token)
                 } else {
                     // Bare identifier: treat as constant lookup (WordPress/PHP compatibility)

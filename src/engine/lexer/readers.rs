@@ -132,12 +132,35 @@ pub fn read_string(input: &[u8], position: &mut usize) -> ReadResult {
 pub fn read_identifier(input: &[u8], position: &mut usize) -> ReadResult {
     let start = *position;
 
-    while let Some(&ch) = input.get(*position) {
-        if ch.is_ascii_alphanumeric() || ch == b'_' {
-            *position += 1;
-        } else {
+    // An optional leading `\` (fully qualified name), then segments joined by `\`.
+    if input.get(*position) == Some(&b'\\') {
+        *position += 1;
+    }
+    loop {
+        let seg_start = *position;
+        while let Some(&ch) = input.get(*position) {
+            if ch.is_ascii_alphanumeric() || ch == b'_' {
+                *position += 1;
+            } else {
+                break;
+            }
+        }
+        if *position == seg_start {
+            // dangling separator: give it back
+            if *position > start && input.get(*position - 1) == Some(&b'\\') {
+                *position -= 1;
+            }
             break;
         }
+        if input.get(*position) == Some(&b'\\')
+            && input
+                .get(*position + 1)
+                .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
+        {
+            *position += 1;
+            continue;
+        }
+        break;
     }
 
     let value = String::from_utf8_lossy(&input[start..*position]).to_string();

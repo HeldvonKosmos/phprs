@@ -5,8 +5,9 @@
 //! and `call_user_func`. It mirrors the save/restore discipline used by the
 //! `DoFCall` opcode handler so that re-entering the VM is safe.
 //!
-//! Limitations: only string callables are supported. Closure objects and
-//! `[$obj, 'method']` array callables are not handled here yet.
+//! Supports string callables and `Closure` objects (function name plus
+//! captured variables and bound `$this`). `[$obj, 'method']` array callables
+//! are not handled here yet.
 
 use super::builtins::{execute_builtin_function, is_builtin_function};
 use super::execute::execute_ex_returning;
@@ -22,6 +23,12 @@ use crate::engine::types::{PhpValue, Val};
 pub fn callable_name(callable: &Val) -> Option<String> {
     match &callable.value {
         PhpValue::String(s) => Some(s.as_str().to_string()),
+        PhpValue::Object(o) if o.class_name == "Closure" => {
+            o.properties.get("__fn").and_then(|v| match &v.value {
+                PhpValue::String(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+        }
         _ => None,
     }
 }
@@ -36,11 +43,14 @@ pub fn invoke_callable(
     callable: &Val,
     args: &[Val],
 ) -> Result<Option<Val>, String> {
+    if is_closure_object(callable) {
+        return invoke_closure(execute_data, callable, args);
+    }
     let name = match callable_name(callable) {
         Some(n) => n,
         None => {
             return Err(
-                "phprs: only string callables are supported in callbacks so far".to_string(),
+                "phprs: only string callables and Closures are supported in callbacks so far".to_string(),
             );
         }
     };
@@ -52,11 +62,61 @@ pub fn invoke_callable(
     invoke_user_function(execute_data, &name, args)
 }
 
+/// True for a `Closure` object created by the `CreateClosure` opcode.
+pub fn is_closure_object(val: &Val) -> bool {
+    matches!(&val.value, PhpValue::Object(o) if o.class_name == "Closure")
+}
+
+/// Invoke a `Closure` object: its function runs with the captured variables
+/// and bound `$this` installed in the callee scope.
+pub fn invoke_closure(
+    execute_data: &mut ExecuteData,
+    closure: &Val,
+    args: &[Val],
+) -> Result<Option<Val>, String> {
+    let PhpValue::Object(obj) = &closure.value else {
+        return Err("not a Closure".to_string());
+    };
+    let name = obj
+        .properties
+        .get("__fn")
+        .and_then(|v| match &v.value {
+            PhpValue::String(s) => Some(s.as_str().to_string()),
+            _ => None,
+        })
+        .ok_or_else(|| "Closure without function".to_string())?;
+    let mut env: Vec<(String, Val)> = Vec::new();
+    if let Some(caps) = obj.properties.get("__captures")
+        && let PhpValue::Array(arr) = &caps.value
+    {
+        for bucket in arr.ar_data.iter() {
+            if let Some(k) = &bucket.key {
+                env.push((k.as_str().to_string(), clone_val(&bucket.val)));
+            }
+        }
+    }
+    if let Some(this_val) = obj.properties.get("__this") {
+        env.push(("this".to_string(), clone_val(this_val)));
+    }
+    invoke_user_function_with_env(execute_data, &name, args, &env)
+}
+
 /// Invoke a user-defined function by name with positional arguments.
 pub fn invoke_user_function(
     execute_data: &mut ExecuteData,
     name: &str,
     args: &[Val],
+) -> Result<Option<Val>, String> {
+    invoke_user_function_with_env(execute_data, name, args, &[])
+}
+
+/// Like [`invoke_user_function`], additionally installing `env` (captured
+/// variables, bound `$this`) in the callee scope before the body runs.
+pub fn invoke_user_function_with_env(
+    execute_data: &mut ExecuteData,
+    name: &str,
+    args: &[Val],
+    env: &[(String, Val)],
 ) -> Result<Option<Val>, String> {
     let func_data: Option<(Vec<String>, Option<String>, OpArray)> = execute_data
         .function_table
@@ -130,6 +190,9 @@ pub fn invoke_user_function(
     execute_data.ref_caller_scope = saved_symbol_table;
     execute_data.symbol_table = Some(crate::engine::types::PhpArray::new());
 
+    for (k, v) in env {
+        execute_data.set_var(k, clone_val(v));
+    }
     super::dispatch_handlers::bind_call_args(
         execute_data,
         &param_names,

@@ -17,6 +17,19 @@ pub(crate) fn parse_class_body(
     context: &mut CompileContext,
     ce: &mut ClassEntry,
 ) -> Result<(), String> {
+    let saved_class = context.current_class.replace(ce.name.clone());
+    let saved_parent = std::mem::replace(&mut context.current_parent, ce.parent_name.clone());
+    let result = parse_class_body_inner(lexer, context, ce);
+    context.current_class = saved_class;
+    context.current_parent = saved_parent;
+    result
+}
+
+fn parse_class_body_inner(
+    lexer: &mut Lexer,
+    context: &mut CompileContext,
+    ce: &mut ClassEntry,
+) -> Result<(), String> {
     let mut next = lexer.next_token()?;
     loop {
         if token_is_punct(&next, "}") {
@@ -133,25 +146,9 @@ fn compile_use_trait(
         for (method_name, method) in &trait_ce.methods {
             if !ce.methods.contains_key(method_name) {
                 // Clone the method's op array
-                let mut new_ops = Vec::new();
-                for op in &method.op_array.ops {
-                    new_ops.push(crate::engine::vm::Op::new(
-                        op.opcode,
-                        crate::engine::vm::execute_data::clone_val(&op.op1),
-                        crate::engine::vm::execute_data::clone_val(&op.op2),
-                        crate::engine::vm::execute_data::clone_val(&op.result),
-                        op.extended_value,
-                    ));
-                }
-                let method_file = method
+                let new_op_array = method
                     .op_array
-                    .filename
-                    .clone()
-                    .filter(|f| !f.is_empty())
-                    .unwrap_or_else(|| format!("{}::{}", ce.name, method_name));
-                let mut new_op_array =
-                    crate::engine::vm::OpArray::with_capacity(new_ops.len(), method_file);
-                new_op_array.ops = new_ops;
+                    .deep_clone_with_name(&format!("{}::{}", ce.name, method_name));
                 ce.methods.insert(
                     method_name.clone(),
                     ClassMethod {
@@ -399,22 +396,42 @@ fn compile_class_method(
         return Err("Expected '(' after method name".to_string());
     }
 
-    let (param_names, variadic, ref_flags) = parse_params(lexer, context)?;
+    let (param_names, variadic, ref_flags, defaults, promoted) = parse_params(lexer, context)?;
     let params: Vec<String> = param_names
         .iter()
         .map(|p| p.strip_prefix('$').unwrap_or(p).to_string())
         .collect();
 
-    // Parse method body: { ... }
-    let open_brace = lexer.next_token()?;
+    // Optional return type, then the method body: { ... }
+    let open_brace = crate::engine::compile::function::skip_return_type(lexer)?;
     if !token_is_punct(&open_brace, "{") {
         return Err("Expected '{' after method parameters".to_string());
     }
 
     // Compile method body into a separate op array (inherit source file for __FILE__ / includes)
-    let mut method_context = CompileContext::new();
-    if let Some(ref f) = context.filename {
-        method_context.set_filename(f);
+    let mut method_context = context.child();
+    crate::engine::compile::function::emit_default_param_prologue(&mut method_context, &param_names, &defaults)?;
+    // Constructor property promotion: declare the property and assign it first.
+    for (name, promo) in param_names.iter().zip(&promoted) {
+        let Some(promo) = promo else { continue };
+        if method_name != "__construct" {
+            return Err("Cannot declare promoted property outside a constructor".to_string());
+        }
+        let prop = name.strip_prefix('$').unwrap_or(name).to_string();
+        ce.default_properties.insert(prop.clone(), null_val());
+        ce.property_flags.insert(
+            prop.clone(),
+            crate::engine::types::PropertyFlags {
+                visibility: promo.visibility,
+                is_static: false,
+                is_readonly: promo.readonly,
+                is_final: false,
+            },
+        );
+        let stmt = format!("$this->{prop} = ${prop};");
+        let mut sub = Lexer::new(&stmt);
+        let first = sub.next_token()?;
+        parse_statement(&mut sub, &mut method_context, first)?;
     }
     let mut body_token = lexer.next_token()?;
     let mut brace_depth = 1;
@@ -434,6 +451,10 @@ fn compile_class_method(
         body_token = parse_statement(lexer, &mut method_context, body_token)?;
     }
 
+    // Closures defined inside the method body live in the method context's
+    // function table; hoist them so they are callable at run time.
+    let nested = std::mem::take(&mut method_context.function_table);
+    context.function_table.merge(nested);
     let mut method = ClassMethod {
         name: method_name.clone(),
         visibility,

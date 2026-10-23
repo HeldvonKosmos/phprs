@@ -276,6 +276,86 @@ pub fn execute_sl(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult,
 }
 
 #[inline]
+/// Build a `Closure` object: function name, captured variables (by value,
+/// snapshotted now) and the enclosing `$this`, if any.
+pub fn execute_create_closure(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
+    let name_val = resolve_operand(&op.op1, execute_data);
+    let mut obj = crate::engine::types::PhpObject::new("Closure");
+    obj.properties.insert("__fn".to_string(), clone_val(&name_val));
+
+    let mut captures = crate::engine::types::PhpArray::new();
+    if let PhpValue::Array(ref names) = op.op2.value {
+        for bucket in names.ar_data.iter() {
+            if let PhpValue::String(ref s) = bucket.val.value {
+                let var = s.as_str().strip_prefix('$').unwrap_or(s.as_str());
+                let v = execute_data.get_var(var);
+                let key = crate::engine::types::PhpString::new(var, false);
+                let _ = crate::engine::hash::hash_add_or_update(&mut captures, Some(&key), 0, v, 0);
+            }
+        }
+    }
+    obj.properties.insert(
+        "__captures".to_string(),
+        Val::new(PhpValue::Array(Box::new(captures)), PhpType::Array),
+    );
+    let this_val = execute_data.get_var("this");
+    if this_val.get_type() == PhpType::Object {
+        obj.properties.insert("__this".to_string(), this_val);
+    }
+
+    if let Some(slot) = result_slot(op) {
+        execute_data.set_temp(slot, Val::new(PhpValue::Object(Box::new(obj)), PhpType::Object));
+    }
+    Ok(ExecResult::Continue)
+}
+
+/// `$x instanceof ClassName` — walks the user class chain, the built-in
+/// Throwable hierarchy, and treats `Closure`/`stdClass` as exact matches.
+pub fn execute_instanceof(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
+    let value = resolve_operand(&op.op1, execute_data);
+    let class_val = resolve_operand(&op.op2, execute_data);
+    let wanted = crate::engine::operators::zval_get_string(&class_val);
+    let mut wanted = wanted.as_str().to_string();
+    if wanted == "static" || wanted == "self" {
+        wanted = execute_data.called_class.clone().unwrap_or_default();
+    }
+    let wanted = wanted.trim_start_matches('\\').to_string();
+    let result = match &value.value {
+        PhpValue::Object(obj) => {
+            let actual = obj.class_name.trim_start_matches('\\');
+            actual.eq_ignore_ascii_case(&wanted)
+                || crate::engine::vm::exception_dispatch::exception_is_a(
+                    actual,
+                    &wanted,
+                    &execute_data.class_table,
+                ) && !wanted.eq_ignore_ascii_case("Throwable")
+                || (wanted.eq_ignore_ascii_case("Throwable")
+                    && crate::engine::vm::exception_dispatch::throwable_root(actual, &execute_data.class_table).is_some())
+        }
+        _ => false,
+    };
+    if let Some(slot) = result_slot(op) {
+        execute_data.set_temp(slot, crate::engine::facade::bool_val(result));
+    }
+    Ok(ExecResult::Continue)
+}
+
+/// `f(...$args)`: push every element of the array as a positional argument.
+pub fn execute_send_unpack(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
+    let val = resolve_operand(&op.op1, execute_data);
+    match &val.value {
+        PhpValue::Array(arr) => {
+            for bucket in arr.ar_data.iter() {
+                execute_data.call_args.push(clone_val(&bucket.val));
+                execute_data.call_arg_names.push(None);
+                execute_data.call_arg_by_ref.push(false);
+            }
+            Ok(ExecResult::Continue)
+        }
+        _ => Err("Only arrays can be unpacked".to_string()),
+    }
+}
+
 /// `(int)`, `(float)`, `(string)`, `(bool)`, `(array)`, `(object)`.
 pub fn execute_cast(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
     use crate::engine::operators::{zval_get_bool, zval_get_double, zval_get_long, zval_get_string};
@@ -654,10 +734,7 @@ fn fcc_invoke_static_method(
     arg_by_ref: Vec<bool>,
 ) -> Result<Option<Val>, String> {
     let resolved_class = class_name.to_string();
-    let method_info = execute_data
-        .class_table
-        .get(&resolved_class)
-        .and_then(|ce| ce.methods.get(method_name))
+    let method_info = super::execute_data::lookup_method(&execute_data.class_table, &resolved_class, method_name).map(|(_, m)| m)
         .map(|m| {
             let params = m.params.clone();
             let ops: Vec<Op> = m
@@ -742,10 +819,7 @@ fn fcc_invoke_instance_method(
     };
     let class_name = obj.class_name.clone();
 
-    let method_info = execute_data
-        .class_table
-        .get(&class_name)
-        .and_then(|ce| ce.methods.get(method_name))
+    let method_info = super::execute_data::lookup_method(&execute_data.class_table, &class_name, method_name).map(|(_, m)| m)
         .map(|m| {
             let params = m.params.clone();
             let ops: Vec<Op> = m
@@ -826,6 +900,26 @@ pub fn execute_do_fcall(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecR
         clone_val(&op.op1)
     };
     let fcall_try_depth = execute_data.try_stack.len();
+
+    // Closure object: $fn(...)
+    if super::callable::is_closure_object(&resolved_op1) {
+        let (base, names_base) = execute_data.call_arg_stack.pop().unwrap_or((0, 0));
+        let args: Vec<Val> = execute_data.call_args.drain(base..).collect();
+        let _ = execute_data.call_arg_names.drain(names_base..);
+        let _ = execute_data.call_arg_by_ref.drain(base..);
+        let result = super::callable::invoke_closure(execute_data, &resolved_op1, &args);
+        if let Some(er) = crate::engine::vm::exception_dispatch::propagate_after_call(
+            execute_data,
+            fcall_try_depth,
+        ) {
+            return Ok(er);
+        }
+        let ret = result?.unwrap_or_else(|| Val::new(PhpValue::Long(0), PhpType::Null));
+        if let Some(slot) = result_slot(op) {
+            execute_data.set_temp(slot, ret);
+        }
+        return Ok(ExecResult::Continue);
+    }
 
     // Magic method: __invoke for callable objects
     if let PhpValue::Object(ref obj) = resolved_op1.value
@@ -1540,7 +1634,11 @@ pub fn execute_fetch_dim(op: &Op, execute_data: &mut ExecuteData) -> Result<Exec
 #[inline]
 pub fn execute_new_obj(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
     let class_name_val = resolve_operand(&op.op1, execute_data);
-    let class_name = crate::engine::operators::zval_get_string(&class_name_val);
+    let mut class_name = crate::engine::operators::zval_get_string(&class_name_val);
+    if class_name.as_str() == "static" {
+        let late = execute_data.called_class.clone().unwrap_or_default();
+        class_name = crate::engine::string::string_init(&late, false);
+    }
     let cn = class_name.as_str();
 
     let mut obj = crate::engine::types::PhpObject::new(cn);
@@ -1722,10 +1820,7 @@ pub fn execute_fetch_obj_prop(
             let class_name = obj.class_name.clone();
 
             // Magic method: __isset for undefined properties
-            let isset_allowed = execute_data
-                .class_table
-                .get(&class_name)
-                .and_then(|ce| ce.methods.get("__isset"))
+            let isset_allowed = super::execute_data::lookup_method(&execute_data.class_table, &class_name, "__isset").map(|(_, m)| m)
                 .map(|m| {
                     let params = m.params.clone();
                     let ops: Vec<Op> = m
@@ -1831,10 +1926,7 @@ pub fn execute_fetch_obj_prop(
                 }
             }
 
-            let magic_info = execute_data
-                .class_table
-                .get(&class_name)
-                .and_then(|ce| ce.methods.get("__get"))
+            let magic_info = super::execute_data::lookup_method(&execute_data.class_table, &class_name, "__get").map(|(_, m)| m)
                 .map(|m| {
                     let params = m.params.clone();
                     let ops: Vec<Op> = m
@@ -1985,10 +2077,7 @@ pub fn execute_assign_obj_prop(
     };
 
     if use_magic && let Some(ref class_name) = class_name_opt {
-        let magic_info = execute_data
-            .class_table
-            .get(class_name)
-            .and_then(|ce| ce.methods.get("__set"))
+        let magic_info = super::execute_data::lookup_method(&execute_data.class_table, class_name, "__set").map(|(_, m)| m)
             .map(|m| {
                 let params = m.params.clone();
                 let ops: Vec<Op> = m
@@ -2165,8 +2254,14 @@ pub fn execute_do_method_call(
     if let PhpValue::Object(ref obj) = obj_val.value {
         let class_name = obj.class_name.clone();
 
-        // Built-in Throwable getters: $e->getMessage(), getCode(), …
-        if crate::engine::vm::exception_dispatch::is_standard_throwable(&class_name)
+        // Built-in Throwable getters: $e->getMessage(), getCode(), … — also for
+        // user subclasses, unless the user chain overrides the method.
+        if crate::engine::vm::exception_dispatch::throwable_root(&class_name, &execute_data.class_table).is_some()
+            && !crate::engine::vm::exception_dispatch::user_chain_defines_method(
+                &class_name,
+                method_name.as_str(),
+                &execute_data.class_table,
+            )
             && crate::engine::vm::exception_dispatch::execute_throwable_getter(
                 &class_name,
                 method_name.as_str(),
@@ -4168,10 +4263,7 @@ pub fn execute_do_method_call(
         }
 
         // Extract method info (owned copies to avoid borrow conflict)
-        let method_info: Option<(Vec<String>, Vec<Op>, String)> = execute_data
-            .class_table
-            .get(&class_name)
-            .and_then(|ce| ce.methods.get(method_name.as_str()))
+        let method_info: Option<(Vec<String>, Vec<Op>, String)> = super::execute_data::lookup_method(&execute_data.class_table, &class_name, method_name.as_str()).map(|(_, m)| m)
             .map(|m| {
                 let params = m.params.clone();
                 let ops: Vec<Op> = m
@@ -4214,15 +4306,9 @@ pub fn execute_do_method_call(
             let arg_names: Vec<Option<String>> =
                 execute_data.call_arg_names.drain(names_base..).collect();
             let arg_by_ref: Vec<bool> = execute_data.call_arg_by_ref.drain(base..).collect();
-            let variadic = execute_data
-                .class_table
-                .get(&class_name)
-                .and_then(|ce| ce.methods.get(method_name.as_str()))
+            let variadic = super::execute_data::lookup_method(&execute_data.class_table, &class_name, method_name.as_str()).map(|(_, m)| m)
                 .and_then(|m| m.op_array.variadic_param.clone());
-            let ref_params = execute_data
-                .class_table
-                .get(&class_name)
-                .and_then(|ce| ce.methods.get(method_name.as_str()))
+            let ref_params = super::execute_data::lookup_method(&execute_data.class_table, &class_name, method_name.as_str()).map(|(_, m)| m)
                 .map(|m| m.op_array.ref_params.clone())
                 .unwrap_or_default();
             bind_call_args(
@@ -4295,11 +4381,13 @@ pub fn execute_do_method_call(
             return Ok(ExecResult::Continue);
         }
 
-        // Method not found — try __call magic method
-        let magic_info = execute_data
-            .class_table
-            .get(&class_name)
-            .and_then(|ce| ce.methods.get("__call"))
+        // Method not found — try __call magic method (never for an implicit
+        // constructor: `new Foo()` without __construct is simply a no-op).
+        let magic_info = if method_name.as_str() == "__construct" {
+            None
+        } else {
+            super::execute_data::lookup_method(&execute_data.class_table, &class_name, "__call").map(|(_, m)| m)
+        }
             .map(|m| {
                 let params = m.params.clone();
                 let ops: Vec<Op> = m
@@ -4418,37 +4506,13 @@ pub fn execute_do_method_call(
     let args: Vec<Val> = execute_data.call_args.drain(base..).collect();
     if let PhpValue::Object(ref obj) = obj_val.value
         && method_name.as_str() == "__construct"
-        && crate::engine::vm::exception_dispatch::is_standard_throwable(&obj.class_name)
+        && crate::engine::vm::exception_dispatch::throwable_root(&obj.class_name, &execute_data.class_table).is_some()
     {
-        let msg = args
-            .first()
-            .map(|v| {
-                crate::engine::operators::zval_get_string(v)
-                    .as_str()
-                    .to_string()
-            })
-            .unwrap_or_default();
-        let code = args
-            .get(1)
-            .map(crate::engine::operators::zval_get_long)
-            .unwrap_or(0);
-        let mut updated = clone_val(&obj_val);
-        if let PhpValue::Object(ref mut o) = updated.value {
-            o.properties.insert(
-                "message".to_string(),
-                Val::new(
-                    PhpValue::String(Box::new(crate::engine::string::string_init(&msg, false))),
-                    PhpType::String,
-                ),
-            );
-            o.properties.insert(
-                "code".to_string(),
-                Val::new(PhpValue::Long(code), PhpType::Long),
-            );
-            if let Some(file) = execute_data.constants.get("__FILE__") {
-                o.properties.insert("file".to_string(), clone_val(file));
-            }
-        }
+        let updated = crate::engine::vm::exception_dispatch::init_throwable_from_args(
+            &obj_val,
+            &args,
+            execute_data.constants.get("__FILE__"),
+        );
         // Write back to the slot the NewObj result lives in.
         if let PhpValue::Long(idx) = op.op2.value {
             execute_data.set_temp(idx as usize, updated);
@@ -4581,10 +4645,7 @@ pub fn execute_do_static_call(
         return Ok(ExecResult::Continue);
     }
 
-    let method_info: Option<(Vec<String>, Vec<Op>, String)> = execute_data
-        .class_table
-        .get(&resolved_class)
-        .and_then(|ce| ce.methods.get(method_name.as_str()))
+    let method_info: Option<(Vec<String>, Vec<Op>, String)> = super::execute_data::lookup_method(&execute_data.class_table, &resolved_class, method_name.as_str()).map(|(_, m)| m)
         .map(|m| {
             let params = m.params.clone();
             let ops: Vec<Op> = m
@@ -4624,15 +4685,9 @@ pub fn execute_do_static_call(
         let arg_names: Vec<Option<String>> =
             execute_data.call_arg_names.drain(names_base..).collect();
         let arg_by_ref: Vec<bool> = execute_data.call_arg_by_ref.drain(base..).collect();
-        let variadic = execute_data
-            .class_table
-            .get(&resolved_class)
-            .and_then(|ce| ce.methods.get(method_name.as_str()))
+        let variadic = super::execute_data::lookup_method(&execute_data.class_table, &resolved_class, method_name.as_str()).map(|(_, m)| m)
             .and_then(|m| m.op_array.variadic_param.clone());
-        let ref_params = execute_data
-            .class_table
-            .get(&resolved_class)
-            .and_then(|ce| ce.methods.get(method_name.as_str()))
+        let ref_params = super::execute_data::lookup_method(&execute_data.class_table, &resolved_class, method_name.as_str()).map(|(_, m)| m)
             .map(|m| m.op_array.ref_params.clone())
             .unwrap_or_default();
         bind_call_args(
@@ -4773,6 +4828,30 @@ pub fn execute_do_static_call(
             } else {
                 execute_data.set_temp(slot, Val::new(PhpValue::Long(0), PhpType::Null));
             }
+        }
+        return Ok(ExecResult::Continue);
+    }
+
+    // parent::__construct($message, $code) reaching a built-in Throwable:
+    // initialise $this in place.
+    if method_name.as_str() == "__construct"
+        && crate::engine::vm::exception_dispatch::is_standard_throwable(&resolved_class)
+    {
+        let (base, names_base) = execute_data.call_arg_stack.pop().unwrap_or((0, 0));
+        let args: Vec<Val> = execute_data.call_args.drain(base..).collect();
+        let _ = execute_data.call_arg_names.drain(names_base..);
+        let _ = execute_data.call_arg_by_ref.drain(base..);
+        let this_val = execute_data.get_var("this");
+        if this_val.get_type() == PhpType::Object {
+            let updated = crate::engine::vm::exception_dispatch::init_throwable_from_args(
+                &this_val,
+                &args,
+                execute_data.constants.get("__FILE__"),
+            );
+            execute_data.set_var("this", updated);
+        }
+        if let Some(slot) = result_slot(op) {
+            execute_data.set_temp(slot, Val::new(PhpValue::Long(0), PhpType::Null));
         }
         return Ok(ExecResult::Continue);
     }

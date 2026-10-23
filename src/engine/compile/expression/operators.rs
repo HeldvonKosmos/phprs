@@ -455,6 +455,41 @@ pub(crate) fn parse_comparison_expr_with_token(
     };
 
     loop {
+        // `expr instanceof ClassName` / `instanceof $var`
+        if token.token_type == TokenType::T_INSTANCEOF {
+            let class_tok = lexer.next_token()?;
+            let class_val = match class_tok.token_type {
+                TokenType::T_VARIABLE => {
+                    let name = class_tok.value.as_ref().unwrap().as_str();
+                    crate::engine::vm::var_ref(name)
+                }
+                TokenType::T_STATIC => facade::string_val("static"),
+                _ => {
+                    let mut name = class_tok
+                        .value
+                        .as_ref()
+                        .map(|s| s.as_str().to_string())
+                        .unwrap_or_default();
+                    // Namespaced names arrive as separate tokens: Foo \ Bar
+                    loop {
+                        let peek = lexer.peek_token()?;
+                        if peek.token_type == TokenType::T_NS_SEPARATOR {
+                            lexer.next_token()?;
+                            let part = lexer.next_token()?;
+                            name.push('\\');
+                            name.push_str(part.value.as_ref().map(|s| s.as_str()).unwrap_or(""));
+                        } else {
+                            break;
+                        }
+                    }
+                    facade::string_val(&context.resolve_scope_class(&name)?)
+                }
+            };
+            left = emit_binary_op(context, Opcode::InstanceOf, left, class_val);
+            token = lexer.next_token()?;
+            continue;
+        }
+
         // Check for comparison operators
         let is_lt = token_is_punct(&token, "<");
         let is_gt = token_is_punct(&token, ">");
@@ -634,10 +669,14 @@ fn parse_multiplicative_expr_with_initial(
             let next = lexer.next_token()?;
             if token_is_punct(&next, "(") {
                 let fname = initial_token.value.as_ref().unwrap().as_str();
+                if fname == "fn" {
+                    let (v, n) = crate::engine::compile::function::compile_arrow_fn(lexer, context, initial_token.lineno)?;
+                    return multiplicative_loop(lexer, context, v, n);
+                }
                 let (call_result, call_next) = parse_function_call(lexer, context, fname)?;
                 parse_access_chain(lexer, context, call_result, call_next)?
             } else if next.token_type == TokenType::T_PAAMAYIM_NEKUDOTAYIM {
-                let class_val = crate::engine::facade::string_val(val);
+                let class_val = crate::engine::facade::string_val(&context.resolve_scope_class(val)?);
                 let (result, next_token) = parse_access_chain(lexer, context, class_val, next)?;
                 return multiplicative_loop(lexer, context, result, next_token);
             } else {

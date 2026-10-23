@@ -35,6 +35,13 @@ impl Lexer {
     }
 
     /// Push a token back to be returned on the next next_token() call
+    /// Raw source between two byte offsets (as reported in `Token::offset`).
+    pub fn source_slice(&self, start: usize, end: usize) -> String {
+        let end = end.min(self.input.len());
+        let start = start.min(end);
+        String::from_utf8_lossy(&self.input[start..end]).into_owned()
+    }
+
     pub fn pushback_token(&mut self, token: Token) {
         self.pushback = Some(token);
     }
@@ -156,9 +163,23 @@ impl Lexer {
             b'0'..=b'9' => self.read_with(|lexer| read_number(&lexer.input, &mut lexer.position)),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.read_with(|lexer| {
                 let (_token_type, value) = read_identifier(&lexer.input, &mut lexer.position)?;
-                let kw_token = keyword_to_token(&value);
+                let kw_token = if value.contains('\\') {
+                    TokenType::T_STRING
+                } else {
+                    keyword_to_token(&value)
+                };
                 Ok((kw_token, value))
             }),
+            b'\\' if self
+                .input
+                .get(self.position + 1)
+                .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_') =>
+            {
+                self.read_with(|lexer| {
+                    let (_t, value) = read_identifier(&lexer.input, &mut lexer.position)?;
+                    Ok((TokenType::T_STRING, value))
+                })
+            }
             b'+' => {
                 self.advance();
                 if self.current_char() == Some(b'=') {

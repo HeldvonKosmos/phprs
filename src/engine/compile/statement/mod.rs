@@ -669,8 +669,18 @@ fn compile_string_stmt(
     token: &Token,
 ) -> Result<Token, String> {
     let val = token.value.as_ref().map(|s| s.as_str()).unwrap_or("");
-    if val == ";" || val == "{" || val == "}" || val == ")" || val == "(" {
+    if val == ";" || val == "{" || val == "}" || val == ")" {
         return lexer.next_token();
+    }
+    // Expression statement starting with a parenthesis or an array literal:
+    // `(new Foo)->bar();`, `(fn() => 1)();`, `[$a, $b] = f();`
+    if val == "(" || val == "[" {
+        let (_, after) = crate::engine::compile::expression::parse_expr_with_initial(
+            lexer,
+            context,
+            token.clone(),
+        )?;
+        return skip_semicolon(lexer, after);
     }
     let next = lexer.next_token()?;
     if token_is_punct(&next, "(") {
@@ -682,7 +692,7 @@ fn compile_string_stmt(
         skip_semicolon(lexer, after_token)
     } else if next.token_type == TokenType::T_PAAMAYIM_NEKUDOTAYIM {
         // Static access statement: ClassName::method() or ClassName::$prop = expr
-        let class_val = string_val(val);
+        let class_val = string_val(&context.resolve_scope_class(val)?);
         let member_token = lexer.next_token()?;
         if member_token.token_type == TokenType::T_VARIABLE {
             let prop_name = member_token.value.as_ref().unwrap().as_str();
@@ -1018,6 +1028,7 @@ fn compile_use(lexer: &mut Lexer, context: &mut CompileContext) -> Result<Token,
         }
     }
     let fqn = parts.join("\\");
+    let fqn = fqn.trim_start_matches('\\').to_string();
     // Check for `as Alias`
     let short_name = if tok.token_type == TokenType::T_AS {
         let alias_tok = lexer.next_token()?;
@@ -1026,7 +1037,7 @@ fn compile_use(lexer: &mut Lexer, context: &mut CompileContext) -> Result<Token,
         alias
     } else {
         // Default short name is the last segment
-        parts.last().cloned().unwrap_or_default()
+        fqn.rsplit('\\').next().unwrap_or_default().to_string()
     };
     context.use_imports.insert(short_name, fqn);
     skip_semicolon(lexer, tok)

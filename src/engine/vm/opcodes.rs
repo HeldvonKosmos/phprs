@@ -84,6 +84,9 @@ pub enum Opcode {
     UnsetDim = 75,     // Unset array element (op1=container var, op2=key)
     Yield = 76,        // Generator yield: op1=value to yield, result=temp for sent value
     Cast,              // Type cast: op1=value, op2=Long(CastKind), result=temp
+    CreateClosure,     // op1=function name, op2=array of captured variable names, result=Closure object
+    InstanceOf,        // op1=value, op2=class name, result=bool
+    SendUnpack,        // op1=array; pushes each element as a positional call argument (`f(...$args)`)
     /// Sentinel: one past the last real opcode (auto-numbered). Keep last,
     /// never dispatch on it. New opcodes go right above with no explicit
     /// discriminant and the dispatch table grows automatically.
@@ -113,6 +116,41 @@ impl CastKind {
             5 => Self::Object,
             _ => return None,
         })
+    }
+}
+
+impl OpArray {
+    /// Deep copy keeping every piece of call metadata (params, variadic,
+    /// by-ref flags, generator flag, function name). Use this instead of
+    /// rebuilding an op array from `ops` alone.
+    pub fn deep_clone_with_name(&self, fallback_name: &str) -> OpArray {
+        let file = self
+            .filename
+            .clone()
+            .filter(|f| !f.is_empty())
+            .unwrap_or_else(|| fallback_name.to_string());
+        let mut out = OpArray::with_capacity(self.ops.len(), file);
+        out.ops = self
+            .ops
+            .iter()
+            .map(|op| {
+                Op::new(
+                    op.opcode,
+                    crate::engine::facade::clone_val(&op.op1),
+                    crate::engine::facade::clone_val(&op.op2),
+                    crate::engine::facade::clone_val(&op.result),
+                    op.extended_value,
+                )
+            })
+            .collect();
+        out.vars = self.vars.iter().map(crate::engine::facade::clone_val).collect();
+        out.function_name = self.function_name.clone();
+        out.variadic_param = self.variadic_param.clone();
+        out.ref_params = self.ref_params.clone();
+        out.is_generator = self.is_generator;
+        out.line_start = self.line_start;
+        out.line_end = self.line_end;
+        out
     }
 }
 
@@ -236,6 +274,9 @@ pub fn get_opcode_name(opcode: Opcode) -> &'static str {
         Opcode::UnsetDim => "UNSET_DIM",
         Opcode::Yield => "YIELD",
         Opcode::Cast => "CAST",
+        Opcode::CreateClosure => "CREATE_CLOSURE",
+        Opcode::InstanceOf => "INSTANCEOF",
+        Opcode::SendUnpack => "SEND_UNPACK",
         _ => "UNKNOWN",
     }
 }

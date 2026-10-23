@@ -50,9 +50,22 @@ fn is_type_hint(token: &Token) -> bool {
 }
 
 /// Parsed parameter list for a user-defined function: `param_names`,
-/// `variadic_param_name` (`...$rest`), and `ref_flags` (pass-by-reference
-/// for each param).
-pub(crate) type ParamList = (Vec<String>, Option<String>, Vec<bool>);
+/// `variadic_param_name` (`...$rest`), `ref_flags` (pass-by-reference for
+/// each param) and `defaults` (source text of each default expression).
+pub(crate) type ParamList = (
+    Vec<String>,
+    Option<String>,
+    Vec<bool>,
+    Vec<Option<String>>,
+    Vec<Option<PromotedParam>>,
+);
+
+/// Constructor property promotion: `public readonly int $x`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PromotedParam {
+    pub visibility: crate::engine::types::Visibility,
+    pub readonly: bool,
+}
 
 /// Parse parameter list (the opening '(' has already been consumed)
 /// Returns (param_names, variadic_param_name, ref_flags).
@@ -62,14 +75,41 @@ pub(crate) fn parse_params(
 ) -> Result<ParamList, String> {
     let mut params = Vec::new();
     let mut ref_flags = Vec::new();
+    let mut defaults: Vec<Option<String>> = Vec::new();
+    let mut promoted: Vec<Option<PromotedParam>> = Vec::new();
     let mut variadic = None;
     let mut current_token = lexer.next_token()?;
 
     if is_punct(&current_token, ")") {
-        return Ok((params, variadic, ref_flags));
+        return Ok((params, variadic, ref_flags, defaults, promoted));
     }
 
     loop {
+        // Constructor promotion modifiers: public/protected/private [readonly]
+        let mut promotion: Option<PromotedParam> = None;
+        loop {
+            use crate::engine::types::Visibility;
+            let vis = match current_token.token_type {
+                TokenType::T_PUBLIC => Some(Visibility::Public),
+                TokenType::T_PROTECTED => Some(Visibility::Protected),
+                TokenType::T_PRIVATE => Some(Visibility::Private),
+                _ => None,
+            };
+            if let Some(v) = vis {
+                let p = promotion.get_or_insert(PromotedParam { visibility: v, readonly: false });
+                p.visibility = v;
+                current_token = lexer.next_token()?;
+                continue;
+            }
+            if current_token.token_type == TokenType::T_READONLY {
+                let p = promotion.get_or_insert(PromotedParam { visibility: Visibility::Public, readonly: true });
+                p.readonly = true;
+                current_token = lexer.next_token()?;
+                continue;
+            }
+            break;
+        }
+
         // Skip nullable type hint: ?type
         if is_punct(&current_token, "?") {
             current_token = lexer.next_token()?;
@@ -120,6 +160,8 @@ pub(crate) fn parse_params(
             variadic = Some(param_name.to_string());
             params.push(param_name.to_string());
             ref_flags.push(is_ref);
+            defaults.push(None);
+            promoted.push(None);
             current_token = lexer.next_token()?;
             // Variadic must be the last parameter
             if is_punct(&current_token, ",") {
@@ -133,13 +175,22 @@ pub(crate) fn parse_params(
 
         params.push(param_name.to_string());
         ref_flags.push(is_ref);
+        promoted.push(promotion);
 
         current_token = lexer.next_token()?;
 
-        // Check for default value assignment
+        // Default value: keep its source text; it is compiled into a prologue
+        // of the function body (`$p = $p ?? (<default>)`) so that it is
+        // evaluated at call time in the callee's scope.
         if current_token.token_type == TokenType::T_EQUAL {
-            let (_, next_token) = super::expression::parse_expression(lexer, context)?;
+            let start = lexer.peek_token()?.offset;
+            // Compile into a scratch context: we only need the end offset.
+            let mut scratch = context.child();
+            let (_, next_token) = super::expression::parse_expression(lexer, &mut scratch)?;
+            defaults.push(Some(lexer.source_slice(start, next_token.offset)));
             current_token = next_token;
+        } else {
+            defaults.push(None);
         }
 
         if is_punct(&current_token, ")") {
@@ -153,36 +204,36 @@ pub(crate) fn parse_params(
         current_token = lexer.next_token()?;
     }
 
-    Ok((params, variadic, ref_flags))
+    Ok((params, variadic, ref_flags, defaults, promoted))
 }
 
-/// Skip return type declaration after ')' if present: ): type
-/// Returns the next meaningful token (either '{' or whatever follows)
-fn skip_return_type(lexer: &mut Lexer) -> Result<Token, String> {
+/// Skip a return type declaration after `)` if present (`: ?Foo\Bar|null`,
+/// `: static`, `: (A&B)|null`). Returns the first token after the type, i.e.
+/// `{`, `;` (abstract/interface methods), `=>` (arrow functions) or `use`.
+pub(crate) fn skip_return_type(lexer: &mut Lexer) -> Result<Token, String> {
     let token = lexer.next_token()?;
-    if is_punct(&token, ":") {
-        let mut type_token = lexer.next_token()?;
-        // Handle nullable return type: ?type
-        if is_punct(&type_token, "?") {
-            type_token = lexer.next_token()?;
-        }
-        // Skip the first type token
-        if is_type_hint(&type_token) || type_token.token_type == TokenType::T_STRING {
-            type_token = lexer.next_token()?;
-        }
-        // Handle union/intersection return types
-        while is_union_sep(&type_token) || is_intersection_sep(&type_token) {
-            type_token = lexer.next_token()?; // skip | or &
-            if is_punct(&type_token, "?") {
-                type_token = lexer.next_token()?;
+    if !is_punct(&token, ":") {
+        return Ok(token);
+    }
+    loop {
+        let t = lexer.next_token()?;
+        let is_type_part = match t.token_type {
+            TokenType::T_STRING => {
+                let v = t.value.as_ref().map(|s| s.as_str()).unwrap_or("");
+                matches!(v, "?" | "|" | "&" | "(" | ")")
+                    || v.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '\\')
             }
-            if is_type_hint(&type_token) || type_token.token_type == TokenType::T_STRING {
-                type_token = lexer.next_token()?;
-            }
+            TokenType::T_STATIC
+            | TokenType::T_ARRAY
+            | TokenType::T_CALLABLE
+            | TokenType::T_NS_SEPARATOR
+            | TokenType::T_AMPERSAND_FOLLOWED_BY_VAR_OR_VARARG
+            | TokenType::T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG => true,
+            _ => false,
+        };
+        if !is_type_part || t.token_type == TokenType::T_EOF {
+            return Ok(t);
         }
-        Ok(type_token)
-    } else {
-        Ok(token)
     }
 }
 
@@ -219,18 +270,42 @@ fn parse_use_clause(lexer: &mut Lexer) -> Result<Vec<String>, String> {
     Ok(captures)
 }
 
+/// Emit `$param = $param ?? (<default>);` for every parameter with a default,
+/// at the start of `body_context`. Omitted (and `null`) arguments therefore
+/// take the default, evaluated in the callee's own scope.
+pub(crate) fn emit_default_param_prologue(
+    body_context: &mut CompileContext,
+    params: &[String],
+    defaults: &[Option<String>],
+) -> Result<(), String> {
+    for (name, default) in params.iter().zip(defaults) {
+        let Some(src) = default else { continue };
+        let var = name.strip_prefix('$').unwrap_or(name);
+        let stmt = format!("${var} = ${var} ?? ({src});");
+        let mut sub = Lexer::new(&stmt);
+        let first = sub.next_token()?;
+        let after = crate::engine::compile::statement::parse_statement(&mut sub, body_context, first)
+            .map_err(|e| format!("in default value of ${var}: {e}"))?;
+        if after.token_type != TokenType::T_EOF {
+            return Err(format!("in default value of ${var}: unexpected trailing tokens"));
+        }
+    }
+    Ok(())
+}
+
 /// Compile function body into a separate context and return the finalized OpArray
 /// Handles optional return type declaration before the opening brace
 fn compile_function_body(
     lexer: &mut Lexer,
-    context: &CompileContext,
+    context: &mut CompileContext,
     function_name: &str,
     lineno: u32,
+    params: &ParamList,
 ) -> Result<crate::engine::vm::OpArray, String> {
-    let mut func_context = CompileContext::new();
-    func_context.set_filename(context.filename.as_deref().unwrap_or(""));
+    let mut func_context = context.child();
     func_context.set_line(lineno);
     func_context.op_array.function_name = Some(function_name.to_string());
+    emit_default_param_prologue(&mut func_context, &params.0, &params.3)?;
 
     // Skip optional return type declaration (: type) and find '{'
     let brace_token = skip_return_type(lexer)?;
@@ -239,6 +314,8 @@ fn compile_function_body(
     }
 
     parse_statement_block(lexer, &mut func_context)?;
+    let nested = std::mem::take(&mut func_context.function_table);
+    context.function_table.merge(nested);
     // Generators no longer collect yielded values into an array — they emit
     // Yield opcodes that suspend execution. The implicit return at the end
     // of the function body handles generator completion.
@@ -259,7 +336,12 @@ pub fn compile_function(lexer: &mut Lexer, context: &mut CompileContext) -> Resu
         return Err("Expected function name after 'function'".to_string());
     }
 
-    let function_name = name_token.value.as_ref().unwrap().as_str();
+    let short_name = name_token.value.as_ref().unwrap().as_str();
+    let qualified_name = match context.current_namespace.as_deref() {
+        Some(ns) if !ns.is_empty() => format!("{ns}\\{short_name}"),
+        _ => short_name.to_string(),
+    };
+    let function_name = qualified_name.as_str();
 
     let paren_token = lexer.next_token()?;
     if !is_punct(&paren_token, "(") {
@@ -268,7 +350,7 @@ pub fn compile_function(lexer: &mut Lexer, context: &mut CompileContext) -> Resu
 
     let params = parse_params(lexer, context)?;
     let mut func_op_array =
-        compile_function_body(lexer, context, function_name, name_token.lineno)?;
+        compile_function_body(lexer, context, function_name, name_token.lineno, &params)?;
     // Store param names so the VM can bind arguments
     func_op_array.vars = params
         .0
@@ -309,16 +391,7 @@ fn compile_closure_inner(
     let params = parse_params(lexer, context)?;
 
     // After params, we may see: `: returnType`, `use (...)`, or `{`
-    let mut next = lexer.next_token()?;
-
-    // Skip optional return type declaration
-    if is_punct(&next, ":") {
-        let type_token = lexer.next_token()?;
-        if is_punct(&type_token, "?") {
-            let _actual_type = lexer.next_token()?;
-        }
-        next = lexer.next_token()?;
-    }
+    let mut next = skip_return_type(lexer)?;
 
     // Check for `use` clause
     let captures = if next.token_type == TokenType::T_USE {
@@ -340,26 +413,132 @@ fn compile_closure_inner(
         "__closure_{}",
         CLOSURE_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
-    let mut func_context = CompileContext::new();
-    func_context.set_filename(context.filename.as_deref().unwrap_or(""));
+    let mut func_context = context.child();
     func_context.set_line(lineno);
     func_context.op_array.function_name = Some(closure_name.clone());
     func_context.op_array.vars = params
         .0
         .iter()
-        .chain(captures.iter())
         .map(|p| crate::engine::vm::var_ref(p))
         .collect();
     func_context.op_array.variadic_param = params.1;
     func_context.op_array.ref_params = params.2;
+    emit_default_param_prologue(&mut func_context, &params.0, &params.3)?;
 
     parse_statement_block(lexer, &mut func_context)?;
+    let nested = std::mem::take(&mut func_context.function_table);
     let func_op_array = func_context.finalize();
+    context.function_table.merge(nested);
     context
         .function_table
         .store_function(&closure_name, func_op_array);
 
-    let val = crate::engine::facade::string_val(&closure_name);
+    let val = emit_create_closure(context, &closure_name, &captures);
     let next_token = lexer.next_token()?;
     Ok((val, next_token))
+}
+
+/// Emit `CreateClosure` for `function_name` capturing `captures` by value and
+/// return the temp holding the Closure object.
+pub(crate) fn emit_create_closure(
+    context: &mut CompileContext,
+    function_name: &str,
+    captures: &[String],
+) -> Val {
+    let mut names = crate::engine::types::PhpArray::new();
+    for (i, c) in captures.iter().enumerate() {
+        let _ = crate::engine::hash::hash_add_or_update(
+            &mut names,
+            None,
+            i as u64,
+            crate::engine::facade::string_val(c),
+            0,
+        );
+    }
+    let slot = context.alloc_temp();
+    context.emit_opcode(
+        crate::engine::vm::Opcode::CreateClosure,
+        crate::engine::facade::string_val(function_name),
+        Val::new(
+            crate::engine::types::PhpValue::Array(Box::new(names)),
+            crate::engine::types::PhpType::Array,
+        ),
+        crate::engine::vm::temp_var_ref(slot),
+    );
+    crate::engine::vm::temp_var_ref(slot)
+}
+
+/// Compile an arrow function `fn(params) => expr`. The `fn` identifier and the
+/// opening `(` have been consumed. Variables used in the body that are not
+/// parameters are captured by value from the enclosing scope, like PHP.
+pub(crate) fn compile_arrow_fn(
+    lexer: &mut Lexer,
+    context: &mut CompileContext,
+    lineno: u32,
+) -> Result<(Val, Token), String> {
+    let params = parse_params(lexer, context)?;
+    let arrow = skip_return_type(lexer)?;
+    if arrow.token_type != TokenType::T_DOUBLE_ARROW {
+        return Err(format!(
+            "Expected '=>' after arrow function parameters, got {:?}",
+            arrow.token_type
+        ));
+    }
+
+    let closure_name = format!(
+        "__closure_{}",
+        CLOSURE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut func_context = context.child();
+    func_context.set_line(lineno);
+    func_context.op_array.function_name = Some(closure_name.clone());
+    func_context.op_array.variadic_param = params.1.clone();
+    func_context.op_array.ref_params = params.2.clone();
+    emit_default_param_prologue(&mut func_context, &params.0, &params.3)?;
+
+    let body_start = lexer.peek_token()?.offset;
+    let (body_val, next_token) = super::expression::parse_expression(lexer, &mut func_context)?;
+    func_context.emit_opcode(
+        crate::engine::vm::Opcode::Return,
+        body_val,
+        crate::engine::facade::null_val(),
+        crate::engine::facade::null_val(),
+    );
+
+    // Free variables of the body become captures.
+    let body_src = lexer.source_slice(body_start, next_token.offset);
+    let mut captures: Vec<String> = Vec::new();
+    let mut scan = Lexer::new(&body_src);
+    loop {
+        let t = scan.next_token()?;
+        if t.token_type == TokenType::T_EOF {
+            break;
+        }
+        if t.token_type == TokenType::T_VARIABLE
+            && let Some(v) = t.value.as_ref()
+        {
+            let name = v.as_str().strip_prefix('$').unwrap_or(v.as_str()).to_string();
+            let is_param = params
+                .0
+                .iter()
+                .any(|p| p.strip_prefix('$').unwrap_or(p) == name);
+            if name != "this" && !is_param && !captures.contains(&name) {
+                captures.push(name);
+            }
+        }
+    }
+
+    func_context.op_array.vars = params
+        .0
+        .iter()
+        .map(|p| crate::engine::vm::var_ref(p))
+        .collect();
+
+    let nested = std::mem::take(&mut func_context.function_table);
+    let func_op_array = func_context.finalize();
+    context.function_table.merge(nested);
+    context
+        .function_table
+        .store_function(&closure_name, func_op_array);
+    Ok((emit_create_closure(context, &closure_name, &captures), next_token))
 }

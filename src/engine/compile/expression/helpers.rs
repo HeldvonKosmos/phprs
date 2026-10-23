@@ -325,6 +325,27 @@ fn parse_static_access(
         return Ok((temp_var_ref(slot), lexer.next_token()?));
     }
 
+    // ClassName::class → the resolved class name as a string
+    if member_token.token_type == TokenType::T_CLASS {
+        let name = match &class_val.value {
+            PhpValue::String(s) => s.as_str().to_string(),
+            _ => String::new(),
+        };
+        if name == "static" {
+            // late-bound: resolved at run time
+            context.emit_opcode(Opcode::InitFCall, facade::null_val(), facade::null_val(), facade::null_val());
+            let slot = context.alloc_temp();
+            context.emit_opcode(
+                Opcode::DoFCall,
+                facade::string_val("get_called_class"),
+                facade::null_val(),
+                temp_var_ref(slot),
+            );
+            return Ok((temp_var_ref(slot), lexer.next_token()?));
+        }
+        return Ok((facade::string_val(&name), lexer.next_token()?));
+    }
+
     // Handle static method call or constant: ClassName::method() or ClassName::CONST
     let member_name = member_token
         .value
@@ -338,11 +359,11 @@ fn parse_static_access(
         let arg_token = lexer.next_token()?;
         if arg_token.token_type == TokenType::T_ELLIPSIS {
             let close = lexer.next_token()?;
-            if !token_is_punct(&close, ")") {
-                return Err("Expected ')' after '...' in first-class callable".to_string());
+            if token_is_punct(&close, ")") {
+                let callable = emit_first_class_static_callable(context, class_val, member_name);
+                return Ok((callable, lexer.next_token()?));
             }
-            let callable = emit_first_class_static_callable(context, class_val, member_name);
-            return Ok((callable, lexer.next_token()?));
+            lexer.pushback_token(close);
         }
 
         // Static method call: ClassName::method(args...)
@@ -396,11 +417,11 @@ pub(crate) fn parse_method_call(
     let arg_token = lexer.next_token()?;
     if arg_token.token_type == TokenType::T_ELLIPSIS {
         let close = lexer.next_token()?;
-        if !token_is_punct(&close, ")") {
-            return Err("Expected ')' after '...' in first-class callable".to_string());
+        if token_is_punct(&close, ")") {
+            let callable = emit_first_class_method_callable(context, obj, &method_name);
+            return Ok((callable, lexer.next_token()?));
         }
-        let callable = emit_first_class_method_callable(context, obj, &method_name);
-        return Ok((callable, lexer.next_token()?));
+        lexer.pushback_token(close);
     }
 
     context.emit_opcode(
@@ -542,7 +563,7 @@ pub(crate) fn compile_new_obj(
             .ok_or("Expected class name after 'new'")?
             .as_str();
         (
-            context.resolve_class_name(class_name),
+            context.resolve_scope_class(class_name)?,
             lexer.next_token()?,
             Vec::new(),
         )
@@ -558,6 +579,7 @@ pub(crate) fn compile_new_obj(
     );
 
     // Check for constructor args: (...)
+    let had_paren = !ctor_args.is_empty() || token_is_punct(&peek, "(");
     let args = if !ctor_args.is_empty() {
         ctor_args
     } else if token_is_punct(&peek, "(") {
@@ -578,7 +600,9 @@ pub(crate) fn compile_new_obj(
         Vec::new()
     };
 
-    if !args.is_empty() {
+    // Always run the constructor (also for `new Foo` / `new Foo()`), so that
+    // parameter defaults and inherited constructors apply.
+    {
         // Emit InitMethodCall for __construct
         let obj_temp = temp_var_ref(slot);
         context.emit_opcode(
@@ -602,9 +626,11 @@ pub(crate) fn compile_new_obj(
             temp_var_ref(construct_slot),
         );
 
-        Ok((temp_var_ref(slot), lexer.next_token()?))
-    } else {
-        Ok((temp_var_ref(slot), peek))
+        if had_paren {
+            Ok((temp_var_ref(slot), lexer.next_token()?))
+        } else {
+            Ok((temp_var_ref(slot), peek))
+        }
     }
 }
 
@@ -950,6 +976,13 @@ pub(crate) fn parse_call_arg(
     ref_params: Option<&[bool]>,
     positional_idx: &mut usize,
 ) -> Result<Token, String> {
+    // Argument unpacking: ...$args
+    if first_token.token_type == TokenType::T_ELLIPSIS {
+        let (arr, after) = super::parse_expression(lexer, context)?;
+        context.emit_opcode(Opcode::SendUnpack, arr, facade::null_val(), facade::null_val());
+        return Ok(after);
+    }
+
     // Check for named argument: name: value
     if first_token.token_type == TokenType::T_STRING {
         let name = first_token.value.as_ref().unwrap().as_str();
@@ -1094,6 +1127,20 @@ pub(crate) fn parse_function_call(
     context: &mut CompileContext,
     function_name: &str,
 ) -> Result<(Val, Token), String> {
+    // `\strlen(...)` is the global function; namespaced user functions keep
+    // their qualified name.
+    let function_name = function_name.strip_prefix('\\').unwrap_or(function_name);
+    let qualified;
+    let function_name = if !function_name.contains('\\')
+        && let Some(ns) = context.current_namespace.as_deref()
+        && !ns.is_empty()
+        && context.function_table.has_function(&format!("{ns}\\{function_name}"))
+    {
+        qualified = format!("{ns}\\{function_name}");
+        qualified.as_str()
+    } else {
+        function_name
+    };
     let mut current_token = lexer.next_token()?;
     if crate::engine::compile::dialect::is_forbidden_function(function_name) {
         return Err(crate::engine::compile::dialect::reject_named(
@@ -1104,14 +1151,42 @@ pub(crate) fn parse_function_call(
         ));
     }
     if current_token.token_type == TokenType::T_ELLIPSIS {
-        let close = lexer.next_token()?;
-        if !token_is_punct(&close, ")") {
-            return Err("Expected ')' after '...' in first-class callable".to_string());
+        let after = lexer.next_token()?;
+        if token_is_punct(&after, ")") {
+            return Ok((
+                compile_first_class_function(function_name),
+                lexer.next_token()?,
+            ));
         }
-        return Ok((
-            compile_first_class_function(function_name),
-            lexer.next_token()?,
-        ));
+        // Spread call: f(...$args[, more])
+        lexer.pushback_token(after);
+        current_token = lexer.next_token()?;
+        context.emit_opcode(
+            Opcode::InitFCall,
+            facade::null_val(),
+            facade::null_val(),
+            facade::null_val(),
+        );
+        loop {
+            let (arr, next) = super::parse_expr_with_initial(lexer, context, current_token)?;
+            context.emit_opcode(Opcode::SendUnpack, arr, facade::null_val(), facade::null_val());
+            if token_is_punct(&next, ",") {
+                let t = lexer.next_token()?;
+                if t.token_type != TokenType::T_ELLIPSIS {
+                    return Err("Cannot use positional argument after argument unpacking".to_string());
+                }
+                current_token = lexer.next_token()?;
+                continue;
+            }
+            if !token_is_punct(&next, ")") {
+                return Err("Expected ')' after unpacked argument".to_string());
+            }
+            break;
+        }
+        let func_name_zval = facade::string_val(function_name);
+        let result_slot = context.alloc_temp();
+        context.emit_opcode(Opcode::DoFCall, func_name_zval, facade::null_val(), temp_var_ref(result_slot));
+        return Ok((temp_var_ref(result_slot), lexer.next_token()?));
     }
 
     // Emit InitFCall
@@ -1168,7 +1243,13 @@ pub(crate) fn parse_function_call(
 
 /// Emit constant(name) lookup for bare identifiers (WordPress/PHP compatibility)
 /// Returns a string Val with the constant name that will be resolved at runtime
-pub(crate) fn compile_constant_lookup(_context: &mut CompileContext, name: &str) -> Val {
+pub(crate) fn compile_constant_lookup(context: &mut CompileContext, name: &str) -> Val {
+    if name == "__NAMESPACE__" {
+        return facade::string_val(context.current_namespace.as_deref().unwrap_or(""));
+    }
+    if name == "__CLASS__" {
+        return facade::string_val(context.current_class.as_deref().unwrap_or(""));
+    }
     Val::new(
         PhpValue::String(Box::new(string_init(name, false))),
         PhpType::ConstantAst,
