@@ -4,7 +4,7 @@
 mod array;
 mod core;
 mod datetime;
-mod json;
+pub mod json;
 mod math;
 mod misc;
 mod output;

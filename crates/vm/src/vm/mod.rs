@@ -279,6 +279,21 @@ impl Vm {
         self.run_main(idx).map_err(|t| self.describe_throw(t))
     }
 
+    /// End of a request (RUNTIME_ARCHITECTURE §1): objects, enum instances,
+    /// output and stacks go; code, classes, profiles, inline caches and
+    /// static properties stay. The host context stays too; the framework
+    /// clears its per-request part itself.
+    pub fn reset_request(&mut self) {
+        self.objects = ObjectStore::new();
+        self.enum_cases.clear();
+        self.frames.clear();
+        self.slot_stack.clear();
+        self.stack.clear();
+        self.iters.clear();
+        self.output.clear();
+        self.json_error = None;
+    }
+
     pub fn lookup_class(&self, name: &[u8]) -> Option<ClassId> {
         let n = name.strip_prefix(b"\\").unwrap_or(name);
         self.class_by_name.get(&n.to_ascii_lowercase()).copied()

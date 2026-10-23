@@ -6,6 +6,7 @@ members = [
     "legacy/core",
     "bin/phprs",
     "crates/vm",
+    "crates/framework",
 ]
 
 [profile.release]

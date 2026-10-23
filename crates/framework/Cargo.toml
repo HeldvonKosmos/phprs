@@ -1,0 +1,28 @@
+[package]
+name = "opengrid-framework"
+version = "0.1.0"
+edition = "2024"
+description = "OpenGrid: Loco hooks, VM worker pool, catch-all routing and the native classes of the dialect"
+license = "MIT"
+
+[lib]
+name = "opengrid_framework"
+path = "src/lib.rs"
+
+[[bin]]
+name = "opengrid"
+path = "src/bin/opengrid.rs"
+
+[dependencies]
+grd-vm = { path = "../vm" }
+loco-rs = { version = "1.2.0", default-features = false, features = ["cli"] }
+axum = "0.8"
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync"] }
+serde_json = "1"
+tracing = "0.1"
+async-trait = "0.1"
+matchit = "0.9"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

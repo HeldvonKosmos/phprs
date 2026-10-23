@@ -1,0 +1,22 @@
+# Loco configuration of the fixture app (no database: the Surreal layer comes separately).
+logger:
+  enable: true
+  pretty_backtrace: true
+  level: info
+  format: compact
+
+server:
+  port: 5150
+  binding: localhost
+  host: http://localhost
+  middlewares: {}
+
+workers:
+  mode: BackgroundAsync
+
+settings:
+  app:
+    name: Fixture
+  opengrid:
+    root: .
+    workers: 2

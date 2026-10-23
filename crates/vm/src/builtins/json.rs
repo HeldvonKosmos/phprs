@@ -262,3 +262,19 @@ fn decode(vm: &mut Vm, v: serde_json::Value, assoc: bool) -> Result<Val, Throw> 
         }
     })
 }
+
+/// Framework edge: encode a value as JSON (unescaped slashes and unicode).
+pub fn to_json(vm: &mut Vm, v: &Val, pretty: bool) -> Result<Vec<u8>, Throw> {
+    let flags = UNESCAPED_SLASHES | UNESCAPED_UNICODE | if pretty { PRETTY_PRINT } else { 0 };
+    let mut out = Vec::new();
+    match encode(vm, v, flags, 0, 512, &mut out) {
+        Ok(()) => Ok(out),
+        Err(JsonErr::Php(t)) => Err(t),
+        Err(JsonErr::Json(code, msg)) => Err(Throw { class: "JsonException".into(), message: msg, code, object: None }),
+    }
+}
+
+/// Framework edge: a JSON document as dialect value (objects become arrays).
+pub fn from_json(vm: &mut Vm, v: serde_json::Value) -> Result<Val, Throw> {
+    decode(vm, v, true)
+}

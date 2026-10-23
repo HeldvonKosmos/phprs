@@ -13,3 +13,8 @@ pub mod error;
 pub mod parse;
 pub mod value;
 pub mod vm;
+
+/// Framework edge: JSON conversion of dialect values.
+pub mod json {
+    pub use crate::builtins::json::{from_json, to_json};
+}

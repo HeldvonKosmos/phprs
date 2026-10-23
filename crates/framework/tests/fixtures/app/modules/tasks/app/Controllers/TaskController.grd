@@ -1,0 +1,59 @@
+<?grd
+namespace Tasks\Controllers;
+
+use OpenGrid\Http\Response;
+use OpenGrid\Support\Config;
+use OpenGrid\Support\Log;
+
+final class TaskController
+{
+    public function index(): array
+    {
+        Log::info('listing tasks', ['count' => 2]);
+        return [
+            'app' => Config::get('app.name', 'none'),
+            'tasks' => [['id' => 1, 'title' => 'write'], ['id' => 2, 'title' => 'test']],
+        ];
+    }
+
+    public function show(string $id): Response
+    {
+        $r = request();
+        return Response::json([
+            'id' => (int) $id,
+            'verbose' => $r->query('verbose') == '1',
+            'path' => $r->path(),
+            'route' => $r->route('id'),
+        ]);
+    }
+
+    public function store(): Response
+    {
+        $r = request();
+        $title = $r->input('title', '');
+        if ($title == '') {
+            return Response::json(['error' => 'title required'], 422);
+        }
+        return Response::json(['created' => $title, 'json' => $r->isJson()], 201)->header('X-Task', 'created');
+    }
+
+    public function hello(): string
+    {
+        return '<h1>Hello</h1>';
+    }
+
+    public function echoed(): void
+    {
+        echo 'echoed ', Config::get('app.name');
+    }
+
+    public function boom(): array
+    {
+        throw new \RuntimeException('kaputt');
+    }
+
+    public function redirect(): Response
+    {
+        return Response::redirect('/tasks');
+    }
+}
