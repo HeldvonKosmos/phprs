@@ -5,7 +5,7 @@ Nichts im Repo wurde verändert, nur diese Datei wurde ergänzt.
 
 ## 1. Baseline
 
-Siehe Abschnitt 6 (Testlauf `cargo test --workspace --no-fail-fast`).
+Alle Tests grün (633 bestanden, 0 fehlgeschlagen), Details in Abschnitt 6.
 
 ## 2. Größe und Struktur (Rust-Zeilen)
 
@@ -90,7 +90,15 @@ Außerdem: `PhpValue` enthält Raw-Pointer-Varianten (`Ptr`, `ClassEntry`, `Func
 
 ## 6. Baseline-Testlauf
 
-(wird nach Abschluss des Laufs ergänzt)
+`cargo test --workspace --no-fail-fast` auf Commit `a616a5e`: **Exit 0, 0 Fehlschläge.**
+
+- Library-Unit-Tests: 380 bestanden
+- Integrationstests in `tests/` (16 Dateien mit Tests): zusammen 245 bestanden, davon `php8x_features` 93, `comprehensive_tests` 25, `exception_propagation` 18, `php_examples` 16, `string_interpolation` 16, `examples_runtime` 15
+- CLI-Crate: 8 bestanden, 1 ignoriert
+- Insgesamt 633 bestanden, 1 ignoriert (das README nennt „485+")
+- Auffällig: `tests/build_rust_examples.rs` brauchte 531 s, alle anderen Testdateien zusammen unter einer Sekunde. Dieser Test baut die Beispiele in `examples/rust/` und gehört zu den Dingen, die beim Aufräumen entfallen. Danach läuft die Suite in Sekunden.
+
+Der Lauf war ein Debug-Build (Profil `test`, `opt-level = 1`), Laufzeiten sind keine Performancezahlen.
 
 ## 7. Schnittliste für das Aufräumen
 
