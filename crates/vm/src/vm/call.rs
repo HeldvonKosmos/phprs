@@ -76,9 +76,15 @@ impl Vm {
         mut args: Vec<Val>,
         named: Vec<(Vec<u8>, Val)>,
         class_ctx: Option<ClassId>,
-    ) -> Result<(Vec<Option<Val>>, Vec<bool>), Throw> {
+    ) -> Result<(Vec<Option<Val>>, u64), Throw> {
         let mut slots: Vec<Option<Val>> = vec![None; unit.num_slots as usize];
-        let mut present = vec![false; unit.params.len()];
+        let mut present: u64 = 0;
+        let set = |present: &mut u64, i: usize| {
+            if i < 64 {
+                *present |= 1u64 << i;
+            }
+        };
+        let is_set = |present: u64, i: usize| i >= 64 || present & (1u64 << i) != 0;
         let n_params = unit.params.len();
         let variadic_at = unit.params.iter().position(|p| p.variadic);
         let fixed = variadic_at.unwrap_or(n_params);
@@ -90,19 +96,19 @@ impl Vm {
             let p = &unit.params[i];
             let v = self.coerce_param(module, unit, p, v, class_ctx)?;
             slots[p.slot as usize] = Some(v);
-            present[i] = true;
+            set(&mut present, i);
         }
         let mut extra_named: Vec<(Vec<u8>, Val)> = Vec::new();
         for (name, v) in named {
             match unit.params.iter().position(|p| module.str(p.name) == name.as_slice() && !p.variadic) {
                 Some(i) => {
-                    if present[i] {
+                    if is_set(present, i) {
                         return Err(Throw::error(format!("Named parameter ${} overwrites previous argument", String::from_utf8_lossy(&name))));
                     }
                     let p = &unit.params[i];
                     let v = self.coerce_param(module, unit, p, v, class_ctx)?;
                     slots[p.slot as usize] = Some(v);
-                    present[i] = true;
+                    set(&mut present, i);
                 }
                 None => {
                     if variadic_at.is_some() {
@@ -125,11 +131,11 @@ impl Vm {
                 arr.insert(ArrayKey::Str(PhpString::from(k)), v);
             }
             slots[p.slot as usize] = Some(Val::array(arr));
-            present[vi] = true;
+            set(&mut present, vi);
         }
         for (i, p) in unit.params.iter().enumerate() {
-            if !present[i] && !p.has_default && !p.variadic {
-                let given = present.iter().filter(|x| **x).count();
+            if !is_set(present, i) && !p.has_default && !p.variadic {
+                let given = present.count_ones();
                 return Err(Throw::argument_count(format!(
                     "Too few arguments to function {}(), {} passed and at least {} expected",
                     unit.name, given, unit.required_params
@@ -260,6 +266,14 @@ impl Vm {
         let module = self.modules[target.module as usize].clone();
         let unit = &module.units[target.unit as usize];
         let (mut slots, present) = self.bind_args(&module, unit, args, named, target.class)?;
+        let ic = self.ic_base[target.module as usize] + target.unit as usize;
+        {
+            let prof = &mut self.profiles[ic];
+            prof.calls = prof.calls.saturating_add(1);
+            if prof.calls >= super::HOT_CALLS {
+                prof.hot = true;
+            }
+        }
         let base = unit.params.len();
         for (i, c) in target.captures.into_iter().enumerate() {
             if let Some(s) = slots.get_mut(base + i) {
@@ -280,7 +294,7 @@ impl Vm {
             pending: Pending::None,
             generator: None,
             line: unit.line,
-            ic: self.ic_base[target.module as usize] + target.unit as usize,
+            ic,
             return_override: target.return_override,
         };
         if unit.is_generator {

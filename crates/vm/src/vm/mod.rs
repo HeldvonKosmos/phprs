@@ -31,6 +31,31 @@ pub use iter::IterState;
 
 pub type NativeFn = fn(&mut Vm, &[Val]) -> Result<Val, Throw>;
 
+/// Per-unit profile (RUNTIME_ARCHITECTURE §7.1): counters and type feedback
+/// for the later JIT tier. Worker-local, no atomics.
+#[derive(Clone, Debug, Default)]
+pub struct CodeProfile {
+    pub calls: u32,
+    pub backedges: u32,
+    pub hot: bool,
+    /// Per op: observed operand types of binary ops, low nibble = lhs,
+    /// high nibble = rhs (1 int, 2 float, 4 string, 8 other).
+    pub types: Vec<u8>,
+}
+
+pub const HOT_CALLS: u32 = 1_000;
+pub const HOT_BACKEDGES: u32 = 10_000;
+
+#[inline]
+pub(crate) fn type_tag(v: &Val) -> u8 {
+    match v {
+        Val::Int(_) => 1,
+        Val::Float(_) => 2,
+        Val::Str(_) => 4,
+        _ => 8,
+    }
+}
+
 /// Monomorphic inline cache entry (RUNTIME_ARCHITECTURE §7.1).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IcEntry {
@@ -68,7 +93,8 @@ pub struct Frame {
     /// Late static binding (`static::`).
     pub static_class: Option<ClassId>,
     pub stack_base: usize,
-    pub arg_present: Vec<bool>,
+    /// Bit i set = parameter i was passed (parameters beyond 64 count as passed).
+    pub arg_present: u64,
     pub(crate) pending: Pending,
     pub generator: Option<ObjHandle>,
     pub line: u32,
@@ -127,6 +153,8 @@ pub struct Vm {
     /// Inline caches: one `Vec<IcEntry>` per unit (index = `ic_base[module] + unit`), indexed by op.
     pub(crate) ics: Vec<Vec<IcEntry>>,
     pub(crate) ic_base: Vec<usize>,
+    /// Profiles, parallel to `ics` (same index).
+    pub profiles: Vec<CodeProfile>,
     pub(crate) enum_cases: HashMap<(ClassId, Vec<u8>), ObjHandle>,
     pub(crate) static_values: Vec<HashMap<Vec<u8>, Val>>,
     pub well_known: Option<WellKnown>,
@@ -165,6 +193,7 @@ impl Vm {
             iters: Vec::new(),
             ics: Vec::new(),
             ic_base: Vec::new(),
+            profiles: Vec::new(),
             enum_cases: HashMap::new(),
             static_values: Vec::new(),
             well_known: None,

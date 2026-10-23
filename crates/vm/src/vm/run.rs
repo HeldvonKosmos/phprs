@@ -146,6 +146,10 @@ impl Vm {
             Op::Bin(bop) => {
                 let b = self.pop();
                 let a = self.pop();
+                {
+                    let icx = self.frames[fidx].ic;
+                    self.profiles[icx].types[ip] |= super::type_tag(&a) | (super::type_tag(&b) << 4);
+                }
                 if let (Val::Int(x), Val::Int(y)) = (&a, &b) {
                     let (x, y) = (*x, *y);
                     let fast = match bop {
@@ -176,6 +180,10 @@ impl Vm {
                     let name = unit.slot_names.get(if self.frames[fidx].slots[*a as usize].is_none() { *a } else { *b } as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
+                {
+                    let icx = self.frames[fidx].ic;
+                    self.profiles[icx].types[ip] |= super::type_tag(&x) | (super::type_tag(&y) << 4);
+                }
                 let r = self.fast_bin(*bop, x, y)?;
                 self.push(r);
             }
@@ -184,6 +192,10 @@ impl Vm {
                     let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
+                {
+                    let icx = self.frames[fidx].ic;
+                    self.profiles[icx].types[ip] |= super::type_tag(&x) | (1 << 4);
+                }
                 let r = self.fast_bin(*bop, x, Val::Int(*imm as i64))?;
                 self.push(r);
             }
@@ -193,6 +205,10 @@ impl Vm {
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
                 let y = self.const_to_val(midx, *c);
+                {
+                    let icx = self.frames[fidx].ic;
+                    self.profiles[icx].types[ip] |= super::type_tag(&x) | (super::type_tag(&y) << 4);
+                }
                 let r = self.fast_bin(*bop, x, y)?;
                 self.push(r);
             }
@@ -251,7 +267,16 @@ impl Vm {
                 self.push(Val::Bool(!v.is_null()));
             }
 
-            Op::Jump(l) => self.frames[fidx].ip = *l as usize,
+            Op::Jump(l) => {
+                if (*l as usize) <= ip {
+                    let prof = &mut self.profiles[self.frames[fidx].ic];
+                    prof.backedges = prof.backedges.saturating_add(1);
+                    if prof.backedges >= super::HOT_BACKEDGES {
+                        prof.hot = true;
+                    }
+                }
+                self.frames[fidx].ip = *l as usize;
+            }
             Op::JumpIfFalse(l) => {
                 let v = self.pop();
                 if !v.to_bool() {
@@ -893,7 +918,8 @@ impl Vm {
                 }
             }
             Op::JumpIfArgPresent { index, target } => {
-                if self.frames[fidx].arg_present.get(*index as usize).copied().unwrap_or(false) {
+                let i = *index as usize;
+                if i >= 64 || self.frames[fidx].arg_present & (1u64 << i) != 0 {
                     self.frames[fidx].ip = *target as usize;
                 }
             }
