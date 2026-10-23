@@ -224,7 +224,7 @@ pub fn register(vm: &mut Vm) {
         let mut out = PhpArray::new();
         let mut seen: Vec<Val> = Vec::new();
         for (k, v) in arr.iter() {
-            let dup = seen.iter().any(|s| loose_equal_for_unique(s, v));
+            let dup = seen.iter().any(|s| identical(s, v));
             if !dup {
                 seen.push(v.clone());
                 out.insert(k.clone(), v.clone());
@@ -334,8 +334,6 @@ pub fn register(vm: &mut Vm) {
         }
         Ok(Val::array(out))
     });
-    vm.register_native("array_pop", |_, a| Ok(args::array(a, 0, "array_pop")?.last().map(|(_, v)| v.clone()).unwrap_or(Val::Null)));
-    vm.register_native("array_shift", |_, a| Ok(args::array(a, 0, "array_shift")?.first().map(|(_, v)| v.clone()).unwrap_or(Val::Null)));
     vm.register_native("end", |_, a| Ok(args::array(a, 0, "end")?.last().map(|(_, v)| v.clone()).unwrap_or(Val::Bool(false))));
     vm.register_native("reset", |_, a| Ok(args::array(a, 0, "reset")?.first().map(|(_, v)| v.clone()).unwrap_or(Val::Bool(false))));
     vm.register_native("current", |_, a| Ok(args::array(a, 0, "current")?.first().map(|(_, v)| v.clone()).unwrap_or(Val::Bool(false))));
@@ -483,15 +481,6 @@ fn merge_recursive(out: &mut PhpArray, arr: &PhpArray) {
                 (None, _) => out.insert(k.clone(), v.clone()),
             },
         }
-    }
-}
-
-/// `array_unique` compares with `==` after string conversion in PHP; the
-/// dialect keeps that for scalars (`1` and `"1"` are duplicates).
-fn loose_equal_for_unique(a: &Val, b: &Val) -> bool {
-    match (a, b) {
-        (Val::Array(_), _) | (_, Val::Array(_)) | (Val::Object(_), _) | (_, Val::Object(_)) => identical(a, b),
-        _ => a.to_php_string().ok() == b.to_php_string().ok(),
     }
 }
 

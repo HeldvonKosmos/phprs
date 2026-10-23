@@ -105,6 +105,18 @@ class JsonException extends Exception {}
 
 class stdClass {}
 
+/// Replacement for the by-reference array functions: returns [value, rest].
+final class Arr {
+    public static function pop(array $a): array {
+        if ($a === []) { return [null, []]; }
+        return [$a[array_key_last($a)], array_slice($a, 0, -1, true)];
+    }
+    public static function shift(array $a): array {
+        if ($a === []) { return [null, []]; }
+        return [$a[array_key_first($a)], array_slice($a, 1)];
+    }
+}
+
 final class Closure {
     private function __construct() {}
 }

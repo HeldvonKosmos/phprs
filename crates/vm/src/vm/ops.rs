@@ -151,10 +151,40 @@ impl Vm {
             }
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => bitwise(op, &a, &b),
             BinOp::Identical | BinOp::NotIdentical | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Spaceship => {
+                // native value types (DateTime, Decimal, RecordId, …) compare through their handler
+                if let Some(ord) = self.native_compare(&a, &b)? {
+                    return Ok(match op {
+                        BinOp::Identical => Val::Bool(ord == Some(Ordering::Equal)),
+                        BinOp::NotIdentical => Val::Bool(ord != Some(Ordering::Equal)),
+                        BinOp::Spaceship => Val::Int(match ord { Some(Ordering::Less) => -1, Some(Ordering::Equal) => 0, _ => 1 }),
+                        BinOp::Lt => Val::Bool(ord == Some(Ordering::Less)),
+                        BinOp::Le => Val::Bool(matches!(ord, Some(Ordering::Less | Ordering::Equal))),
+                        BinOp::Gt => Val::Bool(ord == Some(Ordering::Greater)),
+                        BinOp::Ge => Val::Bool(matches!(ord, Some(Ordering::Greater | Ordering::Equal))),
+                        _ => unreachable!(),
+                    });
+                }
                 comparison(op, &a, &b)
             }
             BinOp::Coalesce => Ok(if a.is_null() { b } else { a }),
         }
+    }
+
+    /// `Some(ordering)` if one side is an object whose native class has a compare handler.
+    fn native_compare(&mut self, a: &Val, b: &Val) -> Result<Option<Option<Ordering>>, Throw> {
+        if let Val::Object(h) = a
+            && let Some(n) = self.native_info(self.objects.get(*h).class)
+            && let Some(cmp) = n.handlers.compare
+        {
+            return Ok(Some(cmp(self, *h, b)?));
+        }
+        if let Val::Object(h) = b
+            && let Some(n) = self.native_info(self.objects.get(*h).class)
+            && let Some(cmp) = n.handlers.compare
+        {
+            return Ok(Some(cmp(self, *h, a)?.map(Ordering::reverse)));
+        }
+        Ok(None)
     }
 
     pub(crate) fn unary(&mut self, op: UnOp, v: Val) -> Result<Val, Throw> {

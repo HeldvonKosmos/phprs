@@ -100,6 +100,50 @@ pub const SHELL_EXEC: Rule = Rule {
     hint: "",
 };
 
+pub const BYREF_POP: Rule = Rule {
+    code: "GRD019",
+    reason: "`array_pop`/`array_shift` verändern ihr Argument und sind im OpenGrid-Dialekt nicht verfügbar",
+    hint: "Nutze `[$wert, $rest] = Arr::pop($a)` bzw. `Arr::shift($a)`.",
+};
+pub const DISCARDED_RESULT: Rule = Rule {
+    code: "GRD020",
+    reason: "der Rückgabewert dieser Funktion wird verworfen; im OpenGrid-Dialekt liefert sie das Ergebnis statt ihr Argument zu verändern",
+    hint: "Schreibe `$a = sort($a);` bzw. `$m = preg_match(...)` (DIALECT.md §5.6).",
+};
+
+/// Builtins that mutate a by-reference argument in PHP and return the new
+/// value in the dialect instead; discarding that value is a compile error.
+pub const RETURNS_INSTEAD_OF_BYREF: &[&str] = &[
+    "array_multisort",
+    "array_push",
+    "array_splice",
+    "array_unshift",
+    "arsort",
+    "asort",
+    "krsort",
+    "ksort",
+    "natcasesort",
+    "natsort",
+    "parse_str",
+    "preg_match",
+    "preg_match_all",
+    "rsort",
+    "shuffle",
+    "sort",
+    "uasort",
+    "uksort",
+    "usort",
+];
+
+pub fn returns_instead_of_byref(name: &[u8]) -> bool {
+    let lower = String::from_utf8_lossy(name).to_ascii_lowercase();
+    RETURNS_INSTEAD_OF_BYREF.binary_search(&lower.as_str()).is_ok()
+}
+
+pub fn is_byref_pop(name: &[u8]) -> bool {
+    name.eq_ignore_ascii_case(b"array_pop") || name.eq_ignore_ascii_case(b"array_shift")
+}
+
 /// Builtins rejected at compile time (sorted).
 pub const FORBIDDEN_FUNCTIONS: &[&str] = &[
     "apply_filters",

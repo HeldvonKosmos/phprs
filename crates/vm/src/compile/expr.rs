@@ -579,6 +579,9 @@ impl Compiler<'_> {
                     if !bare.contains(&b'\\') && dialect::is_forbidden_function(bare) {
                         return self.reject_named(dialect::FORBIDDEN_BUILTIN, bare, id.span());
                     }
+                    if !bare.contains(&b'\\') && dialect::is_byref_pop(bare) {
+                        return self.reject(dialect::BYREF_POP, id.span());
+                    }
                     let (primary, fallback) = self.names.resolve_function(raw);
                     let name = self.intern(&primary);
                     let fallback = fallback.map(|f| self.intern(&f));

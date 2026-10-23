@@ -43,6 +43,11 @@ fn rejected_constructs_carry_codes() {
         ("GRD015", "<?php exit(1);"),
         ("GRD015", "<?php die();"),
         ("GRD018", "<?php $x = `ls`;"),
+        ("GRD019", "<?grd $x = array_pop($a);"),
+        ("GRD019", "<?grd while ($x = array_shift($q)) {}"),
+        ("GRD020", "<?grd sort($a);"),
+        ("GRD020", "<?grd preg_match('/x/', $s, $m);"),
+        ("GRD020", "<?grd (usort($a, fn($x, $y) => $x <=> $y));"),
     ];
     for (code, src) in cases {
         assert_eq!(code_of(src), Some(*code), "source: {src}");
@@ -52,6 +57,7 @@ fn rejected_constructs_carry_codes() {
 #[test]
 fn allowed_constructs_compile() {
     compiles("<?grd declare(strict_types=1); echo 1;");
+    compiles("<?grd $a = sort($a); [$v, $rest] = Arr::pop($a); $m = preg_match('/x/', $s); if (preg_match('/x/', $s)) {}");
     compiles("<?php echo 1;");
     compiles("<?php $f = fn($x) => $x + 1; $g = function($y) use ($f) { return $f($y); };");
     compiles("<?php [$a, [$b, $c]] = [1, [2, 3]]; ['k' => $k] = ['k' => 1]; [, $s] = [1, 2];");

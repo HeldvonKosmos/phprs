@@ -174,6 +174,7 @@ fn register(vm: &mut Vm) {
             }),
             isset: Some(|vm, h, name| Ok(Some(vm.native_payload::<ModelData>(h).is_some_and(|m| m.attributes.contains_key(&String::from_utf8_lossy(name).into_owned()))))),
             unset: None,
+            compare: None,
         })
         .method("__construct", |vm, c| {
             let this = c.this()?;

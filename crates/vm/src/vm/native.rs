@@ -40,6 +40,9 @@ pub type PropSetFn = fn(&mut Vm, ObjHandle, &[u8], Val) -> Result<bool, Throw>;
 pub type PropIssetFn = fn(&mut Vm, ObjHandle, &[u8]) -> Result<Option<bool>, Throw>;
 pub type PropUnsetFn = fn(&mut Vm, ObjHandle, &[u8]) -> Result<bool, Throw>;
 pub type PayloadFn = fn() -> Box<dyn Any>;
+/// `compare(vm, this, other)`: ordering of a native value type against any value
+/// (`None` = incomparable). Used for `==`, `<`, `>`, `<=>` on objects of the class.
+pub type CompareFn = fn(&mut Vm, ObjHandle, &Val) -> Result<Option<std::cmp::Ordering>, Throw>;
 
 /// Object handlers of a native class; `None` falls through to the normal
 /// property machinery (declared slots, `__get`/`__set`).
@@ -49,6 +52,7 @@ pub struct ObjectHandlers {
     pub set: Option<PropSetFn>,
     pub isset: Option<PropIssetFn>,
     pub unset: Option<PropUnsetFn>,
+    pub compare: Option<CompareFn>,
 }
 
 pub struct NativeMethodDef {

@@ -73,7 +73,10 @@ impl Compiler<'_> {
             Statement::Switch(sw) => self.compile_switch(sw),
             Statement::If(i) => self.compile_if(i),
             Statement::Return(r) => self.compile_return(r.value),
-            Statement::Expression(e) => self.compile_expr_w(e.expression, Want::Discard),
+            Statement::Expression(e) => {
+                self.check_discarded_result(e.expression)?;
+                self.compile_expr_w(e.expression, Want::Discard)
+            }
             Statement::Echo(e) => {
                 for v in e.values.iter() {
                     self.compile_expr(v)?;
@@ -108,6 +111,24 @@ impl Compiler<'_> {
             }
             _ => self.err(s.span(), "nicht unterstützte Anweisung"),
         }
+    }
+
+    /// `sort($a);` as a statement silently loses the sorted array (GRD020).
+    fn check_discarded_result(&self, e: &Expression<'_>) -> CResult<()> {
+        let mut cur = e;
+        while let Expression::Parenthesized(p) = cur {
+            cur = p.expression;
+        }
+        if let Expression::Call(Call::Function(f)) = cur
+            && let Expression::Identifier(id) = f.function
+        {
+            let raw = id.value();
+            let bare = raw.strip_prefix(b"\\").unwrap_or(raw);
+            if !bare.contains(&b'\\') && dialect::returns_instead_of_byref(bare) {
+                return self.reject_named(dialect::DISCARDED_RESULT, bare, id.span());
+            }
+        }
+        Ok(())
     }
 
     fn compile_namespace(&mut self, n: &Namespace<'_>) -> CResult<()> {
