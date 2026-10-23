@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use super::{PhpString, Val};
 
 /// Index into the engine's class table (phase 2).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct ClassId(pub u32);
 
 /// Index into `ObjectStore::slots`; 0 is never a valid object.

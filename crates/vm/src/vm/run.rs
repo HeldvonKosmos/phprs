@@ -57,6 +57,7 @@ impl Vm {
 
     pub(crate) fn resolve_class_ref(&mut self, cr: &ClassRef, module: u32) -> Result<ClassId, Throw> {
         match cr {
+            ClassRef::Id(c) => Ok(*c),
             ClassRef::Named(id) => {
                 let name = self.str_of(module, *id).to_vec();
                 self.lookup_class(&name).ok_or_else(|| Throw::error(format!("Class \"{}\" not found", String::from_utf8_lossy(&name))))
@@ -394,7 +395,7 @@ impl Vm {
             Op::StorePath(path) => {
                 let PathOp { base, segs, mode } = &**path;
                 // fast path: `$this->prop = v` / `$this->prop op= v` on a cached slot
-                if let (PathBase::This, [PathSeg::Prop(_)]) = (base, segs.as_slice())
+                if let (PathBase::This, [PathSeg::Prop(_) | PathSeg::PropSel(_)]) = (base, segs.as_slice())
                     && let Some(this) = self.frames[fidx].this
                 {
                     let class = self.objects.get(this).class;
@@ -434,8 +435,12 @@ impl Vm {
                         return Ok(Flow::Next);
                     }
                     // fill: plain, non-readonly declared property visible from this scope
-                    if let PathSeg::Prop(n) = segs[0] {
-                        let name = module.str(n).to_vec();
+                    let pname = match segs[0] {
+                        PathSeg::Prop(n) => Some(module.str(n).to_vec()),
+                        PathSeg::PropSel(sel) => Some(self.sel_name(sel).to_vec()),
+                        _ => None,
+                    };
+                    if let Some(name) = pname {
                         let scope = self.frames[fidx].class;
                         if let super::class::PropLookup::Slot(idx) = self.lookup_prop(class, &name, scope)
                             && !self.class(class).props[idx].readonly
@@ -487,6 +492,117 @@ impl Vm {
                 self.push(result);
             }
 
+            Op::CallFuncId { id, spec } => {
+                let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
+                let f = self.function_table[id.0 as usize].clone();
+                match self.invoke_funcref(f, args, named)? {
+                    CallOutcome::Pushed => return Ok(Flow::Switch),
+                    CallOutcome::Value(v) => self.push(v),
+                }
+            }
+            Op::CallMethodSel { sel, spec } => {
+                let argspec = &unit.arg_specs[*spec as usize];
+                let (args, named) = self.pop_args(midx, argspec)?;
+                let obj = self.pop();
+                let Val::Object(h) = obj else {
+                    return Err(Throw::error(format!("Call to a member function {}() on {}", String::from_utf8_lossy(self.sel_name(*sel)), obj.type_name())));
+                };
+                let class = self.objects.get(h).class;
+                let icx = self.frames[fidx].ic;
+                let e = self.ics[icx][ip];
+                if e.class == Some(class) {
+                    let target = super::call::CallTarget {
+                        module: e.a,
+                        unit: e.b,
+                        this: if e.flag { None } else { Some(h) },
+                        class: Some(ClassId(e.c)),
+                        static_class: Some(class),
+                        captures: Vec::new(),
+                        return_override: None,
+                    };
+                    return match self.push_frame(target, args, named)? {
+                        Some(v) => {
+                            self.push(v);
+                            Ok(Flow::Next)
+                        }
+                        None => Ok(Flow::Switch),
+                    };
+                }
+                let scope = self.frames[fidx].class;
+                // selector lookup: integer-keyed, no name hashing
+                if let Some(&mi) = self.class(class).methods_by_sel.get(sel) {
+                    let m = &self.method_table[mi as usize];
+                    if let (Some(u), None) = (m.unit, m.native)
+                        && self.method_accessible(m, scope)
+                        && class != self.wk().closure
+                        && class != self.wk().generator
+                    {
+                        let (mm, md, ms) = (m.module, m.declaring, m.is_static);
+                        self.ics[icx][ip] = IcEntry { class: Some(class), a: mm, b: u, c: md.0, flag: ms };
+                        let target = super::call::CallTarget { module: mm, unit: u, this: if ms { None } else { Some(h) }, class: Some(md), static_class: Some(class), captures: Vec::new(), return_override: None };
+                        return match self.push_frame(target, args, named)? {
+                            Some(v) => {
+                                self.push(v);
+                                Ok(Flow::Next)
+                            }
+                            None => Ok(Flow::Switch),
+                        };
+                    }
+                }
+                let n = self.sel_name(*sel).to_vec();
+                match self.invoke_method(h, &n, args, named, scope)? {
+                    CallOutcome::Pushed => return Ok(Flow::Switch),
+                    CallOutcome::Value(v) => self.push(v),
+                }
+            }
+            Op::CallStaticSel { class, sel, spec } => {
+                let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
+                let cid = self.resolve_class_ref(class, midx)?;
+                let n = self.sel_name(*sel).to_vec();
+                let scope = self.frames[fidx].class;
+                let forwarding = matches!(class, ClassRef::SelfRef | ClassRef::Parent | ClassRef::Static);
+                let this = self.frames[fidx].this.filter(|t| self.instance_of(self.objects.get(*t).class, cid));
+                let static_class = if forwarding { self.frames[fidx].static_class.unwrap_or(cid) } else { cid };
+                match self.invoke_static(cid, &n, args, named, this, scope, static_class)? {
+                    CallOutcome::Pushed => return Ok(Flow::Switch),
+                    CallOutcome::Value(v) => self.push(v),
+                }
+            }
+            Op::FetchPropSel(sel) | Op::FetchPropSelQuiet(sel) => {
+                let quiet = matches!(op, Op::FetchPropSelQuiet(_));
+                let obj = self.pop();
+                if let Val::Object(h) = obj {
+                    let class = self.objects.get(h).class;
+                    let icx = self.frames[fidx].ic;
+                    let e = self.ics[icx][ip];
+                    if e.class == Some(class)
+                        && let Some(v) = &self.objects.get(h).slots[e.a as usize]
+                    {
+                        let v = v.clone();
+                        self.push(v);
+                        return Ok(Flow::Next);
+                    }
+                    let scope = self.frames[fidx].class;
+                    if let Some(&slot) = self.class(class).props_by_sel.get(sel) {
+                        let p = &self.class(class).props[slot as usize];
+                        let visible = match p.visibility {
+                            Visibility::Public => true,
+                            Visibility::Protected => scope.is_some_and(|s| self.instance_of(s, p.declaring) || self.instance_of(p.declaring, s)),
+                            Visibility::Private => scope == Some(p.declaring),
+                        };
+                        if visible {
+                            self.ics[icx][ip] = IcEntry { class: Some(class), a: slot, b: 0, c: 0, flag: false };
+                        }
+                    }
+                    let n = self.sel_name(*sel).to_vec();
+                    let v = self.read_prop(h, &n, quiet)?;
+                    self.push(v);
+                } else {
+                    let n = self.sel_name(*sel).to_vec();
+                    let v = self.fetch_prop_value(obj, &n, quiet)?;
+                    self.push(v);
+                }
+            }
             Op::CallFunc { name, fallback, spec } => {
                 let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
                 let n = module.str(*name).to_vec();

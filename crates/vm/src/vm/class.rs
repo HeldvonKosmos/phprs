@@ -77,6 +77,9 @@ pub struct RtClass {
     pub default_slots: Option<Vec<Option<Val>>>,
     /// Set for native classes (payload factory, handlers).
     pub native: Option<super::native::NativeInfo>,
+    /// Link-step tables: selector → method table index / property slot.
+    pub methods_by_sel: HashMap<SelId, u32>,
+    pub props_by_sel: HashMap<SelId, u32>,
 }
 
 impl RtClass {
@@ -95,19 +98,26 @@ pub(crate) enum PropLookup {
 }
 
 impl Vm {
-    /// Register and link all classes and functions of a module.
-    pub fn load_module(&mut self, module: Module) -> Result<(), Throw> {
-        let module = Rc::new(module);
+    /// Register and link all classes and functions of a module, then link
+    /// its ops (names → ids) and store it.
+    pub fn load_module(&mut self, mut module: Module) -> Result<(), Throw> {
         let midx = self.modules.len() as u32;
+        for f in &module.functions {
+            let name = module.str(f.name).to_vec();
+            self.define_function(&name, super::FuncRef::User { module: midx, unit: f.unit });
+        }
+        self.load_classes(&module, midx)?;
+        self.link_module(&mut module);
+        let module = Rc::new(module);
         self.modules.push(module.clone());
         self.ic_base.push(self.ics.len());
         for u in &module.units {
             self.ics.push(vec![super::IcEntry::default(); u.ops.len()]);
         }
-        for f in &module.functions {
-            let name = module.str(f.name).to_ascii_lowercase();
-            self.functions.insert(name, super::FuncRef::User { module: midx, unit: f.unit });
-        }
+        Ok(())
+    }
+
+    fn load_classes(&mut self, module: &Module, midx: u32) -> Result<(), Throw> {
         // link classes in dependency order
         let mut pending: Vec<usize> = (0..module.classes.len()).collect();
         while !pending.is_empty() {
@@ -149,7 +159,7 @@ impl Vm {
         Ok(())
     }
 
-    fn link_class(&mut self, module: &Rc<Module>, midx: u32, ci: usize) -> Result<(), Throw> {
+    fn link_class(&mut self, module: &Module, midx: u32, ci: usize) -> Result<(), Throw> {
         let decl = &module.classes[ci];
         let name = module.str(decl.name).to_vec();
         let lname = name.to_ascii_lowercase();
@@ -178,6 +188,8 @@ impl Vm {
             line: decl.line,
             default_slots: None,
             native: None,
+            methods_by_sel: HashMap::new(),
+            props_by_sel: HashMap::new(),
         };
         // inherit
         if let Some(p) = parent {
@@ -285,10 +297,28 @@ impl Vm {
                 self.add_interface(&mut rt, b);
             }
         }
+        self.build_sel_tables(&mut rt);
         self.classes.push(rt);
         self.static_values.push(HashMap::new());
         self.class_by_name.insert(lname, id);
         Ok(())
+    }
+
+    /// Fill `methods_by_sel` / `props_by_sel` from the name maps.
+    pub(crate) fn build_sel_tables(&mut self, rt: &mut RtClass) {
+        let names: Vec<Vec<u8>> = rt.methods.keys().cloned().collect();
+        for key in names {
+            let info = rt.methods[&key].clone();
+            let sel = self.method_sel(&key);
+            let idx = self.method_table.len() as u32;
+            self.method_table.push(info);
+            rt.methods_by_sel.insert(sel, idx);
+        }
+        let props: Vec<(Vec<u8>, usize)> = rt.prop_index.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        for (name, slot) in props {
+            let sel = self.prop_sel(&name);
+            rt.props_by_sel.insert(sel, slot as u32);
+        }
     }
 
     fn add_interface(&self, rt: &mut RtClass, iid: ClassId) {

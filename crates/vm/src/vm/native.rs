@@ -350,6 +350,8 @@ impl Vm {
             line: 0,
             default_slots: None,
             native: Some(NativeInfo { payload: def.payload, handlers: def.handlers }),
+            methods_by_sel: HashMap::new(),
+            props_by_sel: HashMap::new(),
         };
         if let Some(p) = parent {
             let pc = self.class(p);
@@ -394,6 +396,7 @@ impl Vm {
                 },
             );
         }
+        self.build_sel_tables(&mut rt);
         self.classes.push(rt);
         self.static_values.push(HashMap::new());
         self.class_by_name.insert(lname, id);

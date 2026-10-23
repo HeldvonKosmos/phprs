@@ -76,7 +76,7 @@ impl Vm {
         let mut key_i = 0usize;
         let mut i = 0usize;
         loop {
-            let run_end = segs[i..].iter().position(|s| matches!(s, PathSeg::Prop(_) | PathSeg::PropDyn)).map(|p| i + p).unwrap_or(segs.len());
+            let run_end = segs[i..].iter().position(|s| matches!(s, PathSeg::Prop(_) | PathSeg::PropSel(_) | PathSeg::PropDyn)).map(|p| i + p).unwrap_or(segs.len());
             let dims = &segs[i..run_end];
             let n_dim_keys = dims.iter().filter(|s| matches!(s, PathSeg::Dim)).count();
             let dim_keys: Vec<Val> = keys[key_i..key_i + n_dim_keys].to_vec();
@@ -86,6 +86,7 @@ impl Vm {
             }
             let prop_name = match &segs[run_end] {
                 PathSeg::Prop(id) => self.str_of(module, *id).to_vec(),
+                PathSeg::PropSel(sel) => self.sel_name(*sel).to_vec(),
                 PathSeg::PropDyn => {
                     let k = keys[key_i].clone();
                     key_i += 1;
@@ -496,9 +497,10 @@ impl Vm {
         let Some(last) = segs.last() else { return Ok(()) };
         let head = &segs[..segs.len() - 1];
         match last {
-            PathSeg::Prop(_) | PathSeg::PropDyn => {
+            PathSeg::Prop(_) | PathSeg::PropSel(_) | PathSeg::PropDyn => {
                 let name = match last {
                     PathSeg::Prop(id) => self.str_of(module, *id).to_vec(),
+                    PathSeg::PropSel(sel) => self.sel_name(*sel).to_vec(),
                     _ => self.to_string_val(&keys[n_keys - 1])?.as_bytes().to_vec(),
                 };
                 let n_head = head.iter().filter(|s| matches!(s, PathSeg::Dim | PathSeg::PropDyn)).count();
@@ -531,7 +533,7 @@ impl Vm {
                 let mut key_i = 0usize;
                 let mut i = 0usize;
                 loop {
-                    let run_end = head[i..].iter().position(|s| matches!(s, PathSeg::Prop(_) | PathSeg::PropDyn)).map(|p| i + p).unwrap_or(head.len());
+                    let run_end = head[i..].iter().position(|s| matches!(s, PathSeg::Prop(_) | PathSeg::PropSel(_) | PathSeg::PropDyn)).map(|p| i + p).unwrap_or(head.len());
                     let dims = &head[i..run_end];
                     let n_dim_keys = dims.iter().filter(|s| matches!(s, PathSeg::Dim)).count();
                     let dim_keys: Vec<Val> = keys[key_i..key_i + n_dim_keys].to_vec();
@@ -542,6 +544,7 @@ impl Vm {
                     }
                     let prop_name = match &head[run_end] {
                         PathSeg::Prop(id) => self.str_of(module, *id).to_vec(),
+                        PathSeg::PropSel(sel) => self.sel_name(*sel).to_vec(),
                         PathSeg::PropDyn => {
                             let k = keys[key_i].clone();
                             key_i += 1;
@@ -581,6 +584,13 @@ impl Vm {
                 }
                 PathSeg::Prop(id) => {
                     let n = self.str_of(module, *id).to_vec();
+                    match cur {
+                        Val::Object(h) => self.read_prop(h, &n, true)?,
+                        _ => Val::Null,
+                    }
+                }
+                PathSeg::PropSel(sel) => {
+                    let n = self.sel_name(*sel).to_vec();
                     match cur {
                         Val::Object(h) => self.read_prop(h, &n, true)?,
                         _ => Val::Null,

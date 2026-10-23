@@ -10,6 +10,7 @@ mod call;
 mod exception;
 mod generator;
 mod iter;
+mod link;
 pub mod native;
 pub(crate) mod ops;
 mod path;
@@ -107,6 +108,15 @@ pub struct Vm {
     pub classes: Vec<RtClass>,
     pub class_by_name: HashMap<Vec<u8>, ClassId>,
     pub functions: HashMap<Vec<u8>, FuncRef>,
+    /// Link-step ids: function name → index into `function_table`.
+    pub function_ids: HashMap<Vec<u8>, FunctionId>,
+    pub function_table: Vec<FuncRef>,
+    /// Selectors for method (case-insensitive) and property (case-sensitive) names.
+    pub method_sels: HashMap<Vec<u8>, SelId>,
+    pub prop_sels: HashMap<Vec<u8>, SelId>,
+    pub sel_names: Vec<Vec<u8>>,
+    /// All methods of all classes; classes map selectors to indices here.
+    pub method_table: Vec<MethodInfo>,
     pub natives: Vec<(String, NativeFn)>,
     pub constants: HashMap<Vec<u8>, Val>,
     pub objects: ObjectStore,
@@ -140,6 +150,12 @@ impl Vm {
             classes: Vec::new(),
             class_by_name: HashMap::new(),
             functions: HashMap::new(),
+            function_ids: HashMap::new(),
+            function_table: Vec::new(),
+            method_sels: HashMap::new(),
+            prop_sels: HashMap::new(),
+            sel_names: Vec::new(),
+            method_table: Vec::new(),
             natives: Vec::new(),
             constants: HashMap::new(),
             objects: ObjectStore::new(),
@@ -176,7 +192,21 @@ impl Vm {
     pub fn register_native(&mut self, name: &str, f: NativeFn) {
         let idx = self.natives.len() as u32;
         self.natives.push((name.to_string(), f));
-        self.functions.insert(name.to_ascii_lowercase().into_bytes(), FuncRef::Native(idx));
+        self.define_function(name.as_bytes(), FuncRef::Native(idx));
+    }
+
+    /// Register a function under its (lowercased) name and give it an id.
+    pub(crate) fn define_function(&mut self, name: &[u8], f: FuncRef) {
+        let key = name.to_ascii_lowercase();
+        self.functions.insert(key.clone(), f.clone());
+        match self.function_ids.get(&key) {
+            Some(id) => self.function_table[id.0 as usize] = f,
+            None => {
+                let id = FunctionId(self.function_table.len() as u32);
+                self.function_table.push(f);
+                self.function_ids.insert(key, id);
+            }
+        }
     }
 
     pub fn define_constant(&mut self, name: &str, v: Val) {

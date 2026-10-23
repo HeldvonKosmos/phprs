@@ -8,6 +8,14 @@ pub type UnitId = u32;
 pub type Slot = u32;
 pub type Label = u32;
 
+/// VM-wide selector for a method or property name (assigned by the link step).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct SelId(pub u32);
+
+/// Index into the VM's function table (assigned by the link step).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct FunctionId(pub u32);
+
 /// A constant in the pool. Arrays only contain constants.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Const {
@@ -67,6 +75,8 @@ pub enum UnOp {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClassRef {
     Named(StrId),
+    /// Resolved by the link step.
+    Id(crate::value::ClassId),
     SelfRef,
     Parent,
     Static,
@@ -81,6 +91,8 @@ pub enum PathSeg {
     Dim,
     Append,
     Prop(StrId),
+    /// Linked property name.
+    PropSel(SelId),
     PropDyn,
 }
 
@@ -192,6 +204,9 @@ pub enum Op {
     /// obj → val
     FetchProp(StrId),
     FetchPropQuiet(StrId),
+    /// Linked forms of FetchProp/FetchPropQuiet.
+    FetchPropSel(SelId),
+    FetchPropSelQuiet(SelId),
     /// obj, name → val
     FetchPropDyn,
     FetchPropDynQuiet,
@@ -214,11 +229,17 @@ pub enum Op {
     CompoundSlot { slot: Slot, op: BinOp, discard: bool },
 
     CallFunc { name: StrId, fallback: Option<StrId>, spec: u32 },
+    /// Linked function call.
+    CallFuncId { id: FunctionId, spec: u32 },
     /// obj, args… → result
     CallMethod { name: StrId, spec: u32 },
+    /// Linked method call.
+    CallMethodSel { sel: SelId, spec: u32 },
     /// obj, name, args… → result
     CallMethodDyn { spec: u32 },
     CallStatic { class: ClassRef, name: StrId, spec: u32 },
+    /// Linked static call.
+    CallStaticSel { class: ClassRef, sel: SelId, spec: u32 },
     /// callable, args… → result
     CallValue { spec: u32 },
     New { class: ClassRef, spec: u32 },
