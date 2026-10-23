@@ -57,4 +57,5 @@ incremental = true
 members = [
     ".",
     "bin/phprs",
+    "crates/vm",
 ]
