@@ -323,61 +323,6 @@ pub fn parse_str(args: &[Val]) -> Result<Val, String> {
     Ok(Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array))
 }
 
-/// get_headers($url) - Fetches all the headers sent by the server in response to an HTTP request
-pub fn get_headers(args: &[Val]) -> Result<Val, String> {
-    if args.is_empty() {
-        return Err("get_headers() expects at least 1 argument".to_string());
-    }
-
-    let url = zval_get_string(&args[0]).as_str().to_string();
-
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Ok(Val::new(PhpValue::Long(0), PhpType::False));
-    }
-
-    let mut headers_list: Vec<Val> = Vec::new();
-
-    // Named (not magic) request timeout for get_headers().
-    const HTTP_TIMEOUT_SECS: u64 = 10;
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
-        .build();
-
-    if let Ok(client) = client {
-        let response = client.head(&url).send();
-        if let Ok(resp) = response {
-            headers_list.push(string_val(&format!(
-                "HTTP/{} {}",
-                match resp.version() {
-                    reqwest::Version::HTTP_09 => "0.9",
-                    reqwest::Version::HTTP_10 => "1.0",
-                    reqwest::Version::HTTP_11 => "1.1",
-                    reqwest::Version::HTTP_2 => "2",
-                    reqwest::Version::HTTP_3 => "3",
-                    _ => "1.1",
-                },
-                resp.status().as_u16()
-            )));
-            for (name, value) in resp.headers() {
-                headers_list.push(string_val(&format!(
-                    "{}: {}",
-                    name,
-                    value.to_str().unwrap_or("")
-                )));
-            }
-        }
-    }
-
-    if headers_list.is_empty() {
-        return Ok(Val::new(PhpValue::Long(0), PhpType::False));
-    }
-
-    let mut arr = crate::engine::types::PhpArray::new();
-    for (idx, val) in (0_u64..).zip(headers_list) {
-        let _ = crate::engine::hash::hash_add_or_update(&mut arr, None, idx, val, 0);
-    }
-    Ok(Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array))
-}
 
 #[cfg(test)]
 mod tests {

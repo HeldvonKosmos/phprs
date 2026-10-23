@@ -19,6 +19,5 @@ pub use php::globals;
 pub use php::ini;
 pub use php::output;
 pub use php::runtime;
-pub use php::sapi;
 pub use php::streams;
 pub use php::variables;

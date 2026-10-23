@@ -343,10 +343,7 @@ pub(crate) fn is_builtin_function(name: &str) -> bool {
         | "hex2bin" | "random_bytes" | "random_int" | "password_hash" | "password_verify"
         | "time" | "microtime" | "date" | "mktime" | "strtotime" | "parse_url"
         | "http_build_query" | "urlencode" | "urldecode" | "rawurlencode" | "rawurldecode"
-        | "parse_str" | "get_headers" | "str_getcsv" | "fgetcsv" | "fputcsv"
-        | "session_start" | "session_destroy" | "session_id" | "session_name"
-        | "gzcompress" | "gzuncompress" | "gzencode" | "gzdecode" | "gzdeflate"
-        | "gzinflate" | "mb_strlen" | "mb_substr" | "mb_strtolower" | "mb_strtoupper"
+        | "parse_str" | "mb_strlen" | "mb_substr" | "mb_strtolower" | "mb_strtoupper"
         | "mb_strpos" | "mb_strrpos" | "mb_convert_encoding" | "mb_substr_count"
         | "mb_strwidth" | "mb_strimwidth" | "dirname" | "die" | "exit" | "do_action"
         | "apply_filters" | "shortcode_atts" | "htmlspecialchars"
@@ -378,16 +375,6 @@ pub(crate) fn is_builtin_function(name: &str) -> bool {
         | "array_replace" | "array_replace_recursive" | "array_merge_recursive"
         | "array_count" | "array_any" | "array_all" | "array_find" | "array_find_key"
         | "array_any_key"
-        // cURL functions
-        | "curl_init" | "curl_setopt" | "curl_setopt_array" | "curl_exec" | "curl_getinfo"
-        | "curl_error" | "curl_errno" | "curl_close" | "curl_reset" | "curl_version"
-        | "curl_strerror"
-        // OpenSSL functions
-        | "openssl_get_cipher_methods" | "openssl_get_md_methods" | "openssl_digest"
-        | "openssl_random_pseudo_bytes" | "openssl_error_string" | "openssl_cipher_iv_length"
-        | "openssl_encrypt" | "openssl_decrypt"
-        // XML functions
-        | "simplexml_load_string" | "simplexml_load_file" | "simplexml_import_dom"
         | "utf8_encode" | "utf8_decode" | "html_entity_decode"
     )
 }
@@ -1539,22 +1526,10 @@ pub(crate) fn execute_builtin_function(
             let path = crate::engine::operators::zval_get_string(&args[0]);
             let path_str = path.as_str();
 
-            // Check if it's an HTTP/HTTPS URL
-            if path_str.starts_with("http://") || path_str.starts_with("https://") {
-                match crate::php::http_stream::file_get_contents_http(path_str) {
-                    Ok(content) => Ok(Some(string_val(&content))),
-                    Err(e) => {
-                        eprintln!("HTTP error: {}", e);
-                        Ok(Some(Val::new(PhpValue::Long(0), PhpType::False)))
-                    }
-                }
-            } else {
-                // Local file
-                let resolved = resolve_path_for_runtime(path_str, _execute_data);
-                match std::fs::read_to_string(&resolved) {
-                    Ok(content) => Ok(Some(string_val(&content))),
-                    Err(_) => Ok(Some(Val::new(PhpValue::Long(0), PhpType::False))),
-                }
+            let resolved = resolve_path_for_runtime(path_str, _execute_data);
+            match std::fs::read_to_string(&resolved) {
+                Ok(content) => Ok(Some(string_val(&content))),
+                Err(_) => Ok(Some(Val::new(PhpValue::Long(0), PhpType::False))),
             }
         }
         "file_exists" => {
@@ -2340,38 +2315,6 @@ pub(crate) fn execute_builtin_function(
         "rawurlencode" => crate::php::url::rawurlencode(args).map(Some),
         "rawurldecode" => crate::php::url::rawurldecode(args).map(Some),
         "parse_str" => crate::php::url::parse_str(args).map(Some),
-        "get_headers" => crate::php::url::get_headers(args).map(Some),
-
-        // --- Session functions ---
-        "session_start" => {
-            let ok = crate::php::session::session_start(_execute_data)?;
-            Ok(Some(bool_val(ok)))
-        }
-        "session_destroy" => {
-            let ok = crate::php::session::session_destroy(_execute_data)?;
-            Ok(Some(bool_val(ok)))
-        }
-        "session_id" => {
-            let id = crate::php::session::session_id(args, _execute_data)?;
-            Ok(Some(string_val(&id)))
-        }
-        "session_name" => {
-            let name = crate::php::session::session_name(args, _execute_data)?;
-            Ok(Some(string_val(&name)))
-        }
-
-        // --- CSV functions ---
-        "str_getcsv" => crate::php::csv::str_getcsv(args).map(Some),
-        "fgetcsv" => crate::php::csv::fgetcsv(args).map(Some),
-        "fputcsv" => crate::php::csv::fputcsv(args).map(Some),
-
-        // --- Compression functions ---
-        "gzcompress" => crate::php::compression::gzcompress(args).map(Some),
-        "gzuncompress" => crate::php::compression::gzuncompress(args).map(Some),
-        "gzencode" => crate::php::compression::gzencode(args).map(Some),
-        "gzdecode" => crate::php::compression::gzdecode(args).map(Some),
-        "gzdeflate" => crate::php::compression::gzdeflate(args).map(Some),
-        "gzinflate" => crate::php::compression::gzinflate(args).map(Some),
 
         // --- Multibyte string functions ---
         "mb_strlen" => crate::php::mbstring::mb_strlen(args).map(Some),
@@ -3249,280 +3192,6 @@ pub(crate) fn execute_builtin_function(
             Ok(Some(null_val()))
         }
 
-        // --- cURL functions (backed by reqwest blocking) ---
-        "curl_init" => {
-            let url = if args.is_empty() { String::new() } else {
-                crate::engine::operators::zval_get_string(&args[0]).as_str().to_string()
-            };
-            let mut obj = crate::engine::types::PhpObject::new("CurlHandle");
-            obj.properties.insert("url".to_string(), string_val(&url));
-            obj.properties.insert("options".to_string(),
-                Val::new(PhpValue::Array(Box::default()), PhpType::Array));
-            obj.properties.insert("response".to_string(), null_val());
-            obj.properties.insert("info".to_string(),
-                Val::new(PhpValue::Array(Box::default()), PhpType::Array));
-            obj.properties.insert("error".to_string(), string_val(""));
-            obj.properties.insert("errno".to_string(), Val::new(PhpValue::Long(0), PhpType::Long));
-            Ok(Some(Val::new(PhpValue::Object(Box::new(obj)), PhpType::Object)))
-        }
-        "curl_setopt" => {
-            if args.len() < 3 { return Err("curl_setopt() expects 3 arguments".into()); }
-            if let PhpValue::Object(obj) = &args[0].value {
-                let mut updated = crate::engine::types::PhpObject::new("CurlHandle");
-                updated.properties = obj.properties.clone();
-                let opt = crate::engine::operators::zval_get_long(&args[1]);
-                let key = format!("opt_{opt}");
-                updated.properties.insert(key, clone_val(&args[2]));
-                // Also store in options array for convenience
-                if let Some(PhpValue::Array(arr)) = updated.properties.get("options").map(|v| &v.value) {
-                    let mut new_arr = super::execute_data::ExecuteData::clone_php_array(arr);
-                    let opt_key = crate::engine::string::string_init(&opt.to_string(), false);
-                    let _ = crate::engine::hash::hash_add_or_update(
-                        &mut new_arr, Some(&opt_key), 0, clone_val(&args[2]), 0);
-                    updated.properties.insert("options".to_string(),
-                        Val::new(PhpValue::Array(Box::new(new_arr)), PhpType::Array));
-                }
-                return Ok(Some(Val::new(PhpValue::Object(Box::new(updated)), PhpType::Object)));
-            }
-            Ok(Some(bool_val(false)))
-        }
-        "curl_setopt_array" => {
-            if args.len() < 2 { return Err("curl_setopt_array() expects 2 arguments".into()); }
-            if let (PhpValue::Object(obj), PhpValue::Array(opts)) = (&args[0].value, &args[1].value) {
-                let mut updated = crate::engine::types::PhpObject::new("CurlHandle");
-                updated.properties = obj.properties.clone();
-                for bucket in &opts.ar_data {
-                    let key = format!("opt_{}", bucket.h);
-                    updated.properties.insert(key, clone_val(&bucket.val));
-                }
-                return Ok(Some(Val::new(PhpValue::Object(Box::new(updated)), PhpType::Object)));
-            }
-            Ok(Some(bool_val(false)))
-        }
-        "curl_exec" => {
-            if args.is_empty() { return Ok(Some(bool_val(false))); }
-            if let PhpValue::Object(ref obj) = args[0].value {
-                let url = obj.properties.get("url")
-                    .map(|v| crate::engine::operators::zval_get_string(v).as_str().to_string())
-                    .unwrap_or_default();
-                if url.is_empty() { return Ok(Some(bool_val(false))); }
-                let method = obj.properties.get("opt_47")  // CURLOPT_CUSTOMREQUEST = 10047
-                    .map(|v| crate::engine::operators::zval_get_string(v).as_str().to_string())
-                    .unwrap_or_default();
-                let body = obj.properties.get("opt_10015")  // CURLOPT_POSTFIELDS = 10015
-                    .map(|v| crate::engine::operators::zval_get_string(v).as_str().to_string())
-                    .unwrap_or_default();
-                let timeout = obj.properties.get("opt_13")  // CURLOPT_TIMEOUT = 13
-                    .map(crate::engine::operators::zval_get_long)
-                    .unwrap_or(30);
-                match crate::php::curl::execute_request(&url, &method, &body, timeout as u64) {
-                    Ok((resp_body, status)) => {
-                        let mut updated = crate::engine::types::PhpObject::new("CurlHandle");
-                        updated.properties = obj.properties.clone();
-                        updated.properties.insert("response".to_string(), string_val(&resp_body));
-                        updated.properties.insert("http_code".to_string(),
-                            Val::new(PhpValue::Long(status as i64), PhpType::Long));
-                        return Ok(Some(Val::new(PhpValue::Object(Box::new(updated)), PhpType::Object)));
-                    }
-                    Err(e) => {
-                        let mut updated = crate::engine::types::PhpObject::new("CurlHandle");
-                        updated.properties = obj.properties.clone();
-                        updated.properties.insert("error".to_string(), string_val(&e));
-                        updated.properties.insert("errno".to_string(),
-                            Val::new(PhpValue::Long(1), PhpType::Long));
-                        return Ok(Some(Val::new(PhpValue::Object(Box::new(updated)), PhpType::Object)));
-                    }
-                }
-            }
-            Ok(Some(bool_val(false)))
-        }
-        "curl_getinfo" => {
-            if args.is_empty() { return Ok(Some(null_val())); }
-            if let PhpValue::Object(ref obj) = args[0].value {
-                let mut info = crate::engine::types::PhpArray::new();
-                let http_code = obj.properties.get("http_code")
-                    .map(crate::engine::operators::zval_get_long)
-                    .unwrap_or(0);
-                let k1 = crate::engine::string::string_init("http_code", false);
-                let _ = crate::engine::hash::hash_add_or_update(
-                    &mut info, Some(&k1), 0,
-                    Val::new(PhpValue::Long(http_code), PhpType::Long), 0);
-                let url = obj.properties.get("url")
-                    .map(|v| crate::engine::operators::zval_get_string(v).as_str().to_string())
-                    .unwrap_or_default();
-                let k2 = crate::engine::string::string_init("url", false);
-                let _ = crate::engine::hash::hash_add_or_update(
-                    &mut info, Some(&k2), 1,
-                    string_val(&url), 0);
-                let k3 = crate::engine::string::string_init("content_type", false);
-                let _ = crate::engine::hash::hash_add_or_update(
-                    &mut info, Some(&k3), 2,
-                    string_val("text/html"), 0);
-                return Ok(Some(Val::new(PhpValue::Array(Box::new(info)), PhpType::Array)));
-            }
-            Ok(Some(null_val()))
-        }
-        "curl_error" => {
-            if args.is_empty() { return Ok(Some(string_val(""))); }
-            if let PhpValue::Object(ref obj) = args[0].value {
-                let err = obj.properties.get("error")
-                    .map(|v| crate::engine::operators::zval_get_string(v).as_str().to_string())
-                    .unwrap_or_default();
-                return Ok(Some(string_val(&err)));
-            }
-            Ok(Some(string_val("")))
-        }
-        "curl_errno" => {
-            if args.is_empty() { return Ok(Some(Val::new(PhpValue::Long(0), PhpType::Long))); }
-            if let PhpValue::Object(ref obj) = args[0].value {
-                let errno = obj.properties.get("errno")
-                    .map(crate::engine::operators::zval_get_long)
-                    .unwrap_or(0);
-                return Ok(Some(Val::new(PhpValue::Long(errno), PhpType::Long)));
-            }
-            Ok(Some(Val::new(PhpValue::Long(0), PhpType::Long)))
-        }
-        "curl_close" => Ok(Some(null_val())),
-        "curl_reset" => {
-            if args.is_empty() { return Ok(Some(null_val())); }
-            if let PhpValue::Object(ref obj) = args[0].value {
-                let mut updated = crate::engine::types::PhpObject::new("CurlHandle");
-                updated.properties = obj.properties.clone();
-                updated.properties.insert("response".to_string(), null_val());
-                updated.properties.insert("error".to_string(), string_val(""));
-                updated.properties.insert("errno".to_string(), Val::new(PhpValue::Long(0), PhpType::Long));
-                return Ok(Some(Val::new(PhpValue::Object(Box::new(updated)), PhpType::Object)));
-            }
-            Ok(Some(null_val()))
-        }
-        "curl_version" => {
-            let mut arr = crate::engine::types::PhpArray::new();
-            let k1 = crate::engine::string::string_init("version", false);
-            let _ = crate::engine::hash::hash_add_or_update(
-                &mut arr, Some(&k1), 0,
-                string_val("7.88.1"), 0);
-            let k2 = crate::engine::string::string_init("ssl_version", false);
-            let _ = crate::engine::hash::hash_add_or_update(
-                &mut arr, Some(&k2), 1,
-                string_val("Rustls/0.12"), 0);
-            Ok(Some(Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array)))
-        }
-        "curl_strerror" => {
-            let code = if args.is_empty() { 0 } else { crate::engine::operators::zval_get_long(&args[0]) };
-            Ok(Some(string_val(match code {
-                0 => "No error",
-                1 => "Unsupported protocol",
-                3 => "URL malformed",
-                6 => "Could not resolve host",
-                7 => "Failed to connect to host",
-                28 => "Operation timed out",
-                _ => "Unknown error",
-            })))
-        }
-
-        // --- OpenSSL functions ---
-        "openssl_get_cipher_methods" => {
-            let mut arr = crate::engine::types::PhpArray::new();
-            let methods = ["aes-128-cbc", "aes-192-cbc", "aes-256-cbc",
-                "aes-128-ecb", "aes-192-ecb", "aes-256-ecb"];
-            for (i, m) in methods.iter().enumerate() {
-                let _ = crate::engine::hash::hash_add_or_update(
-                    &mut arr, None, i as u64, string_val(m), 0);
-            }
-            Ok(Some(Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array)))
-        }
-        "openssl_get_md_methods" => {
-            let mut arr = crate::engine::types::PhpArray::new();
-            let methods = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"];
-            for (i, m) in methods.iter().enumerate() {
-                let _ = crate::engine::hash::hash_add_or_update(
-                    &mut arr, None, i as u64, string_val(m), 0);
-            }
-            Ok(Some(Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array)))
-        }
-        "openssl_digest" => {
-            if args.len() < 2 { return Err("openssl_digest() expects at least 2 arguments".into()); }
-            let data = crate::engine::operators::zval_get_string(&args[0]);
-            let method = crate::engine::operators::zval_get_string(&args[1]);
-            let raw = args.len() > 2 && crate::engine::operators::zval_get_long(&args[2]) != 0;
-            let digest = crate::php::openssl::digest(data.as_str(), method.as_str(), raw);
-            match digest {
-                Some(d) => Ok(Some(string_val(&d))),
-                None => Ok(Some(bool_val(false))),
-            }
-        }
-        "openssl_random_pseudo_bytes" => {
-            if args.is_empty() { return Ok(Some(bool_val(false))); }
-            let len = crate::engine::operators::zval_get_long(&args[0]) as usize;
-            let mut buf = vec![0u8; len];
-            if getrandom::getrandom(&mut buf).is_ok() {
-                Ok(Some(string_val(&String::from_utf8_lossy(&buf))))
-            } else {
-                Ok(Some(bool_val(false)))
-            }
-        }
-        "openssl_error_string" => Ok(Some(bool_val(false))),
-        "openssl_cipher_iv_length" => {
-            let method = if args.is_empty() { "aes-128-cbc".to_string() } else {
-                crate::engine::operators::zval_get_string(&args[0]).as_str().to_string()
-            };
-            let iv_len = match method.as_str() {
-                m if m.starts_with("aes-128") => 16,
-                m if m.starts_with("aes-192") => 16,
-                m if m.starts_with("aes-256") => 16,
-                _ => 16,
-            };
-            Ok(Some(Val::new(PhpValue::Long(iv_len as i64), PhpType::Long)))
-        }
-        "openssl_encrypt" => {
-            if args.len() < 4 { return Err("openssl_encrypt() expects at least 4 arguments".into()); }
-            let data = crate::engine::operators::zval_get_string(&args[0]);
-            let method = crate::engine::operators::zval_get_string(&args[1]);
-            let key = crate::engine::operators::zval_get_string(&args[2]);
-            let iv = crate::engine::operators::zval_get_string(&args[3]);
-            match crate::php::openssl::encrypt(data.as_str(), method.as_str(), key.as_str(), iv.as_str()) {
-                Some(result) => Ok(Some(string_val(&result))),
-                None => Ok(Some(bool_val(false))),
-            }
-        }
-        "openssl_decrypt" => {
-            if args.len() < 4 { return Err("openssl_decrypt() expects at least 4 arguments".into()); }
-            let data = crate::engine::operators::zval_get_string(&args[0]);
-            let method = crate::engine::operators::zval_get_string(&args[1]);
-            let key = crate::engine::operators::zval_get_string(&args[2]);
-            let iv = crate::engine::operators::zval_get_string(&args[3]);
-            match crate::php::openssl::decrypt(data.as_str(), method.as_str(), key.as_str(), iv.as_str()) {
-                Some(result) => Ok(Some(string_val(&result))),
-                None => Ok(Some(bool_val(false))),
-            }
-        }
-
-        // --- SimpleXML functions ---
-        "simplexml_load_string" => {
-            if args.is_empty() { return Ok(Some(bool_val(false))); }
-            let xml = crate::engine::operators::zval_get_string(&args[0]);
-            match crate::php::xml::parse_xml(xml.as_str()) {
-                Ok(node) => Ok(Some(xml_node_to_object(&node, "SimpleXMLElement"))),
-                Err(_) => Ok(Some(bool_val(false))),
-            }
-        }
-        "simplexml_load_file" => {
-            if args.is_empty() { return Ok(Some(bool_val(false))); }
-            let path = crate::engine::operators::zval_get_string(&args[0]);
-            match std::fs::read_to_string(path.as_str()) {
-                Ok(content) => {
-                    match crate::php::xml::parse_xml(&content) {
-                        Ok(node) => Ok(Some(xml_node_to_object(&node, "SimpleXMLElement"))),
-                        Err(_) => Ok(Some(bool_val(false))),
-                    }
-                }
-                Err(_) => Ok(Some(bool_val(false))),
-            }
-        }
-        "simplexml_import_dom" => {
-            // Simplified: return false (no DOM integration yet)
-            Ok(Some(bool_val(false)))
-        }
         "utf8_encode" => {
             let s = require_string_arg(args, "utf8_encode")?;
             Ok(Some(string_val(&s)))
@@ -3548,42 +3217,6 @@ pub(crate) fn execute_builtin_function(
 
         _ => Ok(None), // Unknown function — return None to signal not found
     }
-}
-
-/// Convert an XmlNode to a SimpleXMLElement PHP object.
-/// Properties: child element names → nested SimpleXMLElement objects.
-/// Attributes stored as properties prefixed with "@".
-/// Text content stored as "__text" property.
-/// Element name stored as "__name" property.
-fn xml_node_to_object(node: &crate::php::xml::XmlNode, class_name: &str) -> Val {
-    let mut obj = crate::engine::types::PhpObject::new(class_name);
-    obj.properties.insert("__name".to_string(), string_val(&node.name));
-    if !node.text.is_empty() {
-        obj.properties.insert("__text".to_string(), string_val(&node.text));
-    }
-    for (k, v) in &node.attributes {
-        let key = format!("@{k}");
-        obj.properties.insert(key, string_val(v));
-    }
-    let mut child_map: std::collections::HashMap<String, Vec<&crate::php::xml::XmlNode>> = std::collections::HashMap::new();
-    for child in &node.children {
-        child_map.entry(child.name.clone()).or_default().push(child);
-    }
-    for (name, children) in child_map {
-        if children.len() == 1 {
-            obj.properties.insert(name, xml_node_to_object(children[0], class_name));
-        } else {
-            let mut arr = crate::engine::types::PhpArray::new();
-            for (i, child) in children.iter().enumerate() {
-                let _ = crate::engine::hash::hash_add_or_update(
-                    &mut arr, None, i as u64,
-                    xml_node_to_object(child, class_name), 0);
-            }
-            obj.properties.insert(name, Val::new(
-                PhpValue::Array(Box::new(arr)), PhpType::Array));
-        }
-    }
-    Val::new(PhpValue::Object(Box::new(obj)), PhpType::Object)
 }
 
 /// filter_var implementation — supports FILTER_VALIDATE_INT, FILTER_VALIDATE_FLOAT,

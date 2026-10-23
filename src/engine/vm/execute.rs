@@ -495,10 +495,8 @@ pub fn execute_ex(execute_data: &mut ExecuteData, op_array: &OpArray) -> PhpResu
     result
 }
 
-fn finalize_request(execute_data: &mut ExecuteData) {
-    if let Err(e) = crate::php::session::session_write_close(execute_data) {
-        eprintln!("Session write error: {e}");
-    }
+fn finalize_request(_execute_data: &mut ExecuteData) {
+    // Request finalization (sessions etc.) is owned by the Rust host.
 }
 
 #[cfg(test)]

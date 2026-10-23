@@ -540,19 +540,6 @@ fn preg_match_lookahead() {
     assert_eq!(zval_get_long(&m), 0);
 }
 
-#[test]
-fn session_start_destroy_id() {
-    let mut ed = ExecuteData::new();
-    let started = run("session_start", &[], &mut ed).unwrap().unwrap();
-    assert_eq!(zval_get_long(&started), 1);
-
-    let sid = run("session_id", &[], &mut ed).unwrap().unwrap();
-    assert!(!zval_get_string(&sid).as_str().is_empty());
-
-    let destroyed = run("session_destroy", &[], &mut ed).unwrap().unwrap();
-    assert_eq!(zval_get_long(&destroyed), 1);
-}
-
 // --- Output / debug ---
 
 #[test]
@@ -872,11 +859,6 @@ fn url_builtins_parse_build_encode_decode_parse_str() {
     } else {
         panic!("parse_str");
     }
-
-    let gh = run("get_headers", &[str_val("/not-http")], &mut ed)
-        .unwrap()
-        .unwrap();
-    assert_eq!(gh.get_type(), PhpType::False);
 }
 
 // --- Multibyte ---
