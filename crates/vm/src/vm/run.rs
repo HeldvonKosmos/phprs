@@ -86,6 +86,7 @@ impl Vm {
     fn do_return(&mut self, value: Val, base_depth: usize) -> Flow {
         let frame = self.frames.pop().expect("frame");
         self.stack.truncate(frame.stack_base);
+        self.slot_stack.truncate(frame.slot_base);
         if let Some(g) = frame.generator {
             self.generator_finish(g, value.clone());
         }
@@ -119,7 +120,7 @@ impl Vm {
             Op::PushFalse => self.push(Val::Bool(false)),
             Op::PushInt(i) => self.push(Val::Int(*i)),
 
-            Op::LoadSlot(s) => match &self.frames[fidx].slots[*s as usize] {
+            Op::LoadSlot(s) => match &self.slot_stack[self.frames[fidx].slot_base + *s as usize] {
                 Some(v) => {
                     let v = v.clone();
                     self.push(v);
@@ -130,14 +131,14 @@ impl Vm {
                 }
             },
             Op::LoadSlotQuiet(s) => {
-                let v = self.frames[fidx].slots[*s as usize].clone().unwrap_or(Val::Null);
+                let v = self.slot_stack[self.frames[fidx].slot_base + *s as usize].clone().unwrap_or(Val::Null);
                 self.push(v);
             }
             Op::StoreSlot(s) => {
                 let v = self.pop();
-                self.frames[fidx].slots[*s as usize] = Some(v);
+                self.slot_stack[self.frames[fidx].slot_base + *s as usize] = Some(v);
             }
-            Op::UnsetSlot(s) => self.frames[fidx].slots[*s as usize] = None,
+            Op::UnsetSlot(s) => self.slot_stack[self.frames[fidx].slot_base + *s as usize] = None,
             Op::LoadThis => match self.frames[fidx].this {
                 Some(h) => self.push(Val::Object(h)),
                 None => return Err(Throw::error("Using $this when not in object context")),
@@ -174,10 +175,10 @@ impl Vm {
                 self.push(r);
             }
             Op::BinSS { a, b, op: bop } => {
-                let x = self.frames[fidx].slots[*a as usize].clone();
-                let y = self.frames[fidx].slots[*b as usize].clone();
+                let x = self.slot_stack[self.frames[fidx].slot_base + *a as usize].clone();
+                let y = self.slot_stack[self.frames[fidx].slot_base + *b as usize].clone();
                 let (Some(x), Some(y)) = (x, y) else {
-                    let name = unit.slot_names.get(if self.frames[fidx].slots[*a as usize].is_none() { *a } else { *b } as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                    let name = unit.slot_names.get(if self.slot_stack[self.frames[fidx].slot_base + *a as usize].is_none() { *a } else { *b } as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
                 {
@@ -188,7 +189,7 @@ impl Vm {
                 self.push(r);
             }
             Op::BinSI { a, imm, op: bop } => {
-                let Some(x) = self.frames[fidx].slots[*a as usize].clone() else {
+                let Some(x) = self.slot_stack[self.frames[fidx].slot_base + *a as usize].clone() else {
                     let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
@@ -200,7 +201,7 @@ impl Vm {
                 self.push(r);
             }
             Op::BinSC { a, c, op: bop } => {
-                let Some(x) = self.frames[fidx].slots[*a as usize].clone() else {
+                let Some(x) = self.slot_stack[self.frames[fidx].slot_base + *a as usize].clone() else {
                     let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
@@ -213,8 +214,8 @@ impl Vm {
                 self.push(r);
             }
             Op::JumpUnlessSS { a, b, op: bop, target } => {
-                let x = self.frames[fidx].slots[*a as usize].clone();
-                let y = self.frames[fidx].slots[*b as usize].clone();
+                let x = self.slot_stack[self.frames[fidx].slot_base + *a as usize].clone();
+                let y = self.slot_stack[self.frames[fidx].slot_base + *b as usize].clone();
                 let (Some(x), Some(y)) = (x, y) else {
                     return Err(Throw::new("UndefinedVariableError", "Undefined variable"));
                 };
@@ -223,7 +224,7 @@ impl Vm {
                 }
             }
             Op::JumpUnlessSI { a, imm, op: bop, target } => {
-                let cond = match &self.frames[fidx].slots[*a as usize] {
+                let cond = match &self.slot_stack[self.frames[fidx].slot_base + *a as usize] {
                     Some(Val::Int(x)) => {
                         let imm = *imm as i64;
                         match bop {
@@ -480,7 +481,7 @@ impl Vm {
             Op::UnsetPath(path) => self.unset_path(&path.base, &path.segs, midx)?,
             Op::CompoundSlot { slot, op: bop, discard } => {
                 let rhs = self.pop();
-                let lhs = self.frames[fidx].slots[*slot as usize].take().unwrap_or(Val::Null);
+                let lhs = self.slot_stack[self.frames[fidx].slot_base + *slot as usize].take().unwrap_or(Val::Null);
                 let r = match self.binary(*bop, lhs, rhs) {
                     Ok(r) => r,
                     Err(e) => return Err(e),
@@ -488,18 +489,18 @@ impl Vm {
                 if !*discard {
                     self.push(r.clone());
                 }
-                self.frames[fidx].slots[*slot as usize] = Some(r);
+                self.slot_stack[self.frames[fidx].slot_base + *slot as usize] = Some(r);
             }
             Op::IncSlotDiscard { slot, mode } => {
-                let old = self.frames[fidx].slots[*slot as usize].take().unwrap_or(Val::Null);
+                let old = self.slot_stack[self.frames[fidx].slot_base + *slot as usize].take().unwrap_or(Val::Null);
                 let new = match mode {
                     WriteMode::PreInc | WriteMode::PostInc => self.inc_dec(old, true)?,
                     _ => self.inc_dec(old, false)?,
                 };
-                self.frames[fidx].slots[*slot as usize] = Some(new);
+                self.slot_stack[self.frames[fidx].slot_base + *slot as usize] = Some(new);
             }
             Op::IncSlot { slot, mode } => {
-                let old = self.frames[fidx].slots[*slot as usize].clone().unwrap_or(Val::Null);
+                let old = self.slot_stack[self.frames[fidx].slot_base + *slot as usize].clone().unwrap_or(Val::Null);
                 let (new, result) = match mode {
                     WriteMode::PreInc => {
                         let n = self.inc_dec(old, true)?;
@@ -513,7 +514,7 @@ impl Vm {
                     WriteMode::PostDec => (self.inc_dec(old.clone(), false)?, old),
                     _ => unreachable!(),
                 };
-                self.frames[fidx].slots[*slot as usize] = Some(new);
+                self.slot_stack[self.frames[fidx].slot_base + *slot as usize] = Some(new);
                 self.push(result);
             }
 
@@ -773,7 +774,8 @@ impl Vm {
             Op::MakeClosure(cl) => {
                 let ClosureOp { unit: u, captures, bind_this } = &**cl;
                 let f = &self.frames[fidx];
-                let caps: Vec<Option<Val>> = captures.iter().map(|c| f.slots[*c as usize].clone()).collect();
+                let base = f.slot_base;
+                let caps: Vec<Option<Val>> = captures.iter().map(|c| self.slot_stack[base + *c as usize].clone()).collect();
                 let data = ClosureData::User {
                     module: midx,
                     unit: *u,
@@ -830,10 +832,10 @@ impl Vm {
                 let v = self.pop();
                 let state = self.iter_init(v)?;
                 let idx = self.alloc_iter(state);
-                self.frames[fidx].slots[*slot as usize] = Some(Val::Int(idx as i64));
+                self.slot_stack[self.frames[fidx].slot_base + *slot as usize] = Some(Val::Int(idx as i64));
             }
             Op::IterNext { iter, end, with_key } => {
-                let idx = match self.frames[fidx].slots[*iter as usize] {
+                let idx = match self.slot_stack[self.frames[fidx].slot_base + *iter as usize] {
                     Some(Val::Int(i)) => i as usize,
                     _ => return Err(Throw::error("foreach iterator state missing")),
                 };
@@ -925,7 +927,7 @@ impl Vm {
             }
             Op::PromoteParam { slot, prop } => {
                 let this = self.frames[fidx].this.expect("promotion needs $this");
-                let v = self.frames[fidx].slots[*slot as usize].clone().unwrap_or(Val::Null);
+                let v = self.slot_stack[self.frames[fidx].slot_base + *slot as usize].clone().unwrap_or(Val::Null);
                 let name = module.str(*prop).to_vec();
                 self.set_prop_raw(this, &name, v);
             }

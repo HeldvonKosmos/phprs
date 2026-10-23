@@ -76,8 +76,9 @@ impl Vm {
         mut args: Vec<Val>,
         named: Vec<(Vec<u8>, Val)>,
         class_ctx: Option<ClassId>,
-    ) -> Result<(Vec<Option<Val>>, u64), Throw> {
-        let mut slots: Vec<Option<Val>> = vec![None; unit.num_slots as usize];
+        base: usize,
+    ) -> Result<u64, Throw> {
+        // the window was already reserved by the caller
         let mut present: u64 = 0;
         let set = |present: &mut u64, i: usize| {
             if i < 64 {
@@ -95,7 +96,7 @@ impl Vm {
         for (i, v) in args.into_iter().enumerate() {
             let p = &unit.params[i];
             let v = self.coerce_param(module, unit, p, v, class_ctx)?;
-            slots[p.slot as usize] = Some(v);
+            self.slot_stack[base + p.slot as usize] = Some(v);
             set(&mut present, i);
         }
         let mut extra_named: Vec<(Vec<u8>, Val)> = Vec::new();
@@ -107,7 +108,7 @@ impl Vm {
                     }
                     let p = &unit.params[i];
                     let v = self.coerce_param(module, unit, p, v, class_ctx)?;
-                    slots[p.slot as usize] = Some(v);
+                    self.slot_stack[base + p.slot as usize] = Some(v);
                     set(&mut present, i);
                 }
                 None => {
@@ -130,7 +131,7 @@ impl Vm {
                 let v = self.coerce_param(module, unit, p, v, class_ctx)?;
                 arr.insert(ArrayKey::Str(PhpString::from(k)), v);
             }
-            slots[p.slot as usize] = Some(Val::array(arr));
+            self.slot_stack[base + p.slot as usize] = Some(Val::array(arr));
             set(&mut present, vi);
         }
         for (i, p) in unit.params.iter().enumerate() {
@@ -142,7 +143,7 @@ impl Vm {
                 )));
             }
         }
-        Ok((slots, present))
+        Ok(present)
     }
 
     fn coerce_param(&mut self, module: &Rc<Module>, unit: &CodeUnit, p: &Param, v: Val, class_ctx: Option<ClassId>) -> Result<Val, Throw> {
@@ -265,7 +266,15 @@ impl Vm {
     pub(crate) fn push_frame(&mut self, target: CallTarget, args: Vec<Val>, named: Vec<(Vec<u8>, Val)>) -> Result<Option<Val>, Throw> {
         let module = self.modules[target.module as usize].clone();
         let unit = &module.units[target.unit as usize];
-        let (mut slots, present) = self.bind_args(&module, unit, args, named, target.class)?;
+        let base = self.slot_stack.len();
+        self.slot_stack.resize(base + unit.num_slots as usize, None);
+        let present = match self.bind_args(&module, unit, args, named, target.class, base) {
+            Ok(p) => p,
+            Err(e) => {
+                self.slot_stack.truncate(base);
+                return Err(e);
+            }
+        };
         let ic = self.ic_base[target.module as usize] + target.unit as usize;
         {
             let prof = &mut self.profiles[ic];
@@ -274,10 +283,10 @@ impl Vm {
                 prof.hot = true;
             }
         }
-        let base = unit.params.len();
+        let pbase = unit.params.len();
         for (i, c) in target.captures.into_iter().enumerate() {
-            if let Some(s) = slots.get_mut(base + i) {
-                *s = c;
+            if pbase + i < unit.num_slots as usize {
+                self.slot_stack[base + pbase + i] = c;
             }
         }
         let frame = Frame {
@@ -285,7 +294,8 @@ impl Vm {
             module_idx: target.module,
             unit: target.unit,
             ip: 0,
-            slots,
+            slot_base: base,
+            num_slots: unit.num_slots,
             this: target.this,
             class: target.class,
             static_class: target.static_class,
@@ -298,7 +308,8 @@ impl Vm {
             return_override: target.return_override,
         };
         if unit.is_generator {
-            let h = self.make_generator(frame)?;
+            let saved = self.slot_stack.split_off(base);
+            let h = self.make_generator(frame, saved)?;
             return Ok(Some(Val::Object(h)));
         }
         self.frames.push(frame);

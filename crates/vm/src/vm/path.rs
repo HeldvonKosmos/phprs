@@ -111,7 +111,7 @@ impl Vm {
 
     fn read_at(&mut self, loc: &Loc, dims: &[PathSeg], keys: &[Val]) -> Result<Val, Throw> {
         let mut cur = match loc {
-            Loc::Slot(s) => self.frame().slots[*s as usize].clone().unwrap_or(Val::Null),
+            Loc::Slot(s) => self.slot_stack[self.frames.last().expect("frame").slot_base + *s as usize].clone().unwrap_or(Val::Null),
             Loc::Obj(h, name) => self.read_prop(*h, name, false)?,
             Loc::Static(c, name) => self.static_prop_get(*c, name)?,
             Loc::Temp(v) => v.clone(),
@@ -133,7 +133,7 @@ impl Vm {
 
     fn take_loc(&mut self, loc: &Loc) -> Result<Val, Throw> {
         Ok(match loc {
-            Loc::Slot(s) => self.frame_mut().slots[*s as usize].take().unwrap_or(Val::Null),
+            Loc::Slot(s) => self.slot_stack[self.frames.last().expect("frame").slot_base + *s as usize].take().unwrap_or(Val::Null),
             Loc::Obj(h, name) => {
                 let class = self.objects.get(*h).class;
                 let scope = self.frame().class;
@@ -168,7 +168,7 @@ impl Vm {
 
     fn put_loc(&mut self, loc: &Loc, v: Val) -> Result<(), Throw> {
         match loc {
-            Loc::Slot(s) => self.frame_mut().slots[*s as usize] = Some(v),
+            Loc::Slot(s) => self.slot_stack[self.frames.last().expect("frame").slot_base + *s as usize] = Some(v),
             Loc::Obj(h, name) => {
                 let class = self.objects.get(*h).class;
                 let scope = self.frame().class;
@@ -193,9 +193,9 @@ impl Vm {
         if dims.is_empty() {
             return match loc {
                 Loc::Slot(s) => {
-                    let old = self.frame().slots[s as usize].clone().unwrap_or(Val::Null);
+                    let old = self.slot_stack[self.frames.last().expect("frame").slot_base + s as usize].clone().unwrap_or(Val::Null);
                     let (new, result) = self.apply_mode(mode, old, value)?;
-                    self.frame_mut().slots[s as usize] = Some(new);
+                    self.slot_stack[self.frames.last().expect("frame").slot_base + s as usize] = Some(new);
                     Ok(result)
                 }
                 Loc::Obj(h, name) => self.write_prop(h, &name, mode, value),
@@ -565,7 +565,7 @@ impl Vm {
 
     fn read_through(&mut self, base: &PathBase, segs: &[PathSeg], keys: &[Val], module: u32) -> Result<Val, Throw> {
         let mut cur = match base {
-            PathBase::Slot(s) => self.frame().slots[*s as usize].clone().unwrap_or(Val::Null),
+            PathBase::Slot(s) => self.slot_stack[self.frames.last().expect("frame").slot_base + *s as usize].clone().unwrap_or(Val::Null),
             PathBase::This => Val::Object(self.frame().this.ok_or_else(|| Throw::error("Using $this when not in object context"))?),
             PathBase::StaticProp(cr, name) => {
                 let class = self.resolve_class_ref(cr, module)?;

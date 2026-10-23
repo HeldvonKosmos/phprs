@@ -13,6 +13,7 @@ pub enum Delegate {
 pub struct GeneratorState {
     pub frame: Option<Frame>,
     pub saved_stack: Vec<Val>,
+    pub saved_slots: Vec<Option<Val>>,
     pub current: Option<(Val, Val)>,
     pub started: bool,
     pub finished: bool,
@@ -25,10 +26,10 @@ pub struct GeneratorState {
 }
 
 impl Vm {
-    pub(crate) fn make_generator(&mut self, frame: Frame) -> Result<ObjHandle, Throw> {
+    pub(crate) fn make_generator(&mut self, frame: Frame, saved_slots: Vec<Option<Val>>) -> Result<ObjHandle, Throw> {
         let class = self.wk().generator;
         let mut obj = PhpObject::new(class, 0);
-        let state = GeneratorState { frame: Some(frame), ..Default::default() };
+        let state = GeneratorState { frame: Some(frame), saved_slots, ..Default::default() };
         obj.native = Some(Box::new(state));
         let h = self.objects.alloc(obj);
         self.objects.get_mut(h).native_mut::<GeneratorState>().expect("state").frame.as_mut().expect("frame").generator = Some(h);
@@ -53,7 +54,9 @@ impl Vm {
     pub(crate) fn generator_suspend(&mut self, h: ObjHandle, yielded: Option<(Option<Val>, Val)>) {
         let frame = self.frames.pop().expect("generator frame");
         let saved = self.stack.split_off(frame.stack_base);
+        let saved_slots = self.slot_stack.split_off(frame.slot_base);
         let s = self.gen_state(h);
+        s.saved_slots = saved_slots;
         if let Some((key, value)) = yielded {
             let key = match key {
                 Some(k) => {
@@ -133,18 +136,21 @@ impl Vm {
 
     /// Push the saved frame and run it until the next yield or return.
     fn generator_run(&mut self, h: ObjHandle, sent: Val) -> Result<(), Throw> {
-        let (frame, saved) = {
+        let (frame, saved, saved_slots) = {
             let s = self.gen_state(h);
             let frame = s.frame.take().expect("suspended frame");
             let saved = std::mem::take(&mut s.saved_stack);
+            let saved_slots = std::mem::take(&mut s.saved_slots);
             s.running = true;
             s.started = true;
-            (frame, saved)
+            (frame, saved, saved_slots)
         };
         let depth = self.frames.len();
         let mut frame = frame;
         frame.stack_base = self.stack.len();
         self.stack.extend(saved);
+        frame.slot_base = self.slot_stack.len();
+        self.slot_stack.extend(saved_slots);
         let resumed = frame.ip > 0;
         self.frames.push(frame);
         if resumed {

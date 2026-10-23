@@ -41,10 +41,11 @@ impl Vm {
                     if matches {
                         let base = self.frames[fidx].stack_base;
                         self.stack.truncate(base);
-                        let f = &mut self.frames[fidx];
+                        let sbase = self.frames[fidx].slot_base;
                         if let Some(slot) = c.slot {
-                            f.slots[slot as usize] = Some(Val::Object(exc));
+                            self.slot_stack[sbase + slot as usize] = Some(Val::Object(exc));
                         }
+                        let f = &mut self.frames[fidx];
                         f.ip = c.target as usize;
                         f.pending = Pending::None;
                         return Ok(());
@@ -62,6 +63,7 @@ impl Vm {
             // no handler in this frame: pop it
             let frame = self.frames.pop().expect("frame");
             self.stack.truncate(frame.stack_base);
+            self.slot_stack.truncate(frame.slot_base);
             if let Some(g) = frame.generator {
                 self.generator_abort(g);
             }

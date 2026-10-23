@@ -86,7 +86,9 @@ pub struct Frame {
     pub module_idx: u32,
     pub unit: UnitId,
     pub ip: usize,
-    pub slots: Vec<Option<Val>>,
+    /// Window `[slot_base, slot_base + num_slots)` in `Vm::slot_stack`.
+    pub slot_base: usize,
+    pub num_slots: u32,
     pub this: Option<ObjHandle>,
     /// Scope class (`self::`, visibility).
     pub class: Option<ClassId>,
@@ -147,6 +149,8 @@ pub struct Vm {
     pub constants: HashMap<Vec<u8>, Val>,
     pub objects: ObjectStore,
     pub(crate) frames: Vec<Frame>,
+    /// Local variable slots of all live frames (RUNTIME_ARCHITECTURE §5.1).
+    pub(crate) slot_stack: Vec<Option<Val>>,
     pub(crate) stack: Vec<Val>,
     pub output: Vec<u8>,
     pub(crate) iters: Vec<Option<IterState>>,
@@ -188,6 +192,7 @@ impl Vm {
             constants: HashMap::new(),
             objects: ObjectStore::new(),
             frames: Vec::new(),
+            slot_stack: Vec::new(),
             stack: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),
