@@ -8,146 +8,110 @@ loco-rs 1.2.0), `inertiajs/inertia-omega` (Alpha), `DIALECT.md`, `BRIDGES.md`,
 ## 0. Das Ziel in einem Satz
 
 Ein Rust-Framework (Loco/Axum/SeaORM), dessen Anwendungsschicht in einem
-strikten PHP-Dialekt (`.grd`) geschrieben wird, der auf einem eingebetteten
-Interpreter läuft und über eine feste, framework-neutrale Host-Schnittstelle
-auf alle Dienste des Frameworks zugreift.
+strikten PHP-Dialekt (`.grd`) geschrieben wird. Interpreter und Framework
+sind **ein** System in **einem** Workspace: Die nativen Klassen des Dialekts
+greifen direkt auf `AppContext`, SeaORM, Polars und Inertia zu, ohne
+Adapter- oder Trait-Schicht dazwischen.
 
-"Framework-agnostisch" heißt konkret: Der Interpreter kennt Loco nicht. Er
-kennt nur eine Host-ABI (Traits + Registry). Loco ist der erste Host, der
-diese ABI implementiert. Jeder andere Host (nacktes Axum, Actix, ein
-CLI-Runner, ein Test-Harness) kann dieselben `.grd`-Dateien ausführen, wenn er
-die ABI erfüllt. Diese Trennung ist der Kern des Plans und zieht sich durch
-jeden Meilenstein.
+Entscheidung ("All-in-One Core"): Es gibt keinen zweiten Host und keine
+Host-ABI. Jede Zeile Rust dient genau einem Zweck, nämlich `.grd`-Code schnell
+und sicher auszuführen. Wer eine neue Fähigkeit im Dialekt braucht, schreibt
+die native Funktion direkt in den Core. Die einzige Grenze, die bleibt, ist
+eine Compile-Grenze zwischen Interpreter-Crate und Framework-Crate, damit der
+Interpreter ohne Datenbank, Tokio und Axum in Sekunden testbar bleibt.
 
-## 1. Repositories und Crates
+## 1. Ein Workspace
 
-### 1.1 Empfohlene Aufteilung
+### 1.1 Monorepo
 
-```
-HeldvonKosmos/phprs      → Interpreter-Crate        (umbenennen: opengrid-core)
-HeldvonKosmos/loco       → Loco-Fork, nur Patches    (upstream-tracking, siehe §6)
-HeldvonKosmos/opengrid   → NEU: Framework-Workspace  (das "Hauptprojekt")
-```
-
-Das Hauptprojekt ist nicht der Loco-Fork, sondern ein eigener Workspace, der
-beide als Abhängigkeit zieht. Begründung: Wer Anwendungscode in den Loco-Fork
-legt, muss bei jedem Upstream-Merge Konflikte in fremdem Code lösen. Der Fork
-bleibt eine dünne Patch-Serie, die sich per `git rebase upstream/master`
-pflegen lässt.
+`HeldvonKosmos/phprs` wird zum Workspace und später zu `opengrid` umbenannt;
+die Historie bleibt. Der Loco-Fork bleibt vorerst eine Git-Abhängigkeit und
+wird per `git subtree` einvendort, sobald sich Patches häufen.
 
 ```
-opengrid/                         (Cargo-Workspace)
+opengrid/                          (Cargo-Workspace, heute: phprs)
 ├── crates/
-│   ├── opengrid-host/            Host-ABI: Traits, Value-Brücke, Registry-Makros   ← framework-neutral
-│   ├── opengrid-loco/            Loco-Adapter: implementiert die ABI mit AppContext ← Loco-spezifisch
-│   ├── opengrid-inertia/         Inertia-Bindung (nutzt inertia-omega)
-│   ├── opengrid-data/            Polars/ndarray-Klassen (M5)
-│   └── opengrid-cli/             `opengrid` CLI: new, serve, make:*, pkg, db
-├── examples/test-app/            Referenzanwendung (Modules-Only-Struktur)
-└── Cargo.toml                    workspace: core = { git = "…/phprs" }, loco-rs = { git = "…/loco" }
+│   ├── core/                      Interpreter: Lexer, Compiler, VM, Dialektprüfung, Native Registry
+│   │                              (keine Abhängigkeit auf Tokio/Axum/SeaORM; cargo test in Sekunden)
+│   ├── framework/                 Loco-Hooks, VM-Pool, Catch-all-Routing, alle nativen Klassen
+│   │   └── src/native/            request.rs, response.rs, db.rs, model.rs, schema.rs, inertia.rs,
+│   │                              session.rs, cache.rs, queue.rs, mail.rs, storage.rs, auth.rs,
+│   │                              data.rs (Polars), config.rs, log.rs, http.rs, validator.rs
+│   ├── macros/                    #[php_class] / #[php_method] / #[php_function] Proc-Macros
+│   └── cli/                       `opengrid` CLI: new, serve, make:*, pkg, db, task, doctor
+├── examples/test-app/             Referenzanwendung (Modules-Only-Struktur)
+├── docs/                          DIALECT.md, ROADMAP.md, errors.md (GRD-Codes)
+└── Cargo.toml                     loco-rs = { git = "…/HeldvonKosmos/loco", branch = "opengrid" }
 ```
 
-`opengrid-core` (der Interpreter) hat keine Abhängigkeit auf `opengrid-host`;
-die Richtung ist `host → core`. So bleibt der Interpreter auch ohne Framework
-testbar (`cargo test` in phprs läuft weiter in Sekunden).
+Abhängigkeitsrichtung: `framework → core`, `framework → macros`, `cli →
+framework`. Nie umgekehrt.
 
-### 1.2 Was in welchen Repo-Fork gehört
+### 1.2 Was wohin gehört
 
-| Änderung | Repo |
+| Änderung | Crate |
 |---|---|
-| Native Registry, Objekt-Payload, Dialektprüfung, Bugfixes | phprs |
-| Host-Traits, `Val ↔ serde_json::Value`, `#[php_class]`-Makro | opengrid/crates/opengrid-host |
-| Catch-all-Handler, VM-Pool, DB-Bridge, Worker/Task/Mailer-Bridges | opengrid/crates/opengrid-loco |
-| Patches an Loco selbst (nur wenn unvermeidbar, §6) | loco-Fork |
-| Test-App, Modul-Manager, Generatoren | opengrid |
+| Registry, Objekt-Payload, Dialektprüfung, Sprach-Bugfixes, Autoloader | `core` |
+| Native Klassen, Pool, Routing, Hot-Reload, Inertia, DB, Polars | `framework` |
+| Patches an Loco selbst (nur wenn unvermeidbar, §6) | Loco-Fork, Branch `opengrid` |
+| Test-App, Modul-Manager, Generatoren | `examples/test-app`, `cli` |
 
-## 2. Die Host-ABI (beide Seiten)
+## 2. Die Nahtstelle zwischen `core` und `framework`
 
-Das ist die Schnittstelle, die "framework-agnostisch" einlöst. Sie hat zwei
-Hälften, die sich spiegeln.
+Keine ABI, nur die zwei Dinge, die das Framework vom Interpreter braucht, und
+die eine Konvertierung, die das Protokoll erzwingt.
 
-### 2.1 Was der Interpreter dem Host anbietet (`opengrid-core`)
+### 2.1 `core` bietet
 
 ```rust
 pub struct Engine { /* kompilierte Module, Klassen-Tabelle, Registry */ }
 
 impl Engine {
     pub fn new(registry: NativeRegistry) -> Engine;
-    pub fn load_module(&mut self, manifest: &ModulePath) -> Result<(), CompileError>;  // Autoloader-Wurzel
-    pub fn reload_file(&mut self, path: &Path) -> Result<(), CompileError>;           // Hot-Reload
-    pub fn instantiate(&self, class: &str, args: &[Val]) -> Result<ObjHandle, Throw>;
-    pub fn call_method(&self, obj: ObjHandle, method: &str, args: &[Val]) -> Result<Val, Throw>;
-    pub fn call_static(&self, class: &str, method: &str, args: &[Val]) -> Result<Val, Throw>;
-    pub fn classes_with_attribute(&self, attr: &str) -> Vec<ClassInfo>;              // z.B. #[Route]
+    pub fn load_module(&mut self, root: &Path) -> Result<(), CompileError>;   // Autoloader-Wurzel
+    pub fn reload_file(&mut self, path: &Path) -> Result<(), CompileError>;   // Hot-Reload
+    pub fn instantiate(&mut self, class: &str, args: &[Val]) -> Result<Val, Throw>;
+    pub fn call_method(&mut self, obj: &Val, method: &str, args: &[Val]) -> Result<Val, Throw>;
+    pub fn call_static(&mut self, class: &str, method: &str, args: &[Val]) -> Result<Val, Throw>;
+    pub fn classes_with_attribute(&self, attr: &str) -> Vec<ClassInfo>;       // z.B. #[Get('/x')]
 }
 
-pub struct NativeRegistry;
-impl NativeRegistry {
-    pub fn function(&mut self, name: &str, f: NativeFn);
-    pub fn class(&mut self, def: NativeClassDef);   // Name, Parent, Methoden, Konstanten, erbbar?
-}
-pub type NativeFn = fn(&mut HostCtx, &[Val]) -> Result<Val, Throw>;
+pub struct NativeRegistry;                        // Funktionen + Klassen (Name, Parent, Methoden, erbbar?)
+pub type NativeFn = fn(&mut Engine, &mut dyn Any, &[Val]) -> Result<Val, Throw>;
+//                                   ^ Request-Kontext des Frameworks (AppContext, Request, Session),
+//                                     für core opak; framework downcastet ohne Umweg.
 ```
 
-`HostCtx` ist ein `&mut dyn Any`-artiger Zugriff auf den Host-Zustand des
-aktuellen Requests (DB-Pool, Request, Session). Der Interpreter reicht ihn
-nur durch, er interpretiert ihn nicht.
+`PhpObject` bekommt `native: Option<Box<dyn Any + Send>>`, damit ein
+`DataFrame`, ein Query-Builder oder ein DB-Handle direkt im Objekt liegt.
 
-### 2.2 Was der Host dem Interpreter liefern muss (`opengrid-host`)
+### 2.2 Konvertierungen
 
-Traits, die der Loco-Adapter implementiert und die jeder andere Host
-implementieren müsste:
+Nur dort, wo ein externes Format es verlangt, und nie zwischen Schichten:
 
-| Trait | Methoden (Auszug) | Von welchen nativen Klassen genutzt |
+| Rand | Richtung | Warum |
 |---|---|---|
-| `HostDatabase` | `query(sql, binds) -> Rows`, `execute(sql, binds) -> Affected`, `transaction(f)`, `last_insert_id()` | `DB`, `Model`, `Schema` |
-| `HostRequest` | `method()`, `path()`, `query()`, `headers()`, `cookies()`, `body_json()`, `form()`, `files()`, `ip()` | `Request` |
-| `HostResponse` | Sink für `Response`, `Redirect`, `JsonResponse`, `InertiaResponse` | `Response`, `Inertia` |
-| `HostSession` | `get`, `put`, `pull`, `flash`, `regenerate`, `destroy` | `Session`, `Inertia` (Flash/Errors) |
-| `HostCache` | `get`, `put(ttl)`, `forget`, `remember` | `Cache` |
-| `HostStorage` | `put`, `get`, `delete`, `exists`, `url` | `Storage` |
-| `HostQueue` | `dispatch(class, payload, opts)`, `dispatch_unique`, `batch` | `Queue`, `Job::dispatch()` |
-| `HostMailer` | `send(Mail)`, `send_later(Mail)` | `Mail`, `Mailable` |
-| `HostAuth` | `hash`, `verify`, `issue_jwt(claims)`, `verify_jwt`, `current_user()` | `Auth`, `Hash` |
-| `HostConfig` | `get(key)`, `env()` | `Config`, `config()` |
-| `HostLog` | `log(level, msg, context)` | `Log` |
-| `HostHttp` | `request(method, url, opts)` | `Http` (ausgehend) |
-| `HostClock` | `now()`, `tz()` | `Carbon`-artige `DateTime`-Klasse |
-| `HostFs` (optional) | sandboxed Lesen unter `storage/` | `Storage::local` |
-
-Jeder Trait hat eine `Null`-Implementierung (für Tests) und eine
-`Loco`-Implementierung. Die nativen Klassen in `opengrid-host` sind gegen die
-Traits geschrieben, nicht gegen Loco. **Das ist die Stelle, an der ein
-zweiter Host einsteigt.**
-
-### 2.3 Die Wertebrücke
-
-Genau eine Konvertierung, in beide Richtungen, zentral in `opengrid-host`:
-
-```
-Val  ←→  serde_json::Value      (Arrays: lückenlose 0..n → JSON-Array, sonst Objekt)
-Val  ←→  sea_query::Value       (DB-Bindings und Spaltenwerte; Datum/Zeit → String ISO-8601, Decimal → String)
-```
-
-Alles andere (Inertia-Props, Cache-Werte, Queue-Payloads, Konfiguration,
-JSON-Responses) läuft über `serde_json::Value`. Objekte mit nativem Payload
-(DB-Handle, DataFrame) sind nicht serialisierbar und werfen beim Versuch.
+| HTTP-Body (JSON/Form/Multipart) | → `Val` | Protokoll |
+| Inertia-Props, JSON-Responses | `Val` → `serde_json::Value` | Protokoll (inertia-omega serialisiert mit serde) |
+| DB-Zeilen | `sqlx::Row`/SeaORM `QueryResult` → `Val` **direkt** | kein JSON dazwischen |
+| DB-Bindings | `Val` → `sea_query::Value` direkt | dito |
+| Cache/Queue-Payloads | `Val` ↔ JSON | Redis/Postgres speichern Text |
 
 ## 3. Dienst-für-Dienst: Loco → Dialekt
 
 Was Loco 1.2 tatsächlich hat (aus dem Quelltext) und wie es im Dialekt
-erscheint. Spalte "Mechanik" sagt, was der Adapter dafür baut.
+erscheint. Spalte "Mechanik" sagt, was `framework` dafür baut.
 
-| Loco-Dienst | Loco-API (Rust) | Dialekt-API (`.grd`) | Mechanik im Adapter | MS |
+| Loco-Dienst | Loco-API (Rust) | Dialekt-API (`.grd`) | Mechanik in `framework` | MS |
 |---|---|---|---|---|
 | HTTP-Routing | `Routes::add(uri, MethodRouter)`, `AppRoutes` | `Route::get('/tasks', [TaskController::class, 'index'])`, `Route::resource`, `->middleware()`, `->prefix()`, `->name()`; alternativ `#[Get('/tasks')]`-Attribute | Ein Catch-all `/{*path}` + `/` → `ArcSwap<RouteTable>` (matchit). `routes/web.grd` je Modul wird beim Start ausgeführt und füllt die Tabelle | M0 |
 | Request | Axum-Extractors, `RemoteIP`, `CookieJar` | `Request $r`: `input()`, `query()`, `json()`, `header()`, `cookie()`, `file()`, `ip()`, `validate([...])` | Request wird einmal in ein natives `Request`-Objekt gewandelt (lazy Body-Parsing) | M2 |
 | Response | `format::{json,html,text,redirect,render()}` | `return ['a'=>1]` (→ JSON), `return 'html'`, `response()->json()`, `->status()`, `->header()`, `->cookie()`, `redirect('/x')`, `back()` | Rückgabewert-Mapping, Cookies über `RenderBuilder::cookies` | M2 |
 | Middleware | `MiddlewareLayer`, `Hooks::middlewares` | `class EnsureOwner extends Middleware { handle(Request $r, Closure $next) }` + Loco-Stack (CORS, Compression, Timeout …) aus YAML | Script-Middleware läuft **innerhalb** des Catch-all als Kette; Locos Tower-Middleware bleibt außen und wird nur konfiguriert | M2 |
-| Validation | `validator`-Crate, `JsonValidate` | `$r->validate(['title' => 'required|string|max:120'])`, `ValidationException` → Inertia-Errors | Eigener Rule-Parser in `opengrid-host` (Laravel-Syntax), nicht `validator` | M2 |
-| Inertia | `inertia-omega`: `InertiaLayer`, `Inertia::render(component, props)`, `defer/lazy/merge`, `back_with_errors`, `flash` | `Inertia::render('Tasks/Index', [...])`, `Inertia::share()`, `Inertia::defer(fn() => …)`, `Inertia::location()` | `InertiaLayer` in `Hooks::after_routes`; Closures im Dialekt → `inertia::lazy(|| …)` via VM-Rückruf im Worker | M2 |
-| Sessions | **nicht in Loco** | `Session::get/put/flash` | `tower-sessions` mit Store (Memory/Redis/SQL) im Adapter; Inertia braucht sie für Errors/Flash | M2 |
-| Datenbank (raw) | `DatabaseConnection::query_all_raw/execute_raw`, `Statement::from_sql_and_values` | `DB::select($sql, $binds)`, `DB::statement()`, `DB::transaction(fn)` | `HostDatabase` über SeaORM-Connection; Transaktion hält den Worker-Thread | M3 |
+| Validation | `validator`-Crate, `JsonValidate` | `$r->validate(['title' => 'required|string|max:120'])`, `ValidationException` → Inertia-Errors | Eigener Rule-Parser (Laravel-Syntax) in `framework`, nicht `validator` | M2 |
+| Inertia | `inertia-omega`: `InertiaLayer`, `Inertia::render(component, props)`, `defer/lazy/merge`, `back_with_errors`, `flash` | `Inertia::render('Tasks/Index', [...])`, `Inertia::share()`, `Inertia::defer(fn() => …)`, `Inertia::location()` | `InertiaLayer` in `Hooks::after_routes`; Closures im Dialekt werden im Worker synchron ausgewertet und als fertige Props übergeben | M2 |
+| Sessions | **nicht in Loco** | `Session::get/put/flash` | `tower-sessions` mit Store (Memory/Redis/SQL) in `framework`; Inertia braucht sie für Errors/Flash | M2 |
+| Datenbank (raw) | `DatabaseConnection::query_all_raw/execute_raw`, `Statement::from_sql_and_values` | `DB::select($sql, $binds)`, `DB::statement()`, `DB::transaction(fn)` | SeaORM-Connection aus `ctx.db`; Transaktion hält den Worker-Thread | M3 |
 | Query-Builder | `sea_query` (dynamisch, kein Codegen) | `DB::table('tasks')->where('done', false)->orderBy('id')->limit(20)->get()`, `->first()`, `->insertGetId()`, `->update()`, `->delete()`, `->paginate(15)`, Joins, `whereIn`, Aggregates | Builder-Objekt in Rust (`sea_query::SelectStatement` etc.), Dialekt-Methoden mutieren es, Terminal-Methoden führen aus | M3 |
 | Models | SeaORM-Entities (statisch, generiert) | `class Task extends Model { protected $table; $fillable; casts; }`, `Task::find()`, `::where()`, `::create()`, `$t->save()`, `->delete()`, Timestamps, Relationen `hasMany/belongsTo` (lazy + `with()`) | Models bauen auf dem Query-Builder, **nicht** auf Entities. Schema-Introspektion (`db/introspect.rs`) liefert Spalten für Casts/Fillable-Defaults | M3 |
 | Migrationen | `sea-orm-migration` + `schema.rs`-Helfer (`create_table`, `add_column`, `add_reference`, `timestamps_tz`) | `database/migrations/2026_10_23_create_tasks.grd`: `Schema::create('tasks', fn(Blueprint $t) { $t->id(); $t->string('title'); $t->boolean('done')->default(false); $t->timestamps(); })` | `Blueprint` → `sea_query::TableCreateStatement`; Migrationsläufer in Rust (eigene Tabelle `_opengrid_migrations`), nutzt Locos `SchemaManager` | M3 |
@@ -194,10 +158,11 @@ Interpreter (phprs):
   `experimental-jit`, Fibers hinter `fibers`.
 - Umbenennung nach `opengrid-core`, Lizenz-Hinweise.
 
-Workspace (opengrid):
-- Workspace anlegen, `opengrid-host` mit Traits + `Null`-Impl + Wertebrücke.
-- `opengrid-loco`: `Hooks`-Implementierung, VM-Pool im `shared_store`
-  (`after_context`), Catch-all-Routen, `RouteTable`.
+Workspace:
+- phprs in Workspace umbauen: `crates/core` (bisheriges `src/`), `crates/cli`
+  (bisheriges `bin/phprs`), neu `crates/framework` und `crates/macros`.
+- `framework`: `Hooks`-Implementierung, VM-Pool im `shared_store`
+  (`after_context`), Catch-all-Routen, `RouteTable`, Konvertierungen aus §2.2.
 - Worker-Thread-Pool (N Threads, je eine `Engine`-Instanz, geteilte
   `Arc<OpArray>`), Request → Channel → Worker → Response; DB-Aufrufe per
   `Handle::block_on` (Begründung in `BRIDGES.md` §5).
@@ -217,7 +182,7 @@ opengrid grün; Requests/s gegen Laravel Octane gemessen und notiert.
   Klassen; `parent::` in native Methoden.
 - `Fiber`, `Generator`, `Reflection*` von hartkodierten String-Vergleichen auf
   die Registry umstellen (Beweis, dass die Registry trägt).
-- `#[php_class]` / `#[php_method]` Proc-Macro in `opengrid-host`, erzeugt
+- `#[php_class]` / `#[php_method]` Proc-Macro in `crates/macros`, erzeugt
   `NativeClassDef` samt Typkonvertierung der Argumente.
 - `Log`, `Config` als erste native Klassen.
 
@@ -231,8 +196,8 @@ Abnahme: `class TaskController extends Controller` mit `Controller` in Rust;
   per Controller (`$this->middleware('auth')`).
 - `Validator` mit Laravel-Regelsyntax (required, string, int, email, max, min,
   in, exists:table,col, unique:table,col, confirmed, nullable, array, date).
-- `tower-sessions` im Adapter; `Session`-Klasse; Flash.
-- `opengrid-inertia`: `Inertia::render/share/defer/lazy/location`,
+- `tower-sessions` in `framework`; `Session`-Klasse; Flash.
+- `native/inertia.rs`: `Inertia::render/share/defer/lazy/location`,
   Validation-Errors → `back_with_errors`, Vite-Tags (`laravel-omega-vite`),
   SSR-Gateway optional.
 - Test-App: Vue-Frontend `Pages/Tasks/Index.vue`, Formular mit
@@ -243,7 +208,7 @@ Flash-Nachricht nach Redirect.
 
 ### M3 — Datenbank, Query-Builder, Models, Migrationen, Cache
 
-- `HostDatabase` über SeaORM-Connection (`query_all_raw`, `execute_raw`).
+- SeaORM-Connection aus `ctx.db` (`query_all_raw`, `execute_raw`).
 - `DB`-Facade mit `sea_query`-Builder (Select/Insert/Update/Delete, Joins,
   Aggregates, `paginate`), Transaktionen.
 - `Model`-Basisklasse: Konventionen (`tasks`, `id`, `created_at`), `$fillable`,
@@ -275,7 +240,7 @@ Absturz.
 
 ### M5 — Data Science (das Alleinstellungsmerkmal)
 
-- `opengrid-data`: `DataFrame`, `Series`, `LazyFrame` als native Klassen über
+- `native/data.rs`: `DataFrame`, `Series`, `LazyFrame` als native Klassen über
   Polars; `DataFrame::fromQuery($builder)`, `::fromArray()`, `->filter()`,
   `->groupBy()->agg()`, `->join()`, `->sort()`, `->toArray()`, `->toInertia()`
   (spaltenorientiertes JSON für Charts), `->toCsv()`, `->toParquet()`.
@@ -313,23 +278,14 @@ zweites Modul wird per `pkg` aus Git installiert und lädt sein Plugin.
 Abnahme: dokumentierter Benchmark gegen Laravel Octane und reines Loco mit
 derselben Test-App.
 
-### M8 — Zweiter Host (Beweis der Agnostik)
-
-- `opengrid-axum`: minimaler Host ohne Loco (Axum + sqlx), implementiert die
-  Traits aus §2.2.
-- Dieselbe Test-App läuft dort ohne Änderung an `.grd`-Dateien.
-
-Abnahme: Test-App-Feature-Tests grün auf beiden Hosts.
-
 ## 5. Integration des Loco-Forks: konkrete Schritte
 
 1. `HeldvonKosmos/loco`: `upstream` auf `loco-rs/loco` setzen, Tag
    `upstream-1.2.0` auf den Fork-Stand. Branch `opengrid` für Patches,
    `master` folgt upstream.
-2. Im neuen Workspace: `loco-rs = { git = "https://github.com/HeldvonKosmos/loco", branch = "opengrid" }`
-   und `opengrid-core = { git = "https://github.com/HeldvonKosmos/phprs" }`
-   (später crates.io oder Path-Deps in einem Monorepo, je nach Geschmack).
-3. `opengrid-loco::App` implementiert `Hooks` einmal und endgültig. Die
+2. Im Workspace: `loco-rs = { git = "https://github.com/HeldvonKosmos/loco", branch = "opengrid" }`.
+   Wenn Patches sich häufen: `git subtree add --prefix vendor/loco …`, dann Path-Dependency.
+3. `framework::App` implementiert `Hooks` einmal und endgültig. Die
    Anwendung schreibt keinen Rust-Code mehr, es sei denn in Modul-Crates.
 4. Konfiguration: `config/{env}.yaml` ist Locos Format; der Block
    `settings.opengrid` trägt `modules_dir`, `workers`, `hot_reload`,
@@ -359,7 +315,7 @@ Versicherung, kein Arbeitsort.
 | `PhpValue` mit Raw-Pointern und `unsafe impl Send/Sync` | Worker-Pool mit Thread-Affinität; `OpArray` vor dem Teilen auf Pointer-freie Werte prüfen (Audit in M0) |
 | Prozessweite `OnceLock`s (Opcode-Cache, Interner, Globals) | in M0 nach `Engine` verschieben oder hinter `experimental-jit` |
 | Interpreter-Korrektheit (zwei Fundamentalfehler schon gefunden) | Conformance-Suite in M0 beginnen: je Sprachfeature ein Test; Test-App als Smoke-Test |
-| Closures aus dem Dialekt in async Rust (Inertia `defer`, Queue) | Closures werden im Worker-Thread synchron ausgeführt; Ergebnis als `serde_json::Value` ans Future übergeben |
+| Closures aus dem Dialekt in async Rust (Inertia `defer`, Queue) | Closures werden im Worker-Thread synchron ausgeführt; nur das Ergebnis verlässt den Worker |
 | inertia-omega ist Alpha, 6 Commits | eigener Fork, wenn es sich bewegt; Protokoll ist stabil und klein |
 | `sea_query`-Builder deckt nicht alle Laravel-Methoden | `DB::raw()` als Ventil von Anfang an |
 | Plugin-ABI (`libloading`) zwischen Rust-Versionen | C-ABI mit Versionsfeld, Dev-only; Prod statisch |
@@ -368,8 +324,8 @@ Versicherung, kein Arbeitsort.
 
 1. phprs: Cast-Syntax und Exception-Nachrichten fixen (`KNOWN_ISSUES` #1, #2),
    strikte Vergleiche, Warnings → Exceptions. Conformance-Tests dazu.
-2. opengrid-Workspace anlegen mit `opengrid-host` (Traits, Null-Impl,
-   Wertebrücke) und `opengrid-loco` (Hooks, Pool, Catch-all).
+2. phprs zum Workspace umbauen (`crates/core`, `crates/cli`) und
+   `crates/framework` mit Hooks, Pool und Catch-all anlegen.
 3. Test-App-Skelett in der Modules-Only-Struktur mit dem ersten Controller.
 4. Messung: `GET /tasks` Requests/s gegen Laravel Octane auf derselben
    Maschine, Ergebnis in `BENCHMARKS.md`.
