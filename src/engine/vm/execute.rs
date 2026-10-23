@@ -96,6 +96,7 @@ fn init_dispatch_table() {
         table[Opcode::Values as usize] = execute_values;
         table[Opcode::ArrayDiff as usize] = execute_array_diff;
         table[Opcode::Yield as usize] = execute_yield;
+        table[Opcode::Cast as usize] = execute_cast;
 
         // Exception handling
         table[Opcode::TryCatchBegin as usize] = execute_try_catch_begin;
@@ -534,6 +535,6 @@ mod dispatch_table_tests {
         // The sentinel must be strictly greater than every real opcode so the
         // table size always covers all dispatchable indices. Update when a
         // new opcode is added (the compiler will point here).
-        assert_eq!(Opcode::COUNT, (Opcode::Yield as usize) + 1);
+        assert_eq!(Opcode::COUNT, (Opcode::Cast as usize) + 1);
     }
 }

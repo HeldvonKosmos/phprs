@@ -126,6 +126,14 @@ pub enum TokenType {
     T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG = 310,
     T_PAAMAYIM_NEKUDOTAYIM = 400, // :: (double colon / scope resolution)
 
+    // Casts: `(int)`, `(float)`, `(string)`, `(bool)`, `(array)`, `(object)`
+    T_INT_CAST = 401,
+    T_DOUBLE_CAST = 402,
+    T_STRING_CAST = 403,
+    T_BOOL_CAST = 404,
+    T_ARRAY_CAST = 405,
+    T_OBJECT_CAST = 406,
+
     // Literals
     T_LNUMBER = 311,
     T_DNUMBER = 312,

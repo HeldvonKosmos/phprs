@@ -395,7 +395,18 @@ impl Lexer {
                 self.advance();
                 Ok((TokenType::T_NS_SEPARATOR, "\\".to_string()))
             }
-            b'(' | b')' | b'{' | b'}' | b';' | b',' | b'[' | b']' => {
+            b'(' => {
+                if let Some((token_type, len)) = self.scan_cast() {
+                    for _ in 0..len {
+                        self.advance();
+                    }
+                    let text = String::from_utf8_lossy(&self.input[self.position - len..self.position]).to_string();
+                    return Ok((token_type, text));
+                }
+                self.advance();
+                Ok((TokenType::T_STRING, "(".to_string()))
+            }
+            b')' | b'{' | b'}' | b';' | b',' | b'[' | b']' => {
                 self.advance();
                 let ch_str = String::from_utf8_lossy(&[ch]).to_string();
                 Ok((TokenType::T_STRING, ch_str))
@@ -405,6 +416,40 @@ impl Lexer {
                 Err(format!("Unknown char: {}", ch as char))
             }
         }
+    }
+
+    /// Recognise a cast such as `(int)` or `( string )` starting at the
+    /// current `(`. Returns the token and the number of bytes it spans.
+    fn scan_cast(&self) -> Option<(TokenType, usize)> {
+        let rest = &self.input[self.position..];
+        let mut i = 1; // past '('
+        while i < rest.len() && (rest[i] == b' ' || rest[i] == b'\t') {
+            i += 1;
+        }
+        let start = i;
+        while i < rest.len() && rest[i].is_ascii_alphabetic() {
+            i += 1;
+        }
+        if start == i {
+            return None;
+        }
+        let word = std::str::from_utf8(&rest[start..i]).ok()?.to_ascii_lowercase();
+        while i < rest.len() && (rest[i] == b' ' || rest[i] == b'\t') {
+            i += 1;
+        }
+        if rest.get(i) != Some(&b')') {
+            return None;
+        }
+        let token_type = match word.as_str() {
+            "int" | "integer" => TokenType::T_INT_CAST,
+            "float" | "double" | "real" => TokenType::T_DOUBLE_CAST,
+            "string" => TokenType::T_STRING_CAST,
+            "bool" | "boolean" => TokenType::T_BOOL_CAST,
+            "array" => TokenType::T_ARRAY_CAST,
+            "object" => TokenType::T_OBJECT_CAST,
+            _ => return None,
+        };
+        Some((token_type, i + 1))
     }
 
     /// Helper to execute a read function that modifies position

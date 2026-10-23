@@ -587,6 +587,12 @@ fn parse_multiplicative_expr_with_initial(
     }
 
     // Handle T_STATIC
+    if let Some(kind) = cast_kind_for(&initial_token) {
+        let (operand, next) = super::primary::parse_primary_expr(lexer, context)?;
+        let result = emit_binary_op(context, Opcode::Cast, operand, facade::long_val(kind as i64));
+        return multiplicative_loop(lexer, context, result, next);
+    }
+
     if initial_token.token_type == TokenType::T_STATIC {
         let static_val = crate::engine::facade::string_val("static");
         let next = lexer.next_token()?;
@@ -655,4 +661,18 @@ pub(crate) fn parse_multiplicative_expr(
 ) -> Result<(Val, Token), String> {
     let (left, token) = super::primary::parse_primary_expr(lexer, context)?;
     multiplicative_loop(lexer, context, left, token)
+}
+
+/// Map a cast token to its `CastKind`, if the token is a cast.
+pub(crate) fn cast_kind_for(token: &Token) -> Option<crate::engine::vm::opcodes::CastKind> {
+    use crate::engine::vm::opcodes::CastKind;
+    Some(match token.token_type {
+        TokenType::T_INT_CAST => CastKind::Int,
+        TokenType::T_DOUBLE_CAST => CastKind::Float,
+        TokenType::T_STRING_CAST => CastKind::String,
+        TokenType::T_BOOL_CAST => CastKind::Bool,
+        TokenType::T_ARRAY_CAST => CastKind::Array,
+        TokenType::T_OBJECT_CAST => CastKind::Object,
+        _ => return None,
+    })
 }

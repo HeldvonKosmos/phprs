@@ -37,6 +37,28 @@ fn parse_primary_inner(
                 ))
             }
         }
+        // Casts: (int) $x, (string) $x, ... — bind tighter than * and /
+        TokenType::T_INT_CAST
+        | TokenType::T_DOUBLE_CAST
+        | TokenType::T_STRING_CAST
+        | TokenType::T_BOOL_CAST
+        | TokenType::T_ARRAY_CAST
+        | TokenType::T_OBJECT_CAST => {
+            let kind = super::operators::cast_kind_for(&token).expect("cast token");
+            let (operand, next) = parse_primary_expr(lexer, context)?;
+            Ok((
+                emit_binary_op(context, Opcode::Cast, operand, facade::long_val(kind as i64)),
+                next,
+            ))
+        }
+        // Logical NOT in operand position, e.g. `(int) !$x` or `- !$x`
+        TokenType::T_BOOLEAN_NOT => {
+            let (operand, next) = parse_primary_expr(lexer, context)?;
+            Ok((
+                emit_logical_op(context, Opcode::BoolNot, operand, facade::zero_val()),
+                next,
+            ))
+        }
         // Bitwise NOT (~)
         TokenType::T_STRING if token_is_punct(&token, "~") => {
             let (operand, next) = super::operators::parse_multiplicative_expr(lexer, context)?;

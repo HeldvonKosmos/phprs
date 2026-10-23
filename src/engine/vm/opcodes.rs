@@ -83,10 +83,37 @@ pub enum Opcode {
     UnsetObjProp = 74, // Unset object property (op1=obj, op2=prop name); calls __unset if defined
     UnsetDim = 75,     // Unset array element (op1=container var, op2=key)
     Yield = 76,        // Generator yield: op1=value to yield, result=temp for sent value
+    Cast,              // Type cast: op1=value, op2=Long(CastKind), result=temp
     /// Sentinel: one past the last real opcode (auto-numbered). Keep last,
     /// never dispatch on it. New opcodes go right above with no explicit
     /// discriminant and the dispatch table grows automatically.
     Last,
+}
+
+/// Target of a `Cast` opcode, stored as `Long` in `op2`.
+#[repr(i64)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastKind {
+    Int = 0,
+    Float = 1,
+    String = 2,
+    Bool = 3,
+    Array = 4,
+    Object = 5,
+}
+
+impl CastKind {
+    pub fn from_i64(v: i64) -> Option<Self> {
+        Some(match v {
+            0 => Self::Int,
+            1 => Self::Float,
+            2 => Self::String,
+            3 => Self::Bool,
+            4 => Self::Array,
+            5 => Self::Object,
+            _ => return None,
+        })
+    }
 }
 
 impl Opcode {
@@ -207,6 +234,8 @@ pub fn get_opcode_name(opcode: Opcode) -> &'static str {
         Opcode::Spaceship => "SPACESHIP",
         Opcode::UnsetObjProp => "UNSET_OBJ_PROP",
         Opcode::UnsetDim => "UNSET_DIM",
+        Opcode::Yield => "YIELD",
+        Opcode::Cast => "CAST",
         _ => "UNKNOWN",
     }
 }

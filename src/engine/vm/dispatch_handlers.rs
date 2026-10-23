@@ -276,6 +276,86 @@ pub fn execute_sl(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult,
 }
 
 #[inline]
+/// `(int)`, `(float)`, `(string)`, `(bool)`, `(array)`, `(object)`.
+pub fn execute_cast(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
+    use crate::engine::operators::{zval_get_bool, zval_get_double, zval_get_long, zval_get_string};
+    use crate::engine::vm::opcodes::CastKind;
+
+    let value = resolve_operand(&op.op1, execute_data);
+    let kind = match &op.op2.value {
+        PhpValue::Long(k) => CastKind::from_i64(*k),
+        _ => None,
+    }
+    .ok_or_else(|| "internal: Cast opcode without a valid CastKind".to_string())?;
+
+    let result = match kind {
+        CastKind::Int => Val::new(PhpValue::Long(zval_get_long(&value)), PhpType::Long),
+        CastKind::Float => Val::new(PhpValue::Double(zval_get_double(&value)), PhpType::Double),
+        CastKind::String => {
+            if value.get_type() == PhpType::Array {
+                return Err("Array to string conversion".to_string());
+            }
+            crate::engine::facade::string_val(zval_get_string(&value).as_str())
+        }
+        CastKind::Bool => crate::engine::facade::bool_val(zval_get_bool(&value)),
+        CastKind::Array => match value.get_type() {
+            PhpType::Array => value,
+            PhpType::Null => crate::engine::facade::array_val(),
+            PhpType::Object => {
+                let mut arr = crate::engine::types::PhpArray::new();
+                if let PhpValue::Object(ref obj) = value.value {
+                    let mut names: Vec<&String> = obj.properties.keys().collect();
+                    names.sort();
+                    for name in names {
+                        if name.starts_with("__") {
+                            continue;
+                        }
+                        let key = crate::engine::types::PhpString::new(name, false);
+                        let v = clone_val(&obj.properties[name]);
+                        let _ = crate::engine::hash::hash_add_or_update(&mut arr, Some(&key), 0, v, 0);
+                    }
+                }
+                Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array)
+            }
+            _ => {
+                let mut arr = crate::engine::types::PhpArray::new();
+                let _ = crate::engine::hash::hash_add_or_update(&mut arr, None, 0, value, 0);
+                Val::new(PhpValue::Array(Box::new(arr)), PhpType::Array)
+            }
+        },
+        CastKind::Object => match value.get_type() {
+            PhpType::Object => value,
+            PhpType::Array => {
+                let mut obj = crate::engine::types::PhpObject::new("stdClass");
+                if let PhpValue::Array(ref arr) = value.value {
+                    for bucket in arr.ar_data.iter() {
+                        let key = match &bucket.key {
+                            Some(k) => k.as_str().to_string(),
+                            None => bucket.h.to_string(),
+                        };
+                        obj.properties.insert(key, clone_val(&bucket.val));
+                    }
+                }
+                Val::new(PhpValue::Object(Box::new(obj)), PhpType::Object)
+            }
+            PhpType::Null => Val::new(
+                PhpValue::Object(Box::new(crate::engine::types::PhpObject::new("stdClass"))),
+                PhpType::Object,
+            ),
+            _ => {
+                let mut obj = crate::engine::types::PhpObject::new("stdClass");
+                obj.properties.insert("scalar".to_string(), value);
+                Val::new(PhpValue::Object(Box::new(obj)), PhpType::Object)
+            }
+        },
+    };
+
+    if let Some(slot) = result_slot(op) {
+        execute_data.set_temp(slot, result);
+    }
+    Ok(ExecResult::Continue)
+}
+
 pub fn execute_spaceship(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
     let op1 = resolve_operand(&op.op1, execute_data);
     let op2 = resolve_operand(&op.op2, execute_data);

@@ -19,10 +19,7 @@ pub fn zval_get_long(zval: &Val) -> i64 {
                 0
             }
         }
-        PhpValue::String(s) => {
-            // Try to parse string as integer
-            s.as_str().parse().unwrap_or(0)
-        }
+        PhpValue::String(s) => string_to_long(s.as_str()),
         PhpValue::Array(_) => 1,  // Arrays are truthy
         PhpValue::Object(_) => 1, // Objects are truthy
         _ => 0,
@@ -41,10 +38,7 @@ pub fn zval_get_double(zval: &Val) -> f64 {
                 0.0
             }
         }
-        PhpValue::String(s) => {
-            // Try to parse string as float
-            s.as_str().parse().unwrap_or(0.0)
-        }
+        PhpValue::String(s) => string_to_double(s.as_str()),
         _ => 0.0,
     }
 }
@@ -254,4 +248,75 @@ mod tests {
         let z = Val::new(PhpValue::Long(0), PhpType::Long);
         assert!(!zval_get_bool(&z));
     }
+}
+
+/// Leading-numeric string to integer, like PHP's `(int)`: whitespace, sign,
+/// digits; a float prefix is truncated (`"3.9"` → 3, `"1e3"` → 1000);
+/// anything else yields 0.
+pub fn string_to_long(s: &str) -> i64 {
+    let t = s.trim_start();
+    if let Some(len) = numeric_prefix_len(t) {
+        let prefix = &t[..len];
+        if let Ok(i) = prefix.parse::<i64>() {
+            return i;
+        }
+        if let Ok(f) = prefix.parse::<f64>() {
+            return f as i64;
+        }
+    }
+    0
+}
+
+/// Leading-numeric string to float, like PHP's `(float)`.
+pub fn string_to_double(s: &str) -> f64 {
+    let t = s.trim_start();
+    match numeric_prefix_len(t) {
+        Some(len) => t[..len].parse::<f64>().unwrap_or(0.0),
+        None => 0.0,
+    }
+}
+
+/// Length of the longest prefix of `s` that is a decimal number
+/// (`[+-]?digits[.digits][e[+-]digits]`), or `None` if there is none.
+fn numeric_prefix_len(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        i += 1;
+    }
+    let int_start = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    let mut digits = i - int_start;
+    let mut end = i;
+    if i < b.len() && b[i] == b'.' {
+        let mut j = i + 1;
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+        }
+        let frac = j - (i + 1);
+        if digits + frac > 0 {
+            digits += frac;
+            end = j;
+            i = j;
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        let mut j = i + 1;
+        if j < b.len() && (b[j] == b'+' || b[j] == b'-') {
+            j += 1;
+        }
+        let exp_start = j;
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > exp_start {
+            end = j;
+        }
+    }
+    Some(end)
 }
