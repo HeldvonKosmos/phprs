@@ -10,6 +10,7 @@ mod call;
 mod exception;
 mod generator;
 mod iter;
+pub mod native;
 pub(crate) mod ops;
 mod path;
 mod run;
@@ -22,6 +23,7 @@ use crate::error::Throw;
 use crate::value::*;
 
 pub use call::CallOutcome;
+pub use native::{Call, Callable, FromVal, IntoVal, NativeClassDef, NativeMethodDef, ObjectHandlers};
 pub use class::{MethodInfo, PropInfo, RtClass};
 pub use generator::GeneratorState;
 pub use iter::IterState;
@@ -121,6 +123,8 @@ pub struct Vm {
     pub json_error: Option<(i64, String)>,
     pub regex_cache: HashMap<Vec<u8>, Rc<fancy_regex::Regex>>,
     pub default_timezone: String,
+    /// Opaque host context (framework request context).
+    pub host: Option<Box<dyn std::any::Any>>,
 }
 
 impl Default for Vm {
@@ -151,6 +155,7 @@ impl Vm {
             json_error: None,
             regex_cache: HashMap::new(),
             default_timezone: "UTC".to_string(),
+            host: None,
         };
         crate::builtins::register(&mut vm);
         vm

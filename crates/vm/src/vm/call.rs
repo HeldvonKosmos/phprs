@@ -409,6 +409,10 @@ impl Vm {
         }
         match self.find_method_info(class, name) {
             Some(m) if self.method_accessible(&m, scope) => {
+                if let Some(handler) = m.native {
+                    let call = super::native::Call { this: if m.is_static { None } else { Some(this) }, class, args, named };
+                    return Ok(CallOutcome::Value(handler(self, call)?));
+                }
                 let Some(unit) = m.unit else {
                     return Err(Throw::error(format!("Cannot call abstract method {}::{}()", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(&m.name))));
                 };
@@ -428,6 +432,17 @@ impl Vm {
             }
             found => {
                 // __call fallback
+                if let Some(m) = self.find_method_info(class, b"__call")
+                    && !name.eq_ignore_ascii_case(b"__call")
+                    && let Some(handler) = m.native
+                {
+                    let mut arr = PhpArray::new();
+                    for a in args {
+                        arr.push(a);
+                    }
+                    let call = super::native::Call { this: Some(this), class, args: vec![Val::bytes(name), Val::array(arr)], named: Vec::new() };
+                    return Ok(CallOutcome::Value(handler(self, call)?));
+                }
                 if let Some(m) = self.find_method_info(class, b"__call")
                     && let Some(unit) = m.unit
                     && !name.eq_ignore_ascii_case(b"__call")
@@ -475,6 +490,13 @@ impl Vm {
         }
         match self.find_method_info(class, name) {
             Some(m) if self.method_accessible(&m, scope) => {
+                if let Some(handler) = m.native {
+                    if !m.is_static && this.is_none() {
+                        return Err(Throw::error(format!("Non-static method {}::{}() cannot be called statically", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(&m.name))));
+                    }
+                    let call = super::native::Call { this: if m.is_static { None } else { this }, class: static_class, args, named };
+                    return Ok(CallOutcome::Value(handler(self, call)?));
+                }
                 let Some(unit) = m.unit else {
                     return Err(Throw::error(format!("Cannot call abstract method {}::{}()", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(&m.name))));
                 };
@@ -496,6 +518,16 @@ impl Vm {
                 }
             }
             found => {
+                if let Some(m) = self.find_method_info(class, b"__callstatic")
+                    && let Some(handler) = m.native
+                {
+                    let mut arr = PhpArray::new();
+                    for a in args {
+                        arr.push(a);
+                    }
+                    let call = super::native::Call { this: None, class: static_class, args: vec![Val::bytes(name), Val::array(arr)], named: Vec::new() };
+                    return Ok(CallOutcome::Value(handler(self, call)?));
+                }
                 if let Some(m) = self.find_method_info(class, b"__callstatic")
                     && let Some(unit) = m.unit
                 {
@@ -527,6 +559,11 @@ impl Vm {
                 let scope = self.frames.last().and_then(|f| f.class);
                 if !self.method_accessible(&m, scope) {
                     return Err(Throw::error(format!("Call to {} {}::__construct() from {}", vis_name(m.visibility), String::from_utf8_lossy(&self.class(class).name), scope_name(self, scope))));
+                }
+                if let Some(handler) = m.native {
+                    let call = super::native::Call { this: Some(h), class, args, named };
+                    handler(self, call)?;
+                    return Ok(CallOutcome::Value(Val::Object(h)));
                 }
                 let Some(unit) = m.unit else {
                     return Err(Throw::error("Cannot call abstract constructor"));

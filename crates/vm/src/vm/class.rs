@@ -33,6 +33,8 @@ pub struct MethodInfo {
     pub is_final: bool,
     pub declaring: ClassId,
     pub attributes: Vec<AttributeDecl>,
+    /// Native handler (unit is None).
+    pub native: Option<super::native::NativeMethodFn>,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +75,8 @@ pub struct RtClass {
     pub line: u32,
     /// Property defaults, evaluated on first instantiation.
     pub default_slots: Option<Vec<Option<Val>>>,
+    /// Set for native classes (payload factory, handlers).
+    pub native: Option<super::native::NativeInfo>,
 }
 
 impl RtClass {
@@ -173,6 +177,7 @@ impl Vm {
             attributes: decl.attributes.clone(),
             line: decl.line,
             default_slots: None,
+            native: None,
         };
         // inherit
         if let Some(p) = parent {
@@ -261,6 +266,7 @@ impl Vm {
                     is_final: m.is_final,
                     declaring: id,
                     attributes: m.attributes.clone(),
+                    native: None,
                 },
             );
         }
@@ -458,6 +464,11 @@ impl Vm {
         };
         let mut obj = PhpObject::new(class, defaults.len());
         obj.slots = defaults;
+        if let Some(n) = self.native_info(class)
+            && let Some(factory) = n.payload
+        {
+            obj.native = Some(factory());
+        }
         let h = self.objects.alloc(obj);
         if self.is_throwable(class) {
             let line = self.current_line();

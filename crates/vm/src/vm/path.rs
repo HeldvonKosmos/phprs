@@ -316,6 +316,18 @@ impl Vm {
                 Ok(result)
             }
             lookup => {
+                if let Some(n) = self.native_info(class)
+                    && let Some(set) = n.handlers.set
+                {
+                    let old = match mode {
+                        WriteMode::Assign => Val::Null,
+                        _ => self.read_prop(h, name, true)?,
+                    };
+                    let (new, result) = self.apply_mode(mode, old, value.clone())?;
+                    if set(self, h, name, new)? {
+                        return Ok(result);
+                    }
+                }
                 if self.class(class).find_method(b"__set").is_some() {
                     let old = match mode {
                         WriteMode::Assign => Val::Null,
@@ -379,6 +391,19 @@ impl Vm {
                     && let Some(v) = self.objects.get(h).dynamic.get(&PhpString::from(name))
                 {
                     return Ok(v.clone());
+                }
+                if let Some(n) = self.native_info(class) {
+                    if quiet && let Some(isset) = n.handlers.isset
+                        && let Some(set) = isset(self, h, name)?
+                        && !set
+                    {
+                        return Ok(Val::Null);
+                    }
+                    if let Some(get) = n.handlers.get
+                        && let Some(v) = get(self, h, name)?
+                    {
+                        return Ok(v);
+                    }
                 }
                 let has_get = self.class(class).find_method(b"__get").is_some();
                 let has_isset = self.class(class).find_method(b"__isset").is_some();
