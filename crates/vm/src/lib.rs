@@ -1,7 +1,11 @@
 //! grd-vm: the OpenGrid dialect VM.
 //!
-//! Phase 0: front end only. `parse::parse_source` wraps mago's parser and
-//! reports syntax errors. Compiler, value model and VM follow in later phases
-//! (see `.agents/RUNTIME_ARCHITECTURE.md`).
+//! Layout follows `.agents/RUNTIME_ARCHITECTURE.md`:
+//! - `value`: `Val` without raw pointers, strings and arrays with copy-on-write,
+//!   objects as handles into a per-request `ObjectStore`.
+//! - `parse`: mago front end.
+//! Compiler and VM follow in later phases.
 
+pub mod error;
 pub mod parse;
+pub mod value;
