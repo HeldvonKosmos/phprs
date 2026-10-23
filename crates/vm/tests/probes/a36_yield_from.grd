@@ -1,0 +1,2 @@
+<?php
+function i() { yield 1; yield 2; return 3; } function o() { $r = yield from i(); yield $r; } foreach (o() as $v) { echo $v; } echo "\n";

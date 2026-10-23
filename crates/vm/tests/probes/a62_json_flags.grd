@@ -1,0 +1,2 @@
+<?php
+echo json_encode(["ü" => "a/b", "e" => []], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), json_encode((object)["x" => 1]), json_encode(new stdClass), "\n";

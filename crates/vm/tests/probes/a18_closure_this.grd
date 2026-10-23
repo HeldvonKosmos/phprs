@@ -1,0 +1,2 @@
+<?php
+class K { private int $n = 3; public function f(): Closure { return function() { return $this->n; }; } } echo (new K)->f()(), "\n";

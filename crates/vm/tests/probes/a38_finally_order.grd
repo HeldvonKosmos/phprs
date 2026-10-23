@@ -1,0 +1,2 @@
+<?php
+function f() { throw new RuntimeException("x"); } try { try { f(); } finally { echo "fin "; } } catch (RuntimeException $e) { echo $e->getMessage(), "\n"; }

@@ -130,7 +130,7 @@ impl Compiler<'_> {
                     let c = self.constant(Const::Str(bytes));
                     self.emit(Op::PushConst(c));
                 }
-                StringPart::Expression(e) => self.compile_expr(e)?,
+                StringPart::Expression(e) => self.compile_interpolated_simple(e)?,
                 StringPart::BracedExpression(b) => self.compile_expr(b.expression)?,
             }
             if !first {
@@ -143,6 +143,21 @@ impl Compiler<'_> {
             self.emit(Op::PushConst(c));
         }
         Ok(())
+    }
+
+    /// `"$a[k]"`: in the simple interpolation syntax a bare key is a string.
+    fn compile_interpolated_simple(&mut self, e: &Expression<'_>) -> CResult<()> {
+        if let Expression::ArrayAccess(a) = e
+            && let Expression::ConstantAccess(c) = a.index
+            && matches!(c.name, Identifier::Local(_))
+        {
+            self.compile_expr(a.array)?;
+            let k = self.constant(Const::Str(c.name.value().to_vec()));
+            self.emit(Op::PushConst(k));
+            self.emit(Op::FetchDim);
+            return Ok(());
+        }
+        self.compile_expr(e)
     }
 
     fn compile_magic_constant(&mut self, m: &MagicConstant<'_>) -> CResult<()> {
@@ -330,12 +345,16 @@ impl Compiler<'_> {
 
     fn compile_incdec(&mut self, target: &Expression<'_>, mode: WriteMode, want: Want) -> CResult<()> {
         if let Some(slot) = self.simple_slot_target(target)? {
-            self.emit(Op::IncSlot { slot, mode });
-        } else {
-            let (base, segs) = self.build_path(target)?;
-            self.emit(Op::PushNull); // value operand unused for inc/dec
-            self.emit(Op::StorePath { base, segs, mode });
+            if want == Want::Discard {
+                self.emit(Op::IncSlotDiscard { slot, mode });
+            } else {
+                self.emit(Op::IncSlot { slot, mode });
+            }
+            return Ok(());
         }
+        let (base, segs) = self.build_path(target)?;
+        self.emit(Op::PushNull); // value operand unused for inc/dec
+        self.emit(Op::StorePath { base, segs, mode });
         if want == Want::Discard {
             self.emit(Op::Pop);
         }
@@ -791,6 +810,26 @@ impl Compiler<'_> {
         if let (Expression::List(l), _) = (a.lhs, mode) {
             return self.reject(dialect::LIST, l.span());
         }
+        // fast paths for plain variables in statement context
+        if let Some(slot) = self.simple_slot_target(a.lhs)? {
+            match mode {
+                WriteMode::Assign => {
+                    self.compile_expr(a.rhs)?;
+                    if want == Want::Discard {
+                        self.emit(Op::StoreSlot(slot));
+                    } else {
+                        self.emit(Op::Dup);
+                        self.emit(Op::StoreSlot(slot));
+                    }
+                }
+                WriteMode::Compound(op) => {
+                    self.compile_expr(a.rhs)?;
+                    self.emit(Op::CompoundSlot { slot, op, discard: want == Want::Discard });
+                }
+                _ => unreachable!(),
+            }
+            return Ok(());
+        }
         self.compile_assign_to(a.lhs, a.rhs, mode)?;
         if want == Want::Discard {
             self.emit(Op::Pop);
@@ -808,11 +847,8 @@ impl Compiler<'_> {
                     self.emit(Op::StoreSlot(slot));
                 }
                 WriteMode::Compound(op) => {
-                    self.emit(Op::LoadSlot(slot));
                     self.compile_expr(rhs)?;
-                    self.emit(Op::Bin(op));
-                    self.emit(Op::Dup);
-                    self.emit(Op::StoreSlot(slot));
+                    self.emit(Op::CompoundSlot { slot, op, discard: false });
                 }
                 _ => unreachable!(),
             }

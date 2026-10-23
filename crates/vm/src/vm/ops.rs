@@ -1,0 +1,250 @@
+//! Arithmetic and other value operations with PHP semantics under the
+//! dialect's strictness (DIALECT §5).
+
+use std::cmp::Ordering;
+
+use super::Vm;
+use crate::bytecode::{BinOp, UnOp};
+use crate::error::Throw;
+use crate::value::*;
+
+fn div_by_zero() -> Throw {
+    Throw::new("DivisionByZeroError", "Division by zero")
+}
+
+fn modulo_by_zero() -> Throw {
+    Throw::new("DivisionByZeroError", "Modulo by zero")
+}
+
+pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
+    let sym = match op {
+        BinOp::Add => "+",
+        BinOp::Sub => "-",
+        BinOp::Mul => "*",
+        BinOp::Div => "/",
+        BinOp::Mod => "%",
+        BinOp::Pow => "**",
+        _ => "?",
+    };
+    let x = a.as_number(sym)?;
+    let y = b.as_number(sym)?;
+    Ok(match (op, x, y) {
+        (BinOp::Add, Numeric::Int(i), Numeric::Int(j)) => i.checked_add(j).map(Val::Int).unwrap_or(Val::Float(i as f64 + j as f64)),
+        (BinOp::Sub, Numeric::Int(i), Numeric::Int(j)) => i.checked_sub(j).map(Val::Int).unwrap_or(Val::Float(i as f64 - j as f64)),
+        (BinOp::Mul, Numeric::Int(i), Numeric::Int(j)) => i.checked_mul(j).map(Val::Int).unwrap_or(Val::Float(i as f64 * j as f64)),
+        (BinOp::Div, Numeric::Int(i), Numeric::Int(j)) => {
+            if j == 0 {
+                return Err(div_by_zero());
+            }
+            if i % j == 0 && !(i == i64::MIN && j == -1) { Val::Int(i / j) } else { Val::Float(i as f64 / j as f64) }
+        }
+        (BinOp::Mod, _, _) => {
+            let i = match x {
+                Numeric::Int(i) => i,
+                Numeric::Float(f) => f as i64,
+            };
+            let j = match y {
+                Numeric::Int(j) => j,
+                Numeric::Float(f) => f as i64,
+            };
+            if j == 0 {
+                return Err(modulo_by_zero());
+            }
+            if j == -1 { Val::Int(0) } else { Val::Int(i % j) }
+        }
+        (BinOp::Pow, Numeric::Int(i), Numeric::Int(j)) if j >= 0 => {
+            match i.checked_pow(j.min(u32::MAX as i64) as u32) {
+                Some(v) if j <= u32::MAX as i64 => Val::Int(v),
+                _ => Val::Float((i as f64).powf(j as f64)),
+            }
+        }
+        (BinOp::Add, _, _) => Val::Float(x.as_f64() + y.as_f64()),
+        (BinOp::Sub, _, _) => Val::Float(x.as_f64() - y.as_f64()),
+        (BinOp::Mul, _, _) => Val::Float(x.as_f64() * y.as_f64()),
+        (BinOp::Div, _, _) => {
+            if y.as_f64() == 0.0 {
+                return Err(div_by_zero());
+            }
+            Val::Float(x.as_f64() / y.as_f64())
+        }
+        (BinOp::Pow, _, _) => Val::Float(x.as_f64().powf(y.as_f64())),
+        _ => unreachable!(),
+    })
+}
+
+fn int_operand(v: &Val, op: &str) -> Result<i64, Throw> {
+    match v {
+        Val::Int(i) => Ok(*i),
+        Val::Float(f) => Ok(*f as i64),
+        other => Err(Throw::type_error(format!("Unsupported operand type {} for {}", other.type_name(), op))),
+    }
+}
+
+pub(crate) fn bitwise(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
+    let (sym, f): (&str, fn(i64, i64) -> Result<i64, Throw>) = match op {
+        BinOp::BitAnd => ("&", |x, y| Ok(x & y)),
+        BinOp::BitOr => ("|", |x, y| Ok(x | y)),
+        BinOp::BitXor => ("^", |x, y| Ok(x ^ y)),
+        BinOp::Shl => ("<<", |x, y| {
+            if y < 0 {
+                return Err(Throw::new("ArithmeticError", "Bit shift by negative number"));
+            }
+            Ok(if y >= 64 { 0 } else { x.wrapping_shl(y as u32) })
+        }),
+        BinOp::Shr => (">>", |x, y| {
+            if y < 0 {
+                return Err(Throw::new("ArithmeticError", "Bit shift by negative number"));
+            }
+            Ok(if y >= 64 { if x < 0 { -1 } else { 0 } } else { x >> y })
+        }),
+        _ => unreachable!(),
+    };
+    let x = int_operand(a, sym)?;
+    let y = int_operand(b, sym)?;
+    Ok(Val::Int(f(x, y)?))
+}
+
+pub(crate) fn comparison(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
+    Ok(match op {
+        BinOp::Identical => Val::Bool(identical(a, b)),
+        BinOp::NotIdentical => Val::Bool(!identical(a, b)),
+        BinOp::Spaceship => match compare(a, b)? {
+            Some(Ordering::Less) => Val::Int(-1),
+            Some(Ordering::Equal) => Val::Int(0),
+            _ => Val::Int(1),
+        },
+        _ => {
+            let ord = compare(a, b)?;
+            Val::Bool(match (op, ord) {
+                (BinOp::Lt, Some(Ordering::Less)) => true,
+                (BinOp::Le, Some(Ordering::Less | Ordering::Equal)) => true,
+                (BinOp::Gt, Some(Ordering::Greater)) => true,
+                (BinOp::Ge, Some(Ordering::Greater | Ordering::Equal)) => true,
+                _ => false,
+            })
+        }
+    })
+}
+
+impl Vm {
+    pub(crate) fn binary(&mut self, op: BinOp, a: Val, b: Val) -> Result<Val, Throw> {
+        match op {
+            BinOp::Add if matches!((&a, &b), (Val::Array(_), Val::Array(_))) => {
+                let (Val::Array(x), Val::Array(y)) = (a, b) else { unreachable!() };
+                let mut out = (*x).clone();
+                for (k, v) in y.iter() {
+                    if !out.contains_key(k) {
+                        out.insert(k.clone(), v.clone());
+                    }
+                }
+                Ok(Val::array(out))
+            }
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => arith(op, &a, &b),
+            BinOp::Concat => {
+                let t = self.to_string_val(&b)?;
+                let mut s = match a {
+                    Val::Str(s) => s,
+                    other => self.to_string_val(&other)?,
+                };
+                s.push_bytes(t.as_bytes());
+                Ok(Val::Str(s))
+            }
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => bitwise(op, &a, &b),
+            BinOp::Identical | BinOp::NotIdentical | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Spaceship => {
+                comparison(op, &a, &b)
+            }
+            BinOp::Coalesce => Ok(if a.is_null() { b } else { a }),
+        }
+    }
+
+    pub(crate) fn unary(&mut self, op: UnOp, v: Val) -> Result<Val, Throw> {
+        Ok(match op {
+            UnOp::Neg => match v.as_number("-")? {
+                Numeric::Int(i) => i.checked_neg().map(Val::Int).unwrap_or(Val::Float(-(i as f64))),
+                Numeric::Float(f) => Val::Float(-f),
+            },
+            UnOp::Plus => v.as_number("+")?.to_val(),
+            UnOp::Not => Val::Bool(!v.to_bool()),
+            UnOp::BitNot => Val::Int(!int_operand(&v, "~")?),
+            UnOp::CastInt => Val::Int(v.to_int()?),
+            UnOp::CastFloat => Val::Float(v.to_float()?),
+            UnOp::CastBool => Val::Bool(v.to_bool()),
+            UnOp::CastString => Val::Str(self.to_string_val(&v)?),
+            UnOp::CastArray => match v {
+                Val::Array(_) => v,
+                Val::Null => Val::empty_array(),
+                Val::Object(h) => Val::array(self.object_to_array(h)),
+                other => Val::array(PhpArray::from_values([other])),
+            },
+            UnOp::CastObject => match v {
+                Val::Object(_) => v,
+                Val::Array(a) => {
+                    let h = self.alloc_object(self.wk().stdclass)?;
+                    for (k, val) in a.iter() {
+                        let name = match k {
+                            ArrayKey::Int(i) => PhpString::from(i.to_string()),
+                            ArrayKey::Str(s) => s.clone(),
+                        };
+                        self.objects.get_mut(h).dynamic.insert(name, val.clone());
+                    }
+                    Val::Object(h)
+                }
+                Val::Null => Val::Object(self.alloc_object(self.wk().stdclass)?),
+                other => {
+                    let h = self.alloc_object(self.wk().stdclass)?;
+                    self.objects.get_mut(h).dynamic.insert(PhpString::from("scalar"), other);
+                    Val::Object(h)
+                }
+            },
+        })
+    }
+
+    /// String conversion including `__toString` on objects.
+    pub(crate) fn to_string_val(&mut self, v: &Val) -> Result<PhpString, Throw> {
+        match v {
+            Val::Object(h) => {
+                let class = self.objects.get(*h).class;
+                if self.class(class).find_method(b"__tostring").is_some() {
+                    let r = self.call_method_sync(*h, b"__toString", Vec::new())?;
+                    match r {
+                        Val::Str(s) => Ok(s),
+                        _ => Err(Throw::error(format!("{}::__toString(): Return value must be of type string", String::from_utf8_lossy(&self.class(class).name)))),
+                    }
+                } else {
+                    Err(Throw::error(format!("Object of class {} could not be converted to string", String::from_utf8_lossy(&self.class(class).name))))
+                }
+            }
+            other => other.to_php_string(),
+        }
+    }
+
+    /// `(array)$obj` / `get_object_vars` view: declared then dynamic properties.
+    pub(crate) fn object_to_array(&self, h: ObjHandle) -> PhpArray {
+        let obj = self.objects.get(h);
+        let class = self.class(obj.class);
+        let mut a = PhpArray::new();
+        for (i, p) in class.props.iter().enumerate() {
+            if let Some(v) = &obj.slots[i] {
+                a.insert(ArrayKey::Str(PhpString::from(p.name.as_slice())), v.clone());
+            }
+        }
+        for (k, v) in &obj.dynamic {
+            a.insert(ArrayKey::Str(k.clone()), v.clone());
+        }
+        a
+    }
+
+    pub(crate) fn inc_dec(&mut self, v: Val, inc: bool) -> Result<Val, Throw> {
+        Ok(match v {
+            Val::Int(i) => {
+                let r = if inc { i.checked_add(1) } else { i.checked_sub(1) };
+                r.map(Val::Int).unwrap_or(Val::Float(if inc { i as f64 + 1.0 } else { i as f64 - 1.0 }))
+            }
+            Val::Float(f) => Val::Float(if inc { f + 1.0 } else { f - 1.0 }),
+            Val::Null => {
+                if inc { Val::Int(1) } else { Val::Null }
+            }
+            other => return Err(Throw::type_error(format!("Cannot {} {}", if inc { "increment" } else { "decrement" }, other.type_name()))),
+        })
+    }
+}

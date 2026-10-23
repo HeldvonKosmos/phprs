@@ -1,0 +1,2 @@
+<?php
+class R { private static array $i = []; protected static int $c = 0; public static function add(string $k): void { self::$i[$k] = 1; static::$c++; } public static function c(): int { return self::$c + count(self::$i); } } R::add("a"); R::add("b"); echo R::c(), "\n";

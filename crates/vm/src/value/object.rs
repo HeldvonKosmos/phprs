@@ -19,7 +19,7 @@ pub struct ObjHandle(pub u32);
 pub struct PhpObject {
     pub class: ClassId,
     /// Declared properties by slot (layout from the class) and dynamic ones by name.
-    pub slots: Vec<Val>,
+    pub slots: Vec<Option<Val>>,
     pub dynamic: IndexMap<PhpString, Val>,
     /// Payload of native classes (DataFrame, query builder, request, …).
     pub native: Option<Box<dyn Any>>,
@@ -27,7 +27,7 @@ pub struct PhpObject {
 
 impl PhpObject {
     pub fn new(class: ClassId, slot_count: usize) -> Self {
-        PhpObject { class, slots: vec![Val::Null; slot_count], dynamic: IndexMap::new(), native: None }
+        PhpObject { class, slots: vec![None; slot_count], dynamic: IndexMap::new(), native: None }
     }
     pub fn native_ref<T: 'static>(&self) -> Option<&T> {
         self.native.as_ref()?.downcast_ref::<T>()
@@ -85,13 +85,13 @@ mod tests {
         let mut store = ObjectStore::new();
         let a = store.alloc(PhpObject::new(ClassId(1), 1));
         let b = a; // `$b = $a`
-        store.get_mut(b).slots[0] = Val::Int(5);
-        assert!(matches!(store.get(a).slots[0], Val::Int(5)));
+        store.get_mut(b).slots[0] = Some(Val::Int(5));
+        assert!(matches!(store.get(a).slots[0], Some(Val::Int(5))));
         assert_eq!(a, b);
         let c = store.clone_object(a);
         assert_ne!(a, c);
-        store.get_mut(c).slots[0] = Val::Int(7);
-        assert!(matches!(store.get(a).slots[0], Val::Int(5)));
+        store.get_mut(c).slots[0] = Some(Val::Int(7));
+        assert!(matches!(store.get(a).slots[0], Some(Val::Int(5))));
         assert_eq!(store.len(), 2);
         assert!(!store.is_valid(ObjHandle(0)));
     }

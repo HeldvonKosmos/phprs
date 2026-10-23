@@ -1,0 +1,139 @@
+<?grd
+// Built-in interfaces and classes of the dialect, written in the dialect.
+// Loaded before any user module; Closure and Generator carry native payloads.
+
+interface Traversable {}
+interface Iterator extends Traversable {
+    public function current(): mixed;
+    public function key(): mixed;
+    public function next(): void;
+    public function rewind(): void;
+    public function valid(): bool;
+}
+interface IteratorAggregate extends Traversable {
+    public function getIterator(): Iterator;
+}
+interface ArrayAccess {
+    public function offsetExists(mixed $offset): bool;
+    public function offsetGet(mixed $offset): mixed;
+    public function offsetSet(mixed $offset, mixed $value): void;
+    public function offsetUnset(mixed $offset): void;
+}
+interface Countable { public function count(): int; }
+interface Stringable { public function __toString(): string; }
+interface JsonSerializable { public function jsonSerialize(): mixed; }
+interface UnitEnum {}
+interface BackedEnum extends UnitEnum {}
+
+interface Throwable extends Stringable {
+    public function getMessage(): string;
+    public function getCode(): int;
+    public function getFile(): string;
+    public function getLine(): int;
+    public function getPrevious(): ?Throwable;
+}
+
+class Exception implements Throwable {
+    protected string $message = '';
+    protected int $code = 0;
+    protected string $file = '';
+    protected int $line = 0;
+    protected ?Throwable $previous = null;
+
+    public function __construct(string $message = '', int $code = 0, ?Throwable $previous = null) {
+        $this->message = $message;
+        $this->code = $code;
+        $this->previous = $previous;
+    }
+    public function getMessage(): string { return $this->message; }
+    public function getCode(): int { return $this->code; }
+    public function getFile(): string { return $this->file; }
+    public function getLine(): int { return $this->line; }
+    public function getPrevious(): ?Throwable { return $this->previous; }
+    public function getTrace(): array { return []; }
+    public function getTraceAsString(): string { return '#0 {main}'; }
+    public function __toString(): string { return static::class . ': ' . $this->message; }
+}
+
+class Error implements Throwable {
+    protected string $message = '';
+    protected int $code = 0;
+    protected string $file = '';
+    protected int $line = 0;
+    protected ?Throwable $previous = null;
+
+    public function __construct(string $message = '', int $code = 0, ?Throwable $previous = null) {
+        $this->message = $message;
+        $this->code = $code;
+        $this->previous = $previous;
+    }
+    public function getMessage(): string { return $this->message; }
+    public function getCode(): int { return $this->code; }
+    public function getFile(): string { return $this->file; }
+    public function getLine(): int { return $this->line; }
+    public function getPrevious(): ?Throwable { return $this->previous; }
+    public function getTrace(): array { return []; }
+    public function getTraceAsString(): string { return '#0 {main}'; }
+    public function __toString(): string { return static::class . ': ' . $this->message; }
+}
+
+class ErrorException extends Exception {}
+class TypeError extends Error {}
+class ValueError extends Error {}
+class ArithmeticError extends Error {}
+class DivisionByZeroError extends ArithmeticError {}
+class ArgumentCountError extends TypeError {}
+class AssertionError extends Error {}
+class UnhandledMatchError extends Error {}
+class UndefinedKeyError extends Error {}
+class UndefinedVariableError extends Error {}
+
+class RuntimeException extends Exception {}
+class LogicException extends Exception {}
+class InvalidArgumentException extends LogicException {}
+class DomainException extends LogicException {}
+class LengthException extends LogicException {}
+class OutOfRangeException extends LogicException {}
+class BadFunctionCallException extends LogicException {}
+class BadMethodCallException extends BadFunctionCallException {}
+class OutOfBoundsException extends RuntimeException {}
+class RangeException extends RuntimeException {}
+class OverflowException extends RuntimeException {}
+class UnderflowException extends RuntimeException {}
+class UnexpectedValueException extends RuntimeException {}
+class JsonException extends Exception {}
+
+class stdClass {}
+
+final class Closure {
+    private function __construct() {}
+}
+
+final class Generator implements Iterator {
+    private function __construct() {}
+    public function current(): mixed { return null; }
+    public function key(): mixed { return null; }
+    public function next(): void {}
+    public function rewind(): void {}
+    public function valid(): bool { return false; }
+    public function send(mixed $value): mixed { return null; }
+    public function getReturn(): mixed { return null; }
+}
+
+class ArrayIterator implements Iterator, Countable, ArrayAccess {
+    private array $items;
+    private array $keys;
+    private int $pos = 0;
+    public function __construct(array $items = []) { $this->items = $items; $this->keys = array_keys($items); }
+    public function current(): mixed { return $this->items[$this->keys[$this->pos]]; }
+    public function key(): mixed { return $this->keys[$this->pos]; }
+    public function next(): void { $this->pos++; }
+    public function rewind(): void { $this->pos = 0; $this->keys = array_keys($this->items); }
+    public function valid(): bool { return $this->pos < count($this->keys); }
+    public function count(): int { return count($this->items); }
+    public function offsetExists(mixed $k): bool { return isset($this->items[$k]); }
+    public function offsetGet(mixed $k): mixed { return $this->items[$k]; }
+    public function offsetSet(mixed $k, mixed $v): void { if ($k === null) { $this->items[] = $v; } else { $this->items[$k] = $v; } }
+    public function offsetUnset(mixed $k): void { unset($this->items[$k]); }
+    public function getArrayCopy(): array { return $this->items; }
+}

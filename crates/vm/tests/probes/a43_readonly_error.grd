@@ -1,0 +1,2 @@
+<?php
+class M { public function __construct(public readonly int $a) {} } $m = new M(1); try { $m->a = 2; } catch (Error $e) { echo "ro\n"; }

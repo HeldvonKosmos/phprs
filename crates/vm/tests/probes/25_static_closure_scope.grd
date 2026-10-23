@@ -1,0 +1,8 @@
+<?php
+class Q { private array $wheres = [];
+  public function where(string $c, mixed $v): static { $this->wheres[] = [$c, $v]; return $this; }
+  public function when(bool $cond, callable $cb): static { if ($cond) { $cb($this); } return $this; }
+  public function tap(callable $cb): static { $cb($this); return $this; }
+  public function sql(): string { return implode(' AND ', array_map(fn($w) => "$w[0]=$w[1]", $this->wheres)); } }
+$q = (new Q)->where('a', 1)->when(true, fn(Q $q) => $q->where('b', 2))->when(false, fn($q) => $q->where('c', 3))->tap(function (Q $q) { $q->where('d', 4); });
+echo $q->sql(), "\n";

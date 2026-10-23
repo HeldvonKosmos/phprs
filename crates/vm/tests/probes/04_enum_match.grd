@@ -1,0 +1,5 @@
+<?php
+enum Status: string { case Open = 'open'; case Done = 'done';
+  public function label(): string { return match($this) { self::Open => 'Offen', self::Done => 'Erledigt' }; } }
+$s = Status::from('done');
+echo $s->value, " ", $s->label(), " ", Status::tryFrom('x') === null ? 'null' : 'val', " ", count(Status::cases()), "\n";

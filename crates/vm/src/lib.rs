@@ -6,8 +6,10 @@
 //! - `parse`: mago front end.
 //! Compiler and VM follow in later phases.
 
+pub mod builtins;
 pub mod bytecode;
 pub mod compile;
 pub mod error;
 pub mod parse;
 pub mod value;
+pub mod vm;

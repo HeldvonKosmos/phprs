@@ -1,0 +1,2 @@
+<?php
+class A { protected static string $t = "x"; public static function t(): string { return static::$t; } } class B extends A { protected static string $t = "y"; } echo A::t(), B::t(), "\n";

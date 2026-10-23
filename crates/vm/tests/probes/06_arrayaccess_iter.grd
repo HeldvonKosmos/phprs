@@ -1,0 +1,15 @@
+<?php
+class Coll implements ArrayAccess, Countable, IteratorAggregate {
+  public function __construct(private array $items = []) {}
+  public function offsetExists(mixed $k): bool { return isset($this->items[$k]); }
+  public function offsetGet(mixed $k): mixed { return $this->items[$k]; }
+  public function offsetSet(mixed $k, mixed $v): void { if ($k === null) { $this->items[] = $v; } else { $this->items[$k] = $v; } }
+  public function offsetUnset(mixed $k): void { unset($this->items[$k]); }
+  public function count(): int { return count($this->items); }
+  public function getIterator(): Iterator { return new ArrayIterator($this->items); }
+  public function map(callable $f): static { return new static(array_map($f, $this->items)); }
+}
+$c = new Coll([1,2,3]); $c[] = 4; $c['k'] = 5;
+echo count($c), " ", $c[1], " ", isset($c['k']) ? 'Y':'N';
+foreach ($c->map(fn($x) => $x * 2) as $k => $v) { echo " $k=$v"; }
+echo "\n";

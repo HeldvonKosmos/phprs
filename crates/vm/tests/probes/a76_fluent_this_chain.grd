@@ -1,0 +1,2 @@
+<?php
+class Q { private array $w = []; public function where(string $c): static { $this->w[] = $c; return $this; } public function when(bool $b, callable $cb): static { if ($b) { $cb($this); } return $this; } public function sql(): string { return implode(",", $this->w); } } echo (new Q)->where("a")->when(true, fn(Q $q) => $q->where("b"))->where("c")->sql(), "\n";

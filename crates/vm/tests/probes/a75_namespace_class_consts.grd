@@ -1,0 +1,2 @@
+<?php
+namespace App\M; class U { public function w(): string { return __CLASS__ . "|" . __NAMESPACE__ . "|" . static::class; } } echo (new U)->w(), "\n";

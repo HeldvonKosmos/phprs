@@ -9,11 +9,13 @@ pub struct Throw {
     pub class: String,
     pub message: String,
     pub code: i64,
+    /// An already materialised exception object being re-raised.
+    pub object: Option<crate::value::ObjHandle>,
 }
 
 impl Throw {
     pub fn new(class: &str, message: impl Into<String>) -> Self {
-        Throw { class: class.to_string(), message: message.into(), code: 0 }
+        Throw { class: class.to_string(), message: message.into(), code: 0, object: None }
     }
     pub fn type_error(message: impl Into<String>) -> Self {
         Throw::new("TypeError", message)
@@ -23,6 +25,12 @@ impl Throw {
     }
     pub fn error(message: impl Into<String>) -> Self {
         Throw::new("Error", message)
+    }
+    pub fn argument_count(message: impl Into<String>) -> Self {
+        Throw::new("ArgumentCountError", message)
+    }
+    pub fn existing(object: crate::value::ObjHandle) -> Self {
+        Throw { class: String::new(), message: String::new(), code: 0, object: Some(object) }
     }
 }
 

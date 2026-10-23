@@ -56,7 +56,7 @@ pub fn compile_source(file_name: &str, source: &[u8]) -> CResult<Module> {
     let arena = LocalArena::new();
     let file = File::ephemeral(
         std::borrow::Cow::Owned(file_name.as_bytes().to_vec()),
-        std::borrow::Cow::Owned(source.to_vec()),
+        std::borrow::Cow::Owned(normalize_open_tag(source)),
     );
     let program = parse_file(&arena, &file);
     if let Some(err) = program.errors.first() {
@@ -71,6 +71,17 @@ pub fn compile_source(file_name: &str, source: &[u8]) -> CResult<Module> {
     let mut c = Compiler::new(file_name, source);
     c.compile_program(program)?;
     Ok(c.module)
+}
+
+/// `<?grd` is the dialect's opening tag (DIALECT §2); `<?php` stays accepted.
+/// Both are five bytes, so byte offsets and line numbers are unchanged.
+pub fn normalize_open_tag(source: &[u8]) -> Vec<u8> {
+    let bom = if source.starts_with(&[0xEF, 0xBB, 0xBF]) { 3 } else { 0 };
+    let mut out = source.to_vec();
+    if out[bom..].starts_with(b"<?grd") {
+        out[bom..bom + 5].copy_from_slice(b"<?php");
+    }
+    out
 }
 
 pub fn line_of(source: &[u8], offset: u32) -> u32 {

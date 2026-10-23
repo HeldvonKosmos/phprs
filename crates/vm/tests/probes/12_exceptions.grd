@@ -1,0 +1,9 @@
+<?php
+class NotFound extends RuntimeException { public function __construct(public string $model) { parent::__construct("$model not found", 404); } }
+function find(): never { throw new NotFound('Task'); }
+try { try { find(); } finally { echo "fin "; } }
+catch (NotFound $e) { echo $e->getMessage(), " ", $e->getCode(), " ", $e->model, " "; }
+try { throw new LogicException('outer', 1, new InvalidArgumentException('inner')); }
+catch (Exception $e) { echo get_class($e->getPrevious()), " "; }
+try { intdiv(1, 0); } catch (DivisionByZeroError $e) { echo "div "; }
+try { (function(int $x) {})('abc'); } catch (TypeError $e) { echo "type\n"; }

@@ -1,0 +1,2 @@
+<?php
+function t(int ...$xs): int { return array_sum($xs); } echo t(1,2,3), "\n";

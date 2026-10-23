@@ -1,0 +1,2 @@
+<?php
+declare(strict_types=1); try { (function(int $x) {})("abc"); } catch (TypeError $e) { echo "type\n"; }

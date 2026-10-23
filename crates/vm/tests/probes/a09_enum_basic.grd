@@ -1,0 +1,2 @@
+<?php
+enum S: string { case A = "a"; case B = "b"; } echo S::A->value, S::from("b")->name, count(S::cases()), "\n";

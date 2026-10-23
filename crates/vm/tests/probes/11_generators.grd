@@ -1,0 +1,8 @@
+<?php
+function gen(int $n) { for ($i = 1; $i <= $n; $i++) { $x = yield $i => $i * $i; if ($x) { echo "[$x]"; } } return 'done'; }
+$g = gen(3);
+foreach ($g as $k => $v) { echo "$k:$v "; }
+echo $g->getReturn(), " ";
+function inner() { yield 1; yield 2; return 3; }
+function outer() { $r = yield from inner(); yield $r; }
+echo implode(',', iterator_to_array(outer(), false)), "\n";

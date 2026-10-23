@@ -151,7 +151,9 @@ pub enum Op {
     JumpIfTrue(Label),
     /// Peeks: jumps with the value kept, otherwise pops it.
     JumpIfTrueKeep(Label),
+    /// Peeks: jumps if null; the value stays on the stack either way (`?->`).
     JumpIfNullKeep(Label),
+    /// Peeks: jumps with the value kept, otherwise pops it (`??`).
     JumpIfNotNullKeep(Label),
 
     NewArray(u32),
@@ -182,6 +184,11 @@ pub enum Op {
     UnsetPath { base: PathBase, segs: Vec<PathSeg> },
     /// Stack: slot-less increments on a plain variable.
     IncSlot { slot: Slot, mode: WriteMode },
+    /// Same without pushing a result (statement context).
+    IncSlotDiscard { slot: Slot, mode: WriteMode },
+    /// `$slot op= value` with the slot value taken (unshared) for in-place
+    /// string appends; pushes the result unless `discard`.
+    CompoundSlot { slot: Slot, op: BinOp, discard: bool },
 
     CallFunc { name: StrId, fallback: Option<StrId>, spec: u32 },
     /// obj, args… → result

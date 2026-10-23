@@ -1,0 +1,2 @@
+<?php
+class P { public function __construct(private float $s, public int $n = 2) {} public function g(): float { return $this->s * $this->n; } } echo (new P(1.5))->g(), "\n";

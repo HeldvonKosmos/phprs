@@ -124,6 +124,16 @@ impl PhpArray {
     pub fn last(&self) -> Option<(&ArrayKey, &Val)> {
         self.map.last()
     }
+    pub fn last_mut(&mut self) -> Option<&mut Val> {
+        self.map.last_mut().map(|(_, v)| v)
+    }
+    /// Mutable access to `key`, inserting `null` when missing.
+    pub fn entry_mut(&mut self, key: ArrayKey) -> &mut Val {
+        if !self.map.contains_key(&key) {
+            self.insert(key.clone(), Val::Null);
+        }
+        self.map.get_mut(&key).expect("just inserted")
+    }
     /// True if keys are exactly 0..n-1 in order (`array_is_list`).
     pub fn is_list(&self) -> bool {
         self.map.keys().enumerate().all(|(i, k)| *k == ArrayKey::Int(i as i64))

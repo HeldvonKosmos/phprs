@@ -1,0 +1,2 @@
+<?php
+class U { public ?U $p = null; public function n(): string { return "u"; } } $u = new U; echo $u?->p?->n() ?? "none", $u?->n(), "\n";

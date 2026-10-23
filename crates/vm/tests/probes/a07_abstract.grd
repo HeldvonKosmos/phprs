@@ -1,0 +1,2 @@
+<?php
+abstract class A { abstract public function n(): string; public function hi(): string { return "hi " . $this->n(); } } class B extends A { public function n(): string { return "b"; } } echo (new B)->hi(), "\n";

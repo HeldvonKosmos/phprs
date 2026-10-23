@@ -1,0 +1,2 @@
+<?php
+echo implode(",", array_column([["n" => "a"], ["n" => "b"]], "n")), json_encode(array_map(null, [1, 2], ["a", "b"])), "\n";

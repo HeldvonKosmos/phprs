@@ -37,10 +37,7 @@ fn main() -> ExitCode {
             println!("compiled {} files, {} with errors", args.len() - 2, failed);
             if failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
-        Some("run") => {
-            eprintln!("grd: `run` is not implemented yet (phase 0: parser only)");
-            ExitCode::from(2)
-        }
+        Some("run") if args.len() > 2 => run_file(&args[2]),
         _ => {
             eprintln!("usage: grd parse <file.grd>… | grd compile <file.grd>… | grd run <file.grd>");
             ExitCode::from(64)
@@ -65,5 +62,38 @@ fn parse_one(path: &str) -> bool {
             println!("ERR  {path}:{}: {}", grd_vm::parse::line_of(&source, e.offset), e.message);
         }
         false
+    }
+}
+
+fn run_file(path: &str) -> ExitCode {
+    let source = match std::fs::read(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("grd: cannot read {path}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let mut vm = match grd_vm::vm::Vm::with_prelude() {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("grd: prelude failed: {e}");
+            return ExitCode::from(70);
+        }
+    };
+    let result = vm.run_file(path, &source);
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(&vm.output);
+    let _ = stdout.flush();
+    match result {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(grd_vm::vm::RunError::Compile(e)) => {
+            eprintln!("{e}");
+            ExitCode::from(255)
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(255)
+        }
     }
 }

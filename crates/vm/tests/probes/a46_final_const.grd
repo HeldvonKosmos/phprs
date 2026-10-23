@@ -1,0 +1,2 @@
+<?php
+class R { public const V = "1"; final public const K = "k"; } echo R::V, R::K, "\n";

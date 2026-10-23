@@ -1,0 +1,12 @@
+<?php
+class Counter { private int $n = 0; public function inc(): int { return ++$this->n; } }
+$c = new Counter();
+$f = function() { return $this->inc(); };
+$b = Closure::bind($f, $c, Counter::class);
+echo $b(), $b(), " ";
+$g = fn(int $x): int => $x + $c->inc();
+echo $g(10), " ";
+$h = $c->inc(...); echo $h(), " ";
+$s = strlen(...); echo $s("abcd"), " ";
+$compose = fn(callable ...$fs) => fn($x) => array_reduce($fs, fn($acc, $f) => $f($acc), $x);
+echo $compose('trim', 'strtoupper', fn($s) => "$s!")("  hi "), "\n";

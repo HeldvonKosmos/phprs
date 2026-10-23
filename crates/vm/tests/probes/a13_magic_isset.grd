@@ -1,0 +1,2 @@
+<?php
+class M { public function __isset(string $k): bool { return $k === "x"; } } $m = new M; echo isset($m->x) ? "Y" : "N", isset($m->y) ? "Y" : "N", "\n";

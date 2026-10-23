@@ -1,0 +1,2 @@
+<?php
+class K { public function m(int $x): int { return $x * 2; } } $f = (new K)->m(...); $g = strlen(...); echo $f(2), $g("abc"), "\n";

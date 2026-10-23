@@ -51,7 +51,8 @@ fn rejected_constructs_carry_codes() {
 
 #[test]
 fn allowed_constructs_compile() {
-    compiles("<?php declare(strict_types=1); echo 1;");
+    compiles("<?grd declare(strict_types=1); echo 1;");
+    compiles("<?php echo 1;");
     compiles("<?php $f = fn($x) => $x + 1; $g = function($y) use ($f) { return $f($y); };");
     compiles("<?php [$a, [$b, $c]] = [1, [2, 3]]; ['k' => $k] = ['k' => 1]; [, $s] = [1, 2];");
     compiles("<?php namespace App; use Foo\\Bar as Baz; class A extends Baz implements \\Countable { public function count(): int { return 1; } }");

@@ -1,0 +1,6 @@
+<?php
+trait HasTimestamps { public ?string $createdAt = null; public function touch(): static { $this->createdAt = '2026'; return $this; } }
+trait Named { public function label(): string { return static::class . '#' . $this->id; } }
+class Post { use HasTimestamps, Named; public function __construct(public int $id) {} }
+$p = (new Post(7))->touch();
+echo $p->createdAt, " ", $p->label(), "\n";

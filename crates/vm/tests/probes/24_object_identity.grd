@@ -1,0 +1,6 @@
+<?php
+class Box { public int $v = 0; public array $items = []; }
+function bump(Box $b): void { $b->v++; $b->items[] = 'x'; }
+$a = new Box(); $b = $a; $b->v = 5; bump($a);
+$list = [$a]; $list[0]->v += 10; $f = function() use ($a) { $a->v++; }; $f();
+echo $a->v, count($a->items), $a === $b ? 'same' : 'diff', " ", spl_object_id($a) === spl_object_id($b) ? 'id' : 'noid', "\n";

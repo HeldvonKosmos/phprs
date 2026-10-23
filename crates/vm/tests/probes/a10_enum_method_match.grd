@@ -1,0 +1,2 @@
+<?php
+enum S { case A; case B; public function l(): string { return match($this) { S::A => "aa", S::B => "bb" }; } } echo S::B->l(), "\n";

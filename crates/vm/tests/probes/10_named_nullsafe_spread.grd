@@ -1,0 +1,7 @@
+<?php
+function make(string $name, int $age = 0, bool $active = true): string { return "$name/$age/" . ($active ? 'on' : 'off'); }
+echo make(age: 3, name: 'n'), " ", make('m', active: false), " ";
+$args = ['name' => 'z', 'age' => 9]; echo make(...$args), " ";
+class U { public ?U $parent = null; public function name(): string { return 'u'; } }
+$u = new U(); echo $u?->parent?->name() ?? 'none', " ", $u?->name(), " ";
+$arr = [...[1, 2], ...['k' => 'v'], 3]; echo json_encode($arr), "\n";

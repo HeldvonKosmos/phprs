@@ -1,0 +1,10 @@
+<?php
+class Attrs { private array $a = [];
+  public function __get(string $k): mixed { return $this->a[$k] ?? null; }
+  public function __set(string $k, mixed $v): void { $this->a[$k] = $v; }
+  public function __isset(string $k): bool { return isset($this->a[$k]); }
+  public function __call(string $m, array $args): string { return "$m(" . implode(',', $args) . ")"; }
+  public static function __callStatic(string $m, array $args): string { return "static $m"; }
+  public function toArray(): array { return $this->a; } }
+$o = new Attrs(); $o->title = 'x'; $o->n = 2;
+echo $o->title, isset($o->n) ? 'Y' : 'N', isset($o->zz) ? 'Y' : 'N', " ", $o->where('a', 1), " ", Attrs::find(3), " ", json_encode($o->toArray()), "\n";

@@ -20,7 +20,7 @@ pub struct SyntaxError {
 /// arena alive for compilation. For phase 0 only the error list is needed.
 pub fn syntax_errors(name: &str, source: &[u8]) -> Vec<SyntaxError> {
     let arena = LocalArena::new();
-    let file = File::ephemeral(Cow::Owned(name.as_bytes().to_vec()), Cow::Owned(source.to_vec()));
+    let file = File::ephemeral(Cow::Owned(name.as_bytes().to_vec()), Cow::Owned(crate::compile::normalize_open_tag(source)));
     let program = parse_file(&arena, &file);
     program
         .errors

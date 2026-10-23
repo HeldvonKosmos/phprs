@@ -1,0 +1,9 @@
+<?php
+abstract class Model {
+    protected static string $table = 'models';
+    public static function table(): string { return static::$table; }
+    public static function make(): static { return new static(); }
+    abstract public function name(): string;
+}
+class Task extends Model { protected static string $table = 'tasks'; public function name(): string { return 'task'; } }
+echo Task::table(), " ", Task::make()->name(), " ", get_class(Task::make()), "\n";

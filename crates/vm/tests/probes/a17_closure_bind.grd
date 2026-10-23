@@ -1,0 +1,2 @@
+<?php
+class K { private int $n = 3; } $f = function() { return $this->n; }; echo Closure::bind($f, new K, K::class)(), "\n";

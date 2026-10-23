@@ -1,0 +1,2 @@
+<?php
+class R { const A = 2; const B = self::A * 3; } echo R::B, R::class, "\n";
