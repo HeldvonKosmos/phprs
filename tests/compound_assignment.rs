@@ -73,7 +73,7 @@ fn test_compound_concat_undefined_variable_reads_null() {
 fn test_compound_assignment_on_array_dim() {
     assert_output(
         r#"<?php
-        $a = array("k" => 10);
+        $a = ["k" => 10];
         $a["k"] += 5;
         echo $a["k"];
         "#,
@@ -85,7 +85,7 @@ fn test_compound_assignment_on_array_dim() {
 fn test_compound_assignment_on_chained_dim() {
     assert_output(
         r#"<?php
-        $d = array("a" => array("b" => "x"));
+        $d = ["a" => ["b" => "x"]];
         $d["a"]["b"] .= "y";
         echo $d["a"]["b"];
         "#,
@@ -98,7 +98,7 @@ fn test_compound_concat_on_missing_key_reads_null() {
     // PHP auto-vivifies: $u['k'] .= 'v' → 'v' (null key read)
     assert_output(
         r#"<?php
-        $u = array();
+        $u = [];
         $u["k"] .= "v";
         echo $u["k"];
         "#,

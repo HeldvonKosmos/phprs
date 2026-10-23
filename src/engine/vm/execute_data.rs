@@ -99,7 +99,6 @@ pub struct ExecuteData {
     pub temp_vars: Vec<Val>,
     pub call_args: Vec<Val>,
     pub call_arg_names: Vec<Option<String>>,
-    pub included_files: std::collections::HashSet<String>,
     pub class_table: std::collections::HashMap<String, crate::engine::types::ClassEntry>,
     /// Constants defined by define() (shared across includes)
     pub constants: std::collections::HashMap<String, Val>,
@@ -187,7 +186,6 @@ impl ExecuteData {
             temp_vars: Vec::new(),
             call_args: Vec::new(),
             call_arg_names: Vec::new(),
-            included_files: std::collections::HashSet::new(),
             class_table: std::collections::HashMap::new(),
             constants: std::collections::HashMap::new(),
             current_script_dir: None,

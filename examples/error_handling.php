@@ -1,23 +1,35 @@
 <?php
-// Error Handling Example
-// Demonstrates PHP error handling system
+// Error Handling Example (OpenGrid dialect)
+// Errors are exceptions. There are no warnings, notices or error handlers;
+// the Rust host owns the request lifecycle, so scripts throw and catch.
 
-// Set error handler
-set_error_handler(function($errno, $errstr, $errfile, $errline) {
-    echo "[Custom Handler] Error $errno: $errstr in $errfile on line $errline\n";
-    return true;
-});
+class ValidationException extends Exception {}
 
-// Trigger errors
-echo "Triggering a warning:\n";
-trigger_error("This is a custom warning!", E_USER_WARNING);
+function parseAge(string $raw): int {
+    if (!is_numeric($raw)) {
+        throw new ValidationException("Age must be numeric, got '$raw'");
+    }
+    $age = (int) $raw;
+    if ($age < 0) {
+        throw new ValidationException("Age must not be negative");
+    }
+    return $age;
+}
 
-echo "\nTriggering a notice:\n";
-trigger_error("This is a custom notice!", E_USER_NOTICE);
+foreach (["42", "abc", "-3"] as $input) {
+    try {
+        echo "parsed: " . parseAge($input) . "\n";
+    } catch (ValidationException $e) {
+        echo "[validation] " . $e->getMessage() . "\n";
+    } finally {
+        echo "checked '$input'\n";
+    }
+}
 
-// Restore default error handler
-restore_error_handler();
-
-echo "\nTriggering a default error (should print to stderr):\n";
-trigger_error("This is a default error!", E_USER_ERROR);
-
+try {
+    throw new RuntimeException("unexpected");
+} catch (ValidationException $e) {
+    echo "not reached\n";
+} catch (Exception $e) {
+    echo "[generic] " . get_class($e) . ": " . $e->getMessage() . "\n";
+}

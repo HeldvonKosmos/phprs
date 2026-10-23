@@ -1,5 +1,5 @@
 //! Cross-function exception propagation:
-//! a `throw` in a callee (function, method, static method, included file,
+//! a `throw` in a callee (function, method, static method,
 //! call_user_func callback) with no local catch must be catchable by `try`
 //! regions in the caller's frame.
 
@@ -246,42 +246,6 @@ fn test_uncaught_through_frames_is_failure() {
         matches!(r, PhpResult::Failure),
         "expected Failure, got {r:?}"
     );
-}
-
-#[test]
-fn test_throw_in_include_caught_by_includer() {
-    let dir = std::env::temp_dir().join(format!("phprs_exc_test_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("mkdir");
-    let inc = dir.join("thrower_inc.php");
-    std::fs::write(&inc, r#"<?php throw new Exception("from include");"#).expect("write");
-
-    let main = dir.join("main_inc.php");
-    std::fs::write(
-        &main,
-        format!(
-            r#"<?php
-            try {{
-                include "{}";
-            }} catch (Exception $e) {{
-                echo "include caught: " . $e->getMessage();
-            }}
-            "#,
-            inc.display()
-        ),
-    )
-    .expect("write");
-
-    let (op_array, ft) =
-        phprs::engine::compile::compile_file_with_functions(main.to_str().unwrap())
-            .expect("compile");
-    phprs::php::output::php_output_start().expect("output");
-    let mut ed = ExecuteData::new();
-    ed.function_table = Some(Arc::new(ft));
-    let result = execute_ex(&mut ed, &op_array);
-    let output = phprs::php::output::php_output_end().expect("output end");
-    assert!(matches!(result, PhpResult::Success), "result: {result:?}");
-    assert_eq!(output.trim(), "include caught: from include");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

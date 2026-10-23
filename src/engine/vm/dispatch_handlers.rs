@@ -71,26 +71,6 @@ fn call_magic_tostring(
     None
 }
 
-/// Resolve a relative include/require path like PHP: try the path relative to the process
-/// current working directory first, then relative to the including script's directory.
-#[inline]
-fn resolve_include_path(path_str: &str, script_dir: Option<&str>) -> String {
-    use std::path::Path;
-    if path_str.starts_with('/') || (path_str.len() >= 2 && path_str.get(1..2) == Some(":")) {
-        return path_str.to_string();
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        let p = cwd.join(path_str);
-        if p.is_file() {
-            return p.to_string_lossy().into_owned();
-        }
-    }
-    if let Some(dir) = script_dir {
-        return Path::new(dir).join(path_str).to_string_lossy().into_owned();
-    }
-    path_str.to_string()
-}
-
 #[inline]
 pub fn execute_nop(_op: &Op, _execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
     Ok(ExecResult::Continue)
@@ -1101,11 +1081,9 @@ pub fn execute_do_fcall(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecR
 }
 
 #[inline]
-pub fn execute_bind_global(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
-    let name_val = resolve_operand(&op.op1, execute_data);
-    let name = crate::engine::operators::zval_get_string(&name_val);
-    execute_data.bind_global(name.as_str());
-    Ok(ExecResult::Continue)
+/// `global` is rejected at compile time (GRD002); the opcode is never emitted.
+pub fn execute_bind_global(_op: &Op, _execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
+    Err("internal: BindGlobal opcode reached the VM although the dialect forbids it (GRD002)".to_string())
 }
 
 #[inline]
@@ -1269,70 +1247,9 @@ pub fn execute_send_val_named(
 }
 
 #[inline]
-pub fn execute_include(op: &Op, execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
-    let path_val = resolve_operand(&op.op1, execute_data);
-    let path = crate::engine::operators::zval_get_string(&path_val);
-    let path_str = path.as_str();
-    let resolved = resolve_include_path(path_str, execute_data.current_script_dir.as_deref());
-
-    let is_once = op.extended_value == 2 || op.extended_value == 3;
-    if is_once && execute_data.included_files.contains(&resolved) {
-        return Ok(ExecResult::Continue);
-    }
-    match crate::engine::compile::compile_file_with_functions(&resolved) {
-        Ok((included_op_array, included_ft)) => {
-            execute_data.included_files.insert(resolved.clone());
-            crate::engine::compile::function_table::merge_into_execute_data(
-                execute_data,
-                included_ft,
-            );
-            let saved_op_array = execute_data.op_array.take();
-            let saved_current_op = execute_data.current_op;
-            let saved_script_dir = execute_data.current_script_dir.clone();
-            let saved_magic_dir = execute_data.constants.get("__DIR__").map(clone_val);
-            let saved_magic_file = execute_data.constants.get("__FILE__").map(clone_val);
-            let saved_try_depth = execute_data.try_stack.len();
-            let result = super::execute::execute_ex(execute_data, &included_op_array);
-            execute_data.op_array = saved_op_array;
-            execute_data.current_op = saved_current_op;
-            execute_data.current_script_dir = saved_script_dir;
-            match saved_magic_dir {
-                Some(v) => {
-                    execute_data.constants.insert("__DIR__".to_string(), v);
-                }
-                None => {
-                    execute_data.constants.remove("__DIR__");
-                }
-            }
-            match saved_magic_file {
-                Some(v) => {
-                    execute_data.constants.insert("__FILE__".to_string(), v);
-                }
-                None => {
-                    execute_data.constants.remove("__FILE__");
-                }
-            }
-            // A throw inside the included file with no local catch lands here.
-            if let Some(er) = crate::engine::vm::exception_dispatch::propagate_after_call(
-                execute_data,
-                saved_try_depth,
-            ) {
-                return Ok(er);
-            }
-            if result == crate::engine::types::PhpResult::Failure {
-                return Err(format!("Failed to execute included file: {}", resolved));
-            }
-            Ok(ExecResult::Continue)
-        }
-        Err(e) => {
-            if op.extended_value == 1 || op.extended_value == 3 {
-                Err(format!("require({}): {}", resolved, e))
-            } else {
-                eprintln!("Warning: include({}): {}", resolved, e);
-                Ok(ExecResult::Continue)
-            }
-        }
-    }
+/// `include`/`require` are rejected at compile time (GRD001); the opcode is never emitted.
+pub fn execute_include(_op: &Op, _execute_data: &mut ExecuteData) -> Result<ExecResult, String> {
+    Err("internal: Include opcode reached the VM although the dialect forbids it (GRD001)".to_string())
 }
 
 #[inline]

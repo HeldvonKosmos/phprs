@@ -595,9 +595,11 @@ fn parse_multiplicative_expr_with_initial(
     }
 
     if initial_token.token_type == TokenType::T_ARRAY {
-        let result = parse_long_array_literal(lexer, context)?;
-        let next = lexer.next_token()?;
-        return multiplicative_loop(lexer, context, result, next);
+        return Err(crate::engine::compile::dialect::reject(
+            crate::engine::compile::dialect::LONG_ARRAY,
+            &initial_token,
+            context,
+        ));
     }
 
     // Convert token to primary Val

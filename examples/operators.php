@@ -36,7 +36,7 @@ echo "total: $total\n";
 $label = "count";
 $label .= "-";
 $label .= "down";
-$dim = array('k' => 10);
+$dim = ['k' => 10];
 $dim['k'] += 5;
 echo "label: $label, dim: " . $dim['k'] . "\n";
 

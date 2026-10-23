@@ -941,18 +941,6 @@ pub(crate) fn parse_array_literal(
     parse_array_elements(lexer, context, "]", "Expected ',' or ']' in array literal")
 }
 
-/// Parse legacy array constructor: array(...) — `array` keyword already consumed
-pub(crate) fn parse_long_array_literal(
-    lexer: &mut Lexer,
-    context: &mut CompileContext,
-) -> Result<Val, String> {
-    let open = lexer.next_token()?;
-    if !token_is_punct(&open, "(") {
-        return Err("Expected '(' after array".to_string());
-    }
-    parse_array_elements(lexer, context, ")", "Expected ',' or ')' in array()")
-}
-
 /// Parse a single call argument, detecting named arguments (name: value)
 /// Emits SendVal, SendVarRef, or SendValNamed directly
 pub(crate) fn parse_call_arg(
@@ -1107,6 +1095,14 @@ pub(crate) fn parse_function_call(
     function_name: &str,
 ) -> Result<(Val, Token), String> {
     let mut current_token = lexer.next_token()?;
+    if crate::engine::compile::dialect::is_forbidden_function(function_name) {
+        return Err(crate::engine::compile::dialect::reject_named(
+            crate::engine::compile::dialect::FORBIDDEN_BUILTIN,
+            Some(function_name),
+            &current_token,
+            context,
+        ));
+    }
     if current_token.token_type == TokenType::T_ELLIPSIS {
         let close = lexer.next_token()?;
         if !token_is_punct(&close, ")") {

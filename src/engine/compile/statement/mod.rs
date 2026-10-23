@@ -14,6 +14,7 @@ use super::control_flow::{
 use super::expression::helpers::token_is_punct;
 use super::expression::{parse_additive_expr_with_initial, parse_expression};
 use super::function::compile_function;
+use crate::engine::compile::dialect;
 use crate::engine::facade::{
     StdValFactory, ValFactory, clone_val, null_val, result_val, string_val, string_val_copy,
     zero_val,
@@ -127,7 +128,7 @@ pub fn parse_statement(
         TokenType::T_INCLUDE
         | TokenType::T_INCLUDE_ONCE
         | TokenType::T_REQUIRE
-        | TokenType::T_REQUIRE_ONCE => compile_include(lexer, context, &token),
+        | TokenType::T_REQUIRE_ONCE => Err(dialect::reject(dialect::INCLUDE, &token, context)),
         TokenType::T_IF => compile_if(lexer, context),
         TokenType::T_WHILE => compile_while(lexer, context),
         TokenType::T_FOR => compile_for(lexer, context),
@@ -139,7 +140,7 @@ pub fn parse_statement(
         TokenType::T_ENUM => oop::compile_enum(lexer, context),
         TokenType::T_TRAIT => oop::compile_trait(lexer, context),
         TokenType::T_RETURN => compile_return(lexer, context),
-        TokenType::T_GLOBAL => compile_global(lexer, context),
+        TokenType::T_GLOBAL => Err(dialect::reject(dialect::GLOBAL, &token, context)),
         TokenType::T_YIELD => compile_yield(lexer, context),
         TokenType::T_NAMESPACE => compile_namespace(lexer, context),
         TokenType::T_USE => compile_use(lexer, context),
@@ -953,53 +954,6 @@ fn compile_unset_stmt(lexer: &mut Lexer, context: &mut CompileContext) -> Result
     );
     let after = lexer.next_token()?;
     skip_semicolon(lexer, after)
-}
-
-/// Compile global statement: global $a, $b;
-fn compile_global(lexer: &mut Lexer, context: &mut CompileContext) -> Result<Token, String> {
-    let mut token = lexer.next_token()?;
-    loop {
-        if token.token_type != TokenType::T_VARIABLE {
-            return Err("Expected variable after global".to_string());
-        }
-        let var_name = token.value.as_ref().unwrap().as_str();
-        let clean = var_name.strip_prefix('$').unwrap_or(var_name);
-        context.emit_opcode(
-            Opcode::BindGlobal,
-            string_val(clean),
-            null_val(),
-            null_val(),
-        );
-        token = lexer.next_token()?;
-        if token_is_punct(&token, ",") {
-            token = lexer.next_token()?;
-            continue;
-        }
-        break;
-    }
-    skip_semicolon(lexer, token)
-}
-
-/// Compile include/require statement
-fn compile_include(
-    lexer: &mut Lexer,
-    context: &mut CompileContext,
-    token: &Token,
-) -> Result<Token, String> {
-    let include_type: u32 = match token.token_type {
-        TokenType::T_INCLUDE => 0,
-        TokenType::T_REQUIRE => 1,
-        TokenType::T_INCLUDE_ONCE => 2,
-        TokenType::T_REQUIRE_ONCE => 3,
-        _ => 0,
-    };
-    let (path_zval, _) = parse_expression(lexer, context)?;
-    let z1 = null_val();
-    let z2 = null_val();
-    let idx = context.emit_opcode_with_index(Opcode::Include, path_zval, z1, z2);
-    context.update_jump_target(idx, include_type);
-    let next = lexer.next_token()?;
-    skip_semicolon(lexer, next)
 }
 
 /// Compile namespace declaration: namespace Foo\Bar;

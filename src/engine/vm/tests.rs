@@ -367,24 +367,24 @@ fn test_compile_and_execute_function_result_array_access() {
 }
 
 #[test]
-fn test_compile_and_execute_long_array_empty() {
-    let code = "<?php\n$a = array();\necho count($a);\n";
+fn test_compile_and_execute_array_literal_empty() {
+    let code = "<?php\n$a = [];\necho count($a);\n";
     let (result, output) = run_php_code(code);
     assert!(matches!(result, PhpResult::Success));
     assert_eq!(output, "0");
 }
 
 #[test]
-fn test_compile_and_execute_long_array_indexed() {
-    let code = "<?php\n$a = array(10, 20);\necho $a[0] + $a[1];\n";
+fn test_compile_and_execute_array_literal_indexed() {
+    let code = "<?php\n$a = [10, 20];\necho $a[0] + $a[1];\n";
     let (result, output) = run_php_code(code);
     assert!(matches!(result, PhpResult::Success));
     assert_eq!(output, "30");
 }
 
 #[test]
-fn test_compile_and_execute_long_array_assoc() {
-    let code = "<?php\n$m = array(\"a\" => \"x\", \"b\" => \"y\");\necho $m[\"a\"] . $m[\"b\"];\n";
+fn test_compile_and_execute_array_literal_assoc() {
+    let code = "<?php\n$m = [\"a\" => \"x\", \"b\" => \"y\"];\necho $m[\"a\"] . $m[\"b\"];\n";
     let (result, output) = run_php_code(code);
     assert!(matches!(result, PhpResult::Success));
     assert_eq!(output, "xy");
@@ -559,16 +559,8 @@ fn test_builtin_call_inside_user_function_via_compile_file() {
 }
 
 #[test]
-fn test_global_statement_in_user_function() {
-    let code = "<?php\n$count = 0;\nfunction bump() {\n  global $count;\n  $count = $count + 1;\n}\nbump();\nbump();\necho $count;\n";
-    let (result, output) = run_php_code(code);
-    assert!(matches!(result, PhpResult::Success));
-    assert_eq!(output, "2");
-}
-
-#[test]
 fn test_foreach_key_value() {
-    let code = "<?php\n$items = array('a' => 1, 'b' => 2);\n$out = '';\nforeach ($items as $k => $v) {\n  $out = $out . $k . ':' . $v . ',';\n}\necho $out;\n";
+    let code = "<?php\n$items = ['a' => 1, 'b' => 2];\n$out = '';\nforeach ($items as $k => $v) {\n  $out = $out . $k . ':' . $v . ',';\n}\necho $out;\n";
     let (result, output) = run_php_code(code);
     assert!(matches!(result, PhpResult::Success));
     assert_eq!(output, "a:1,b:2,");
@@ -577,7 +569,7 @@ fn test_foreach_key_value() {
 #[test]
 fn test_chained_array_assign_dim() {
     let code =
-        "<?php\n$root = array();\n$root['outer']['inner'] = 'ok';\necho $root['outer']['inner'];\n";
+        "<?php\n$root = [];\n$root['outer']['inner'] = 'ok';\necho $root['outer']['inner'];\n";
     let (result, output) = run_php_code(code);
     assert!(matches!(result, PhpResult::Success));
     assert_eq!(output, "ok");
@@ -590,7 +582,7 @@ class Box {
     public $data;
 }
 $b = new Box();
-$b->data = array();
+$b->data = [];
 $b->data['outer']['inner'] = 'ok';
 echo $b->data['outer']['inner'];
 "#;
@@ -621,7 +613,7 @@ echo $b->x;
 fn test_class_property_default_array() {
     let code = r#"<?php
 class Box {
-    public $data = array();
+    public $data = [];
 }
 $b = new Box();
 $b->data['k'] = 'v';
@@ -636,7 +628,7 @@ echo $b->data['k'];
 fn test_this_prop_assign_dim_in_method() {
     let code = r#"<?php
 class Box {
-    public $data = array();
+    public $data = [];
     function set() {
         $this->data['k'] = 'v';
     }
@@ -652,7 +644,7 @@ echo $b->data['k'];
 
 #[test]
 fn test_array_append_assign() {
-    let code = "<?php\n$list = array();\n$list[] = 'first';\n$list[] = 'second';\necho $list[0] . $list[1];\n";
+    let code = "<?php\n$list = [];\n$list[] = 'first';\n$list[] = 'second';\necho $list[0] . $list[1];\n";
     let (result, output) = run_php_code(code);
     assert!(matches!(result, PhpResult::Success));
     assert_eq!(output, "firstsecond");

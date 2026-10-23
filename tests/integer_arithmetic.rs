@@ -54,7 +54,7 @@ fn test_arithmetic_result_as_array_key() {
     // that never matched integer-keyed slots
     assert_output(
         r#"<?php
-        $a = array();
+        $a = [];
         $a[2 - 3] = "neg";
         echo $a[-1];
         "#,

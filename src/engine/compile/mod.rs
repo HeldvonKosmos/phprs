@@ -10,6 +10,7 @@ mod tests;
 pub mod const_eval;
 pub mod context;
 pub mod control_flow;
+pub mod dialect;
 pub mod expression;
 pub mod function;
 pub mod function_table;

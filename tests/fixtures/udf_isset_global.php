@@ -1,9 +1,9 @@
 <?php
-$wp_filter = array();
+$wp_filter = [];
 function test_isset($hook_name) {
     global $wp_filter;
     if (!isset($wp_filter[$hook_name])) {
-        $wp_filter[$hook_name] = array();
+        $wp_filter[$hook_name] = [];
     }
     echo "ok\n";
 }

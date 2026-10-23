@@ -31,7 +31,7 @@ fn assert_output(code: &str, expected: &str) {
 fn test_numeric_string_key_write_int_read() {
     assert_output(
         r#"<?php
-        $a = array();
+        $a = [];
         $a["1"] = "one";
         echo $a[1];
         "#,
@@ -43,7 +43,7 @@ fn test_numeric_string_key_write_int_read() {
 fn test_int_literal_key_string_read() {
     assert_output(
         r#"<?php
-        $b = array("10" => "ten");
+        $b = ["10" => "ten"];
         echo $b[10], "|", $b["10"];
         "#,
         "ten|ten",
@@ -54,7 +54,7 @@ fn test_int_literal_key_string_read() {
 fn test_non_canonical_keys_stay_strings() {
     assert_output(
         r#"<?php
-        $c = array("01" => "a", "1x" => "b", "-0" => "c", "9223372036854775808" => "d");
+        $c = ["01" => "a", "1x" => "b", "-0" => "c", "9223372036854775808" => "d"];
         echo $c["01"], $c["1x"], $c["-0"], $c["9223372036854775808"];
         "#,
         "abcd",
@@ -76,7 +76,7 @@ fn test_negative_numeric_key() {
 
     assert_output(
         r#"<?php
-        $a = array();
+        $a = [];
         $a["-5"] = "neg";
         echo $a[-5];
         "#,

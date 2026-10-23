@@ -84,11 +84,11 @@ fn parse_primary_inner(
         TokenType::T_NEW => compile_new_obj(lexer, context),
         TokenType::T_CLONE => compile_clone_obj(lexer, context),
         TokenType::T_MATCH => parse_match_expression(lexer, context),
-        TokenType::T_ARRAY => {
-            let result = parse_long_array_literal(lexer, context)?;
-            let next = lexer.next_token()?;
-            Ok((result, next))
-        }
+        TokenType::T_ARRAY => Err(crate::engine::compile::dialect::reject(
+            crate::engine::compile::dialect::LONG_ARRAY,
+            &token,
+            context,
+        )),
         TokenType::T_YIELD => {
             let (yield_val, next) = super::parse_expression(lexer, context)?;
             Ok((yield_val, next))
