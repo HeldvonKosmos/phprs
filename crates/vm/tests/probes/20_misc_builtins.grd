@@ -1,0 +1,5 @@
+<?php
+echo bin2hex(random_bytes(2)) !== '' ? 'rb ' : '', str_contains('abc', 'b') ? 'sc ' : '', password_verify('x', password_hash('x', PASSWORD_DEFAULT)) ? 'pw ' : '';
+echo hash('sha256', 'a') === 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb' ? 'sha ' : '', base64_encode('hi'), " ", md5('a'), " ";
+echo preg_replace_callback('/\d+/', fn($m) => $m[0] * 2, 'a1b22'), " ", preg_split('/[\s,]+/', 'a, b  c')[2], " ", implode('|', str_split('abcdef', 2)), " ";
+echo filter_var('a@b.de', FILTER_VALIDATE_EMAIL) ? 'mail ' : 'nomail ', uniqid() !== '' ? 'uid ' : '', var_export(array_is_list([1,2]), true), " ", serialize([1]), " ", var_export(unserialize('a:1:{i:0;i:1;}'), true) !== '' ? 'ok' : '', "\n";

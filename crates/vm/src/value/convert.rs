@@ -214,6 +214,10 @@ impl Val {
         match self {
             Val::Int(i) => Ok(Numeric::Int(*i)),
             Val::Float(f) => Ok(Numeric::Float(*f)),
+            Val::Str(s) => match parse_numeric(s.as_bytes()) {
+                Some((n, true)) => Ok(n),
+                _ => Err(Throw::type_error(format!("Unsupported operand type non-numeric string (\"{s}\") for {op}"))),
+            },
             other => Err(Throw::type_error(format!("Unsupported operand type {} for {}", other.type_name(), op))),
         }
     }
@@ -270,6 +274,8 @@ mod tests {
         assert_eq!(Val::Bool(true).to_php_string().unwrap().as_bytes(), b"1");
         assert_eq!(Val::Null.to_php_string().unwrap().as_bytes(), b"");
         assert!(Val::empty_array().to_php_string().is_err());
-        assert!(Val::str("5").as_number("+").is_err());
+        assert!(Val::str("5").as_number("+").is_ok());
+        assert!(Val::str("5x").as_number("+").is_err());
+        assert!(Val::Null.as_number("+").is_err());
     }
 }

@@ -1,0 +1,2 @@
+<?php
+echo uniqid() !== "" ? "u" : "", filter_var("a@b.de", FILTER_VALIDATE_EMAIL) ? "m" : "n", str_contains("abc", "b") ? "c" : "", "\n";

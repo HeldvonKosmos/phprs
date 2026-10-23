@@ -148,11 +148,14 @@ impl Compiler<'_> {
     /// `"$a[k]"`: in the simple interpolation syntax a bare key is a string.
     fn compile_interpolated_simple(&mut self, e: &Expression<'_>) -> CResult<()> {
         if let Expression::ArrayAccess(a) = e
-            && let Expression::ConstantAccess(c) = a.index
-            && matches!(c.name, Identifier::Local(_))
+            && let Some(name) = match a.index {
+                Expression::ConstantAccess(c) if matches!(c.name, Identifier::Local(_)) => Some(c.name.value()),
+                Expression::Identifier(Identifier::Local(id)) => Some(id.value),
+                _ => None,
+            }
         {
             self.compile_expr(a.array)?;
-            let k = self.constant(Const::Str(c.name.value().to_vec()));
+            let k = self.constant(Const::Str(name.to_vec()));
             self.emit(Op::PushConst(k));
             self.emit(Op::FetchDim);
             return Ok(());
@@ -1154,3 +1157,4 @@ fn unquote_fallback(raw: &[u8]) -> Vec<u8> {
     }
     out
 }
+

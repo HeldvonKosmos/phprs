@@ -3,9 +3,12 @@
 
 mod array;
 mod core;
+mod datetime;
 mod json;
 mod math;
+mod misc;
 mod output;
+mod regex;
 mod string;
 
 use crate::value::Val;
@@ -98,6 +101,9 @@ pub fn register(vm: &mut Vm) {
     math::register(vm);
     output::register(vm);
     json::register(vm);
+    regex::register(vm);
+    datetime::register(vm);
+    misc::register(vm);
 }
 
 /// Argument helpers shared by the builtin modules.

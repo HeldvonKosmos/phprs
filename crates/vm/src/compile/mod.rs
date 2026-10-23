@@ -285,7 +285,17 @@ impl<'src> Compiler<'src> {
     /// Finish the innermost unit and store it in the module.
     pub(crate) fn pop_unit(&mut self) -> UnitId {
         let ub = self.units.pop().expect("unit stack");
+        let mut names: Vec<(Slot, Vec<u8>)> = ub.slots.iter().map(|(k, v)| (*v, k.clone())).collect();
+        names.sort();
         let mut unit = ub.unit;
+        if unit.slot_names.is_empty() {
+            let mut slot_names = vec![0; unit.num_slots as usize];
+            for (slot, n) in names {
+                let id = self.intern(&n);
+                slot_names[slot as usize] = id;
+            }
+            unit.slot_names = slot_names;
+        }
         // every unit ends with an implicit `return null`
         unit.ops.push(Op::PushNull);
         unit.ops.push(Op::Return);

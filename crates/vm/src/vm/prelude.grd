@@ -137,3 +137,137 @@ class ArrayIterator implements Iterator, Countable, ArrayAccess {
     public function offsetUnset(mixed $k): void { unset($this->items[$k]); }
     public function getArrayCopy(): array { return $this->items; }
 }
+
+// ---- Dates -----------------------------------------------------------------
+
+class DateTimeZone {
+    public const UTC = 1024;
+    private string $name;
+    public function __construct(string $timezone = 'UTC') {
+        if (!__grd_tz_valid($timezone)) { throw new Exception("DateTimeZone::__construct(): Unknown or bad timezone ($timezone)"); }
+        $this->name = __grd_tz_name($timezone);
+    }
+    public function getName(): string { return $this->name; }
+    public function getOffset(DateTimeInterface $dt): int { return __grd_tz_offset($this->name, $dt->getTimestamp()); }
+}
+
+class DateInterval {
+    public int $y = 0; public int $m = 0; public int $d = 0; public int $h = 0; public int $i = 0; public int $s = 0; public float $f = 0.0;
+    public int $invert = 0;
+    public mixed $days = false;
+    public function __construct(string $duration = 'PT0S') {
+        [$this->y, $this->m, $this->d, $this->h, $this->i, $this->s] = __grd_interval_parse($duration);
+    }
+    public static function createFromDateString(string $datetime): static {
+        $p = __grd_relative_parts($datetime);
+        if ($p === false) { throw new Exception("DateInterval::createFromDateString(): Unknown or bad format ($datetime)"); }
+        $iv = new static('PT0S');
+        [$iv->y, $iv->m, $iv->d, $iv->h, $iv->i, $iv->s] = $p;
+        return $iv;
+    }
+    public function format(string $format): string {
+        $out = ''; $len = strlen($format);
+        for ($k = 0; $k < $len; $k++) {
+            $c = $format[$k];
+            if ($c !== '%' || $k + 1 >= $len) { $out .= $c; continue; }
+            $k++; $c = $format[$k];
+            $out .= match ($c) {
+                'y' => (string) $this->y, 'Y' => sprintf('%04d', $this->y),
+                'm' => (string) $this->m, 'M' => sprintf('%02d', $this->m),
+                'd' => (string) $this->d, 'D' => sprintf('%02d', $this->d),
+                'h' => (string) $this->h, 'H' => sprintf('%02d', $this->h),
+                'i' => (string) $this->i, 'I' => sprintf('%02d', $this->i),
+                's' => (string) $this->s, 'S' => sprintf('%02d', $this->s),
+                'a' => $this->days === false ? '(unknown)' : (string) $this->days,
+                'R' => $this->invert ? '-' : '+', 'r' => $this->invert ? '-' : '',
+                '%' => '%',
+                default => '%' . $c,
+            };
+        }
+        return $out;
+    }
+}
+
+interface DateTimeInterface {
+    public const ATOM = 'Y-m-d\TH:i:sP';
+    public const ISO8601 = 'Y-m-d\TH:i:sO';
+    public const RFC2822 = 'D, d M Y H:i:s O';
+    public const RFC3339 = 'Y-m-d\TH:i:sP';
+    public const RSS = 'D, d M Y H:i:s O';
+    public const COOKIE = 'l, d-M-Y H:i:s T';
+    public const W3C = 'Y-m-d\TH:i:sP';
+    public function format(string $format): string;
+    public function getTimestamp(): int;
+    public function getTimezone(): DateTimeZone;
+}
+
+class DateTimeImmutable implements DateTimeInterface {
+    protected int $ts = 0;
+    protected int $us = 0;
+    protected string $tz = 'UTC';
+
+    public function __construct(string $datetime = 'now', ?DateTimeZone $timezone = null) {
+        $this->tz = $timezone?->getName() ?? date_default_timezone_get();
+        [$now, $us] = __grd_now();
+        $parsed = __grd_date_parse($datetime, $now, $this->tz);
+        if ($parsed === false) { throw new Exception("Failed to parse time string ($datetime)"); }
+        [$this->ts, $explicit] = $parsed;
+        if ($explicit !== null) { $this->tz = $explicit; }
+        $this->us = ($datetime === 'now' || $datetime === '') ? $us : 0;
+    }
+    protected function withTs(int $ts): static { $c = clone $this; $c->ts = $ts; return $c; }
+    public function format(string $format): string { return __grd_date_format($this->ts, $this->us, $format, $this->tz); }
+    public function getTimestamp(): int { return $this->ts; }
+    public function setTimestamp(int $timestamp): static { return $this->withTs($timestamp); }
+    public function getTimezone(): DateTimeZone { return new DateTimeZone($this->tz); }
+    public function setTimezone(DateTimeZone $timezone): static { $c = clone $this; $c->tz = $timezone->getName(); return $c; }
+    public function getOffset(): int { return __grd_tz_offset($this->tz, $this->ts); }
+    public function modify(string $modifier): static {
+        $parsed = __grd_date_parse($modifier, $this->ts, $this->tz);
+        if ($parsed === false) { throw new Exception("DateTimeImmutable::modify(): Failed to parse time string ($modifier)"); }
+        return $this->withTs($parsed[0]);
+    }
+    public function add(DateInterval $interval): static {
+        $sign = $interval->invert ? -1 : 1;
+        return $this->withTs(__grd_date_add($this->ts, $interval->y, $interval->m, $interval->d, $interval->h, $interval->i, $interval->s, $sign, $this->tz));
+    }
+    public function sub(DateInterval $interval): static {
+        $sign = $interval->invert ? 1 : -1;
+        return $this->withTs(__grd_date_add($this->ts, $interval->y, $interval->m, $interval->d, $interval->h, $interval->i, $interval->s, $sign, $this->tz));
+    }
+    public function setDate(int $year, int $month, int $day): static { return $this->withTs(__grd_date_set($this->ts, $year, $month, $day, null, null, null, $this->tz)); }
+    public function setTime(int $hour, int $minute, int $second = 0, int $microsecond = 0): static { $c = $this->withTs(__grd_date_set($this->ts, null, null, null, $hour, $minute, $second, $this->tz)); $c->us = $microsecond; return $c; }
+    public function diff(DateTimeInterface $target, bool $absolute = false): DateInterval {
+        [$y, $m, $d, $h, $i, $s, $days, $invert] = __grd_date_diff($this->ts, $target->getTimestamp(), $this->tz);
+        $iv = new DateInterval('PT0S');
+        $iv->y = $y; $iv->m = $m; $iv->d = $d; $iv->h = $h; $iv->i = $i; $iv->s = $s; $iv->days = $days;
+        $iv->invert = $absolute ? 0 : $invert;
+        return $iv;
+    }
+    public static function createFromFormat(string $format, string $datetime, ?DateTimeZone $timezone = null): static|false {
+        $tz = $timezone?->getName() ?? date_default_timezone_get();
+        $ts = __grd_date_create_from_format($format, $datetime, $tz);
+        if ($ts === false) { return false; }
+        $o = new static('now', $timezone);
+        $o->ts = $ts; $o->us = 0;
+        return $o;
+    }
+    public static function createFromMutable(DateTime $object): static { $o = new static('@' . $object->getTimestamp()); $o->tz = $object->getTimezone()->getName(); return $o; }
+    public static function createFromInterface(DateTimeInterface $object): static { $o = new static('@' . $object->getTimestamp()); $o->tz = $object->getTimezone()->getName(); return $o; }
+    public function __serialize(): array { return ['date' => $this->format('Y-m-d H:i:s.u'), 'timezone' => $this->tz]; }
+}
+
+class DateTime extends DateTimeImmutable {
+    protected function withTs(int $ts): static { $this->ts = $ts; return $this; }
+    public function setTimezone(DateTimeZone $timezone): static { $this->tz = $timezone->getName(); return $this; }
+    public function setTime(int $hour, int $minute, int $second = 0, int $microsecond = 0): static { $this->ts = __grd_date_set($this->ts, null, null, null, $hour, $minute, $second, $this->tz); $this->us = $microsecond; return $this; }
+    public static function createFromImmutable(DateTimeImmutable $object): static { $o = new static('@' . $object->getTimestamp()); $o->setTimezone($object->getTimezone()); return $o; }
+}
+
+function date_create(string $datetime = 'now', ?DateTimeZone $timezone = null): DateTime|false {
+    try { return new DateTime($datetime, $timezone); } catch (Exception) { return false; }
+}
+function date_create_immutable(string $datetime = 'now', ?DateTimeZone $timezone = null): DateTimeImmutable|false {
+    try { return new DateTimeImmutable($datetime, $timezone); } catch (Exception) { return false; }
+}
+function date_diff(DateTimeInterface $a, DateTimeInterface $b, bool $absolute = false): DateInterval { return $a->diff($b, $absolute); }

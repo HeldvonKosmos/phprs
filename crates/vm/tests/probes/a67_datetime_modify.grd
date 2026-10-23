@@ -1,0 +1,2 @@
+<?php
+$d = new DateTimeImmutable("2026-10-23 10:00:00", new DateTimeZone("UTC")); echo $d->modify("+1 day")->format("d.m.Y"), $d->add(new DateInterval("P1M"))->format("m"), "\n";

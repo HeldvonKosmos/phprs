@@ -1,0 +1,2 @@
+<?php
+$n = "W"; $a = ["k" => "v"]; $o = new stdClass; $o->p = "P"; echo "Hi $n {$a["k"]} $a[k] {$o->p}\n";
