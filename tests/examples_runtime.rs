@@ -102,34 +102,6 @@ fn example_control_flow_runs() {
 }
 
 #[test]
-fn example_codeigniter_public_index_runs() {
-    let (r, out) = run_example_phprs("codeigniter/public/index.php").expect("run");
-    assert!(
-        matches!(r, PhpResult::Success),
-        "vm result: {r:?}, output: {out:?}"
-    );
-    assert!(
-        out.contains("CodeIgniter 4 bootstrap loaded"),
-        "output: {out:?}"
-    );
-    assert!(
-        out.contains("Hello from HomeController::index()"),
-        "expected routed controller output: {out:?}"
-    );
-}
-
-#[test]
-fn example_drupal_index_runs() {
-    let (r, out) = run_example_phprs("drupal/index.php").expect("run");
-    assert!(
-        matches!(r, PhpResult::Success),
-        "vm result: {r:?}, output: {out:?}"
-    );
-    assert!(out.contains("Drupal bootstrap complete"), "output: {out:?}");
-    assert!(out.contains("DrupalKernel::boot()"), "output: {out:?}");
-}
-
-#[test]
 fn example_mbstring_runs() {
     let (r, out) = run_example_phprs("mbstring.php").expect("run");
     assert!(
@@ -200,20 +172,6 @@ fn example_filesystem_runs() {
     );
     assert!(out.contains("Does '.' exist? yes"), "output: {out:?}");
     assert!(out.contains("Contents length:"), "output: {out:?}");
-}
-
-#[test]
-fn example_wordpress_index_runs() {
-    let (r, out) = run_example_phprs("wordpress/index.php").expect("run");
-    assert!(
-        matches!(r, PhpResult::Success),
-        "vm result: {r:?}, output: {out:?}"
-    );
-    assert!(
-        out.contains("Hello from WordPress (phprs)!"),
-        "output: {out:?}"
-    );
-    assert!(out.contains("Blog name = WordPress"), "output: {out:?}");
 }
 
 /// Every **root-level** `examples/*.php` script must compile and finish with [`PhpResult::Success`].

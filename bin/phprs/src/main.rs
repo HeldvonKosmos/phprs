@@ -1,12 +1,10 @@
 //! PHP-RS Unified CLI
 //!
-//! Single binary with three commands:
-//! - `phprs run <file>`   — Execute a PHP file
-//! - `phprs serve`        — Start the web playground server
-//! - `phprs pkg <cmd>`    — Package manager (Composer-compatible)
+//! Single binary with two commands:
+//! - `phprs run <file>`   — Execute a script
+//! - `phprs pkg <cmd>`    — Module manager
 
 mod pkg;
-mod server;
 
 use clap::{Parser, Subcommand};
 use env_logger::Env;
@@ -14,7 +12,7 @@ use env_logger::Env;
 #[derive(Parser)]
 #[command(name = "phprs")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(about = "PHP interpreter, server, and package manager written in Rust")]
+#[command(about = "OpenGrid dialect runtime and module manager")]
 struct Cli {
     /// Sets the level of verbosity
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
@@ -32,14 +30,7 @@ enum Commands {
         file: String,
     },
 
-    /// Start the web playground server
-    Serve {
-        /// Port to listen on
-        #[arg(short, long, default_value = "3080")]
-        port: u16,
-    },
-
-    /// Package manager (Composer-compatible)
+    /// Module manager
     Pkg {
         #[command(subcommand)]
         command: pkg::PkgCommands,
@@ -57,10 +48,6 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Run { file } => cmd_run(&file),
-        Commands::Serve { port } => {
-            server::start(port);
-            Ok(())
-        }
         Commands::Pkg { command } => pkg::execute(command).await,
     }
 }
