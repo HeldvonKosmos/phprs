@@ -1,0 +1,10 @@
+<?grd
+namespace Tasks\Controllers;
+
+abstract class BaseController
+{
+    protected function respond(array $data): array
+    {
+        return $data + ['module' => 'tasks'];
+    }
+}

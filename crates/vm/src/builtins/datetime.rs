@@ -708,7 +708,7 @@ fn parse_with_format(fmt: &str, s: &str, z: &Zone) -> Option<i64> {
     let mut ts_override: Option<i64> = None;
     let sb = s.as_bytes();
     let mut pos = 0usize;
-    let mut read_num = |pos: &mut usize, max: usize| -> Option<i64> {
+    let read_num = |pos: &mut usize, max: usize| -> Option<i64> {
         let start = *pos;
         while *pos < sb.len() && sb[*pos].is_ascii_digit() && *pos - start < max {
             *pos += 1;

@@ -12,6 +12,7 @@ mod generator;
 mod iter;
 mod link;
 pub mod native;
+pub mod project;
 pub(crate) mod ops;
 mod path;
 mod run;
@@ -322,6 +323,7 @@ impl Vm {
         self.frames.last().expect("no frame")
     }
 
+    #[allow(dead_code)]
     pub(crate) fn frame_mut(&mut self) -> &mut Frame {
         self.frames.last_mut().expect("no frame")
     }

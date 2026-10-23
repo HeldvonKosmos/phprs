@@ -1,0 +1,22 @@
+<?grd
+namespace Tasks\Services;
+
+use Tasks\Models\Task;
+
+class TaskRepository
+{
+    /** @var Task[] */
+    private array $tasks = [];
+
+    public function add(string $title): Task
+    {
+        $task = new Task(count($this->tasks) + 1, $title);
+        $this->tasks[] = $task;
+        return $task;
+    }
+
+    public function all(): array
+    {
+        return array_map(fn(Task $t) => $t->toArray(), $this->tasks);
+    }
+}

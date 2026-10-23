@@ -96,6 +96,7 @@ pub fn line_of(source: &[u8], offset: u32) -> u32 {
 #[derive(Debug, Clone)]
 pub(crate) struct ClassCtx {
     pub name: Vec<u8>,
+    #[allow(dead_code)]
     pub parent: Option<Vec<u8>>,
     pub kind: ClassKind,
 }
@@ -303,6 +304,7 @@ impl<'src> Compiler<'src> {
         id
     }
 
+    #[allow(dead_code)]
     pub(crate) fn intern_str(&mut self, s: &str) -> StrId {
         self.intern(s.as_bytes())
     }

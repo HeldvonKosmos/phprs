@@ -1,0 +1,12 @@
+<?grd
+namespace Tasks\Models;
+
+final class Task
+{
+    public function __construct(public readonly int $id, public string $title, public bool $done = false) {}
+
+    public function toArray(): array
+    {
+        return ['id' => $this->id, 'title' => $this->title, 'done' => $this->done];
+    }
+}

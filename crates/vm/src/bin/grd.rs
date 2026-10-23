@@ -38,6 +38,7 @@ fn main() -> ExitCode {
             if failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
         Some("run") if args.len() > 2 => run_file(&args[2]),
+        Some("app") if args.len() > 2 => run_app(&args[2], args.get(3).map(String::as_str)),
         Some("dump") if args.len() > 2 => {
             let source = std::fs::read(&args[2]).expect("read");
             match grd_vm::compile::compile_source(&args[2], &source) {
@@ -57,7 +58,7 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: grd parse <file.grd>… | grd compile <file.grd>… | grd run <file.grd>");
+            eprintln!("usage: grd parse <file.grd>… | grd compile <file.grd>… | grd dump <file.grd> | grd run <file.grd> | grd app <root> [entry.grd]");
             ExitCode::from(64)
         }
     }
@@ -114,4 +115,44 @@ fn run_file(path: &str) -> ExitCode {
             ExitCode::from(255)
         }
     }
+}
+
+fn run_app(root: &str, entry: Option<&str>) -> ExitCode {
+    let mut vm = match grd_vm::vm::Vm::with_prelude() {
+        Ok(vm) => vm,
+        Err(e) => {
+            eprintln!("grd: prelude failed: {e}");
+            return ExitCode::from(70);
+        }
+    };
+    let result = vm.load_project(std::path::Path::new(root));
+    use std::io::Write;
+    match result {
+        Ok(summary) => {
+            eprintln!("grd: loaded {} module(s), {} class file(s), {} route file(s)", summary.modules.len(), summary.class_files, summary.route_files);
+        }
+        Err(e) => {
+            let _ = std::io::stdout().lock().write_all(&vm.output);
+            eprintln!("{e}");
+            return ExitCode::from(255);
+        }
+    }
+    let mut code = ExitCode::SUCCESS;
+    if let Some(path) = entry {
+        let source = match std::fs::read(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("grd: cannot read {path}: {e}");
+                return ExitCode::from(1);
+            }
+        };
+        if let Err(e) = vm.run_file(path, &source) {
+            eprintln!("{e}");
+            code = ExitCode::from(255);
+        }
+    }
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(&vm.output);
+    let _ = stdout.flush();
+    code
 }

@@ -1,0 +1,4 @@
+<?grd
+namespace Billing\Models;
+
+class Receipt {}
