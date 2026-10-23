@@ -1260,7 +1260,7 @@ $has_cargo = in_array("Cargo.toml", $files);
 $has_src = in_array("src", $files);
 echo ($has_cargo ? "yes" : "no") . "\n";
 echo ($has_src ? "yes" : "no") . "\n";
-echo count($files) > 5 ? "many" : "few";
+echo count($files) > 3 ? "many" : "few";
 "#;
     let (r, out) = run_php(code).expect("run");
     assert!(matches!(r, PhpResult::Success), "vm result: {r:?}, output: {out:?}");

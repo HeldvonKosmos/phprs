@@ -9,7 +9,7 @@ pub type Slot = u32;
 pub type Label = u32;
 
 /// A constant in the pool. Arrays only contain constants.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Const {
     Null,
     Bool(bool),
@@ -19,13 +19,13 @@ pub enum Const {
     Array(Vec<(ConstKey, Const)>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConstKey {
     Int(i64),
     Str(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BinOp {
     Add,
     Sub,
@@ -49,7 +49,7 @@ pub enum BinOp {
     Coalesce, // only as compound `??=`
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UnOp {
     Neg,
     Plus,
@@ -64,7 +64,7 @@ pub enum UnOp {
 }
 
 /// How a class is named at a use site.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClassRef {
     Named(StrId),
     SelfRef,
@@ -76,7 +76,7 @@ pub enum ClassRef {
 
 /// One step of an lvalue path (`$a[k]`, `$a[]`, `$o->p`, `$o->{$e}`).
 /// Keys and dynamic names come from the stack, in order.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PathSeg {
     Dim,
     Append,
@@ -84,7 +84,7 @@ pub enum PathSeg {
     PropDyn,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PathBase {
     Slot(Slot),
     This,
@@ -93,7 +93,7 @@ pub enum PathBase {
     Stack,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WriteMode {
     Assign,
     Compound(BinOp),
@@ -103,14 +103,14 @@ pub enum WriteMode {
     PostDec,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PathOp {
     pub base: PathBase,
     pub segs: Vec<PathSeg>,
     pub mode: WriteMode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClosureOp {
     pub unit: UnitId,
     pub captures: Vec<Slot>,
@@ -118,7 +118,7 @@ pub struct ClosureOp {
 }
 
 /// Arguments of a call: one entry per pushed argument.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct ArgSpec {
     pub names: Vec<Option<StrId>>,
     pub spread: Vec<bool>,
@@ -133,7 +133,7 @@ impl ArgSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Op {
     Nop,
     Pop,
@@ -261,7 +261,7 @@ pub enum Op {
     Line(u32),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TypeHint {
     Mixed,
     Null,
@@ -286,7 +286,7 @@ pub enum TypeHint {
     Intersection(Vec<TypeHint>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Param {
     pub name: StrId,
     pub slot: Slot,
@@ -300,14 +300,14 @@ pub struct Param {
     pub attributes: Vec<AttributeDecl>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Catch {
     pub classes: Vec<StrId>,
     pub slot: Option<Slot>,
     pub target: Label,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TryRegion {
     pub start: Label,
     pub end: Label,
@@ -315,7 +315,7 @@ pub struct TryRegion {
     pub finally: Option<Label>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CodeUnit {
     pub name: String,
     pub ops: Vec<Op>,
@@ -350,14 +350,14 @@ impl CodeUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Visibility {
     Public,
     Protected,
     Private,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClassKind {
     Class,
     Interface,
@@ -366,19 +366,19 @@ pub enum ClassKind {
 }
 
 /// A value computed at link time: either a constant or a tiny code unit.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Init {
     Const(ConstId),
     Unit(UnitId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AttributeDecl {
     pub name: StrId,
     pub args: Vec<(Option<StrId>, Init)>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClassConstDecl {
     pub name: StrId,
     pub value: Init,
@@ -386,7 +386,7 @@ pub struct ClassConstDecl {
     pub is_final: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PropDecl {
     pub name: StrId,
     pub default: Option<Init>,
@@ -397,7 +397,7 @@ pub struct PropDecl {
     pub attributes: Vec<AttributeDecl>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MethodDecl {
     pub name: StrId,
     pub unit: Option<UnitId>, // None = abstract
@@ -407,13 +407,13 @@ pub struct MethodDecl {
     pub attributes: Vec<AttributeDecl>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnumCaseDecl {
     pub name: StrId,
     pub value: Option<Init>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClassDecl {
     pub name: StrId,
     pub kind: ClassKind,
@@ -432,14 +432,14 @@ pub struct ClassDecl {
     pub line: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FunctionDecl {
     pub name: StrId,
     pub unit: UnitId,
     pub attributes: Vec<AttributeDecl>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Module {
     pub file: String,
     pub strings: Vec<Vec<u8>>,
@@ -466,5 +466,18 @@ mod size_tests {
         let size = std::mem::size_of::<super::Op>();
         assert!(size <= 24, "Op is {size} bytes");
         assert_eq!(std::mem::size_of::<crate::value::Val>(), 16);
+    }
+}
+
+#[cfg(test)]
+mod serde_tests {
+    #[test]
+    fn module_round_trips_through_bincode() {
+        let src = b"<?grd\nnamespace A; use B\\C; #[Attr(1)] class K extends C { const X = [1, 'a' => 2.5]; private ?int $n = null; public function m(int $a, string ...$r): static { $f = fn($x) => $x + $a; try { return $this; } finally { $this->n = 1; } } }\nfunction g() { yield 1; }\n$k = new K(); echo $k->m(1)?->n ?? 'x';";
+        let m = crate::compile::compile_source("t.grd", src).expect("compile");
+        let bytes = bincode::serialize(&m).expect("serialize");
+        let back: super::Module = bincode::deserialize(&bytes).expect("deserialize");
+        assert_eq!(m, back);
+        assert!(bytes.len() > 100);
     }
 }

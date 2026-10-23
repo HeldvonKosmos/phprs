@@ -1,41 +1,12 @@
-[package]
-name = "phprs"
-version = "0.1.19"
-authors = ["Ying kit WONG"]
-license = "Apache-2.0"
-description = "PHP interpreter, compiler, runtime VM and package manager written in Rust. Memory-safe host code for running PHP scripts and popular PHP frameworks."
-readme = "README.md"
-edition = "2024"
-repository = "https://github.com/yingkitw/phprs"
-homepage = "https://github.com/yingkitw/phprs"
-documentation = "https://docs.rs/phprs"
-keywords = ["php", "interpreter", "runtime", "compiler", "package-manager"]
-categories = ["command-line-utilities", "development-tools", "web-programming"]
-
-# Note: The binary is in the bin/phprs workspace member
-
-[dependencies]
-# Core dependencies
-anyhow = "1.0"
-thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-sha2 = "0.10"
-getrandom = "0.2"
-
-# Regular expressions (std engine + fancy-regex for look-around)
-regex = "1.10"
-fancy-regex = "0.18"
-
-# URL parsing
-url = "2.5"
-
-# Unicode handling
-unicode-segmentation = "1.11"
-
-
-[dev-dependencies]
-tempfile = "3.10"
+# OpenGrid workspace. The new VM is crates/vm (grd-vm); legacy/core is the
+# frozen phprs interpreter kept for its tests and as reference.
+[workspace]
+resolver = "2"
+members = [
+    "legacy/core",
+    "bin/phprs",
+    "crates/vm",
+]
 
 [profile.release]
 opt-level = 3
@@ -51,11 +22,3 @@ debug = true
 opt-level = 1
 debug = true
 incremental = true
-
-# Workspace for binary crates
-[workspace]
-members = [
-    ".",
-    "bin/phprs",
-    "crates/vm",
-]

@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Core
-phprs = { path = "../.." }
+phprs = { path = "../../legacy/core" }
 anyhow = "1.0"
 thiserror = "2.0"
 
