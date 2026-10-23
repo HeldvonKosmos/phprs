@@ -1,2 +1,2 @@
-<?php
+<?grd
 echo preg_replace_callback("/\d+/", fn($m) => $m[0] * 2, "a1b22"), "\n";

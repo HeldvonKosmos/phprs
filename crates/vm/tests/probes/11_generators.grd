@@ -1,4 +1,4 @@
-<?php
+<?grd
 function gen(int $n) { for ($i = 1; $i <= $n; $i++) { $x = yield $i => $i * $i; if ($x) { echo "[$x]"; } } return 'done'; }
 $g = gen(3);
 foreach ($g as $k => $v) { echo "$k:$v "; }

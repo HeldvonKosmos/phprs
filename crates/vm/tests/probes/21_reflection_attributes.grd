@@ -1,4 +1,4 @@
-<?php
+<?grd
 #[Attribute]
 class Route { public function __construct(public string $method, public string $path) {} }
 class Ctl { #[Route('GET', '/tasks')] public function index(): array { return []; } }

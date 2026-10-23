@@ -1,4 +1,4 @@
-<?php
+<?grd
 $d = new DateTimeImmutable('2026-10-23 10:00:00', new DateTimeZone('UTC'));
 echo $d->format('Y-m-d H:i D'), " ", $d->modify('+1 day')->format('d.m.Y'), " ", $d->add(new DateInterval('P1M'))->format('m'), " ";
 echo $d->diff(new DateTimeImmutable('2026-12-25', new DateTimeZone('UTC')))->days, " ", $d->getTimestamp(), " ", date('Y', 0), "\n";

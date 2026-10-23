@@ -1,2 +1,2 @@
-<?php
+<?grd
 $o = json_decode("{\"a\":{\"b\":2}}"); echo $o->a->b, "\n";

@@ -1,2 +1,2 @@
-<?php
+<?grd
 trait T { public function l(): string { return static::class; } } class P { use T; } echo (new P)->l(), "\n";

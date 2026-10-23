@@ -1,2 +1,2 @@
-<?php
+<?grd
 foreach ([[1, "a"], [2, "b"]] as [$n, $l]) { echo $n, $l; } echo "\n";

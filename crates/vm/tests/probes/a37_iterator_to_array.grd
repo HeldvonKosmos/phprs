@@ -1,2 +1,2 @@
-<?php
+<?grd
 function g() { yield 1; yield 2; } echo count(iterator_to_array(g(), false)), "\n";

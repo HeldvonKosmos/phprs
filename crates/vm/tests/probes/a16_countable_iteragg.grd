@@ -1,2 +1,2 @@
-<?php
+<?grd
 class C implements Countable, IteratorAggregate { public function count(): int { return 2; } public function getIterator(): Iterator { return new ArrayIterator([1,2]); } } $c = new C; echo count($c); foreach ($c as $v) { echo $v; } echo "\n";

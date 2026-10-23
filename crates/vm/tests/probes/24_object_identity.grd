@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Box { public int $v = 0; public array $items = []; }
 function bump(Box $b): void { $b->v++; $b->items[] = 'x'; }
 $a = new Box(); $b = $a; $b->v = 5; bump($a);

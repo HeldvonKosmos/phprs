@@ -1,2 +1,2 @@
-<?php
+<?grd
 class M { public function __call($n, $a) { return "$n:" . count($a); } public static function __callStatic($n, $a) { return "s$n"; } } echo (new M)->foo(1,2), M::bar(), "\n";

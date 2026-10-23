@@ -96,6 +96,10 @@ impl Vm {
         let module = Rc::new(module);
         let midx = self.modules.len() as u32;
         self.modules.push(module.clone());
+        self.ic_base.push(self.ics.len());
+        for u in &module.units {
+            self.ics.push(vec![super::IcEntry::default(); u.ops.len()]);
+        }
         for f in &module.functions {
             let name = module.str(f.name).to_ascii_lowercase();
             self.functions.insert(name, super::FuncRef::User { module: midx, unit: f.unit });

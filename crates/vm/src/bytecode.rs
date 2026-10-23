@@ -103,6 +103,20 @@ pub enum WriteMode {
     PostDec,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathOp {
+    pub base: PathBase,
+    pub segs: Vec<PathSeg>,
+    pub mode: WriteMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureOp {
+    pub unit: UnitId,
+    pub captures: Vec<Slot>,
+    pub bind_this: bool,
+}
+
 /// Arguments of a call: one entry per pushed argument.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ArgSpec {
@@ -139,6 +153,15 @@ pub enum Op {
     LoadThis,
 
     Bin(BinOp),
+    /// Fused `LoadSlot(a); LoadSlot(b); Bin(op)`.
+    BinSS { a: Slot, b: Slot, op: BinOp },
+    /// Fused `LoadSlot(a); PushInt(imm); Bin(op)`.
+    BinSI { a: Slot, imm: i32, op: BinOp },
+    /// Fused `LoadSlot(a); PushConst(c); Bin(op)`.
+    BinSC { a: Slot, c: ConstId, op: BinOp },
+    /// Fused comparison + `JumpIfFalse`: jumps when `a op b` is false.
+    JumpUnlessSS { a: Slot, b: Slot, op: BinOp, target: Label },
+    JumpUnlessSI { a: Slot, imm: i32, op: BinOp, target: Label },
     Un(UnOp),
     /// Truthiness as bool.
     ToBool,
@@ -179,9 +202,9 @@ pub enum Op {
     FetchClassName(ClassRef),
 
     /// Stack: [base if Stack] keys… value → result
-    StorePath { base: PathBase, segs: Vec<PathSeg>, mode: WriteMode },
+    StorePath(Box<PathOp>),
     /// Stack: [base if Stack] keys…
-    UnsetPath { base: PathBase, segs: Vec<PathSeg> },
+    UnsetPath(Box<PathOp>),
     /// Stack: slot-less increments on a plain variable.
     IncSlot { slot: Slot, mode: WriteMode },
     /// Same without pushing a result (statement context).
@@ -203,8 +226,11 @@ pub enum Op {
     Return,
     /// Return inside `try { } finally { }`: parks the value and jumps.
     ReturnViaFinally(Label),
+    /// `break`/`continue` out of a `try { } finally { }`: parks the jump
+    /// target and runs the finally block first.
+    JumpViaFinally { finally: Label, target: Label },
 
-    MakeClosure { unit: UnitId, captures: Vec<Slot>, bind_this: bool },
+    MakeClosure(Box<ClosureOp>),
     CallableFromFunc { name: StrId, fallback: Option<StrId> },
     /// obj → callable
     CallableFromMethod(StrId),
@@ -430,5 +456,15 @@ impl Module {
     }
     pub fn str_lossy(&self, id: StrId) -> String {
         String::from_utf8_lossy(&self.strings[id as usize]).into_owned()
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    #[test]
+    fn op_is_small() {
+        let size = std::mem::size_of::<super::Op>();
+        assert!(size <= 24, "Op is {size} bytes");
+        assert_eq!(std::mem::size_of::<crate::value::Val>(), 16);
     }
 }

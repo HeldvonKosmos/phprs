@@ -1,2 +1,2 @@
-<?php
+<?grd
 class B { public int $v = 1; } $b = new B; $b->v++; ++$b->v; $i = 0; $i++; ++$i; echo $b->v, $i, "\n";

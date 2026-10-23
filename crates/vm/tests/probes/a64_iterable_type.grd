@@ -1,2 +1,2 @@
-<?php
+<?grd
 function f(iterable $z): int { return count((array)$z); } echo f([1, 2]), "\n";

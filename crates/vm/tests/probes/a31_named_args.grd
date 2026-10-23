@@ -1,2 +1,2 @@
-<?php
+<?grd
 function m(string $n, int $a = 0, bool $x = true): string { return "$n/$a/" . ($x ? "t" : "f"); } echo m(a: 3, n: "n"), m("m", x: false), "\n";

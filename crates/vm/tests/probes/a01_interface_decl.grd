@@ -1,2 +1,2 @@
-<?php
+<?grd
 interface I { public function f(): int; } class C implements I { public function f(): int { return 1; } } echo (new C)->f(), "\n";

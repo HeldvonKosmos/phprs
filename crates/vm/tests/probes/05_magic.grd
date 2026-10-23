@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Attrs { private array $a = [];
   public function __get(string $k): mixed { return $this->a[$k] ?? null; }
   public function __set(string $k, mixed $v): void { $this->a[$k] = $v; }

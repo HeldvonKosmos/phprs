@@ -1,4 +1,4 @@
-<?php
+<?grd
 class NotFound extends RuntimeException { public function __construct(public string $model) { parent::__construct("$model not found", 404); } }
 function find(): never { throw new NotFound('Task'); }
 try { try { find(); } finally { echo "fin "; } }

@@ -1,2 +1,2 @@
-<?php
+<?grd
 $p = (new ReflectionFunction(fn(int $a, ?stdClass $b = null) => 1))->getParameters(); echo $p[1]->getType()->getName(), $p[1]->allowsNull() ? "?" : "", $p[1]->isDefaultValueAvailable() ? "d" : "", "\n";

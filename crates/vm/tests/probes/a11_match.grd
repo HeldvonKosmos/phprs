@@ -1,2 +1,2 @@
-<?php
+<?grd
 echo match(true) { 1 > 2 => "no", default => "def" }, match(3) { 1, 2 => "low", 3 => "three" }, "\n";

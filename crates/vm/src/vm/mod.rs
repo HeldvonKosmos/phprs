@@ -28,6 +28,17 @@ pub use iter::IterState;
 
 pub type NativeFn = fn(&mut Vm, &[Val]) -> Result<Val, Throw>;
 
+/// Monomorphic inline cache entry (RUNTIME_ARCHITECTURE §7.1).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct IcEntry {
+    pub class: Option<ClassId>,
+    /// Method sites: (module, unit, declaring class, is_static); property sites: slot index in `a`.
+    pub a: u32,
+    pub b: u32,
+    pub c: u32,
+    pub flag: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum FuncRef {
     User { module: u32, unit: UnitId },
@@ -39,6 +50,7 @@ pub(crate) enum Pending {
     None,
     Return(Val),
     Throw(ObjHandle),
+    Jump(u32),
 }
 
 pub struct Frame {
@@ -57,6 +69,8 @@ pub struct Frame {
     pub(crate) pending: Pending,
     pub generator: Option<ObjHandle>,
     pub line: u32,
+    /// Index of this unit's inline-cache table in `Vm::ics`.
+    pub ic: usize,
     /// Value pushed on return instead of the return value (`new`).
     pub return_override: Option<Val>,
 }
@@ -98,6 +112,9 @@ pub struct Vm {
     pub(crate) stack: Vec<Val>,
     pub output: Vec<u8>,
     pub(crate) iters: Vec<Option<IterState>>,
+    /// Inline caches: one `Vec<IcEntry>` per unit (index = `ic_base[module] + unit`), indexed by op.
+    pub(crate) ics: Vec<Vec<IcEntry>>,
+    pub(crate) ic_base: Vec<usize>,
     pub(crate) enum_cases: HashMap<(ClassId, Vec<u8>), ObjHandle>,
     pub(crate) static_values: Vec<HashMap<Vec<u8>, Val>>,
     pub well_known: Option<WellKnown>,
@@ -126,6 +143,8 @@ impl Vm {
             stack: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),
+            ics: Vec::new(),
+            ic_base: Vec::new(),
             enum_cases: HashMap::new(),
             static_values: Vec::new(),
             well_known: None,

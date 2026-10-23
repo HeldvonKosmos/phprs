@@ -282,19 +282,22 @@ impl Vm {
         let scope = self.frame().class;
         match self.lookup_prop(class, name, scope) {
             super::class::PropLookup::Slot(idx) => {
-                let info = self.class(class).props[idx].clone();
-                if info.readonly {
+                let (readonly, declaring, ty, info_module) = {
+                    let info = &self.class(class).props[idx];
+                    (info.readonly, info.declaring, info.ty.clone(), info.module)
+                };
+                if readonly {
                     let initialised = self.objects.get(h).slots[idx].is_some();
-                    if scope != Some(info.declaring) || initialised {
+                    if scope != Some(declaring) || initialised {
                         return Err(Throw::error(format!("Cannot modify readonly property {}::${}", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(name))));
                     }
                 }
                 let old = self.objects.get(h).slots[idx].clone().unwrap_or(Val::Null);
                 let (new, result) = self.apply_mode(mode, old, value)?;
-                let new = match &info.ty {
-                    Some(t) => {
-                        let module = self.modules[info.module as usize].clone();
-                        match self.check_type(&new, t, &module, Some(info.declaring)) {
+                let new = match &ty {
+                    Some(t) if !scalar_type_matches(t, &new) => {
+                        let module = self.modules[info_module as usize].clone();
+                        match self.check_type(&new, t, &module, Some(declaring)) {
                             Some(v) => v,
                             None => {
                                 return Err(Throw::type_error(format!(
@@ -307,7 +310,7 @@ impl Vm {
                             }
                         }
                     }
-                    None => new,
+                    _ => new,
                 };
                 self.objects.get_mut(h).slots[idx] = Some(new);
                 Ok(result)
@@ -618,4 +621,18 @@ impl Vm {
         self.put_loc(&loc, root)?;
         r
     }
+}
+
+
+/// Cheap exact-type check for the common scalar cases (no coercion needed).
+pub(crate) fn scalar_type_matches(t: &TypeHint, v: &Val) -> bool {
+    matches!(
+        (t, v),
+        (TypeHint::Int, Val::Int(_))
+            | (TypeHint::Float, Val::Float(_))
+            | (TypeHint::String, Val::Str(_))
+            | (TypeHint::Bool, Val::Bool(_))
+            | (TypeHint::Array, Val::Array(_))
+            | (TypeHint::Mixed, _)
+    )
 }

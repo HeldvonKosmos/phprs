@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Coll implements ArrayAccess, Countable, IteratorAggregate {
   public function __construct(private array $items = []) {}
   public function offsetExists(mixed $k): bool { return isset($this->items[$k]); }

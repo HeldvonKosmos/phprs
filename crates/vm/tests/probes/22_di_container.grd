@@ -1,4 +1,4 @@
-<?php
+<?grd
 interface Logger { public function log(string $m): string; }
 class StdLogger implements Logger { public function log(string $m): string { return "log:$m"; } }
 class Service { public function __construct(private Logger $logger, private int $retries = 3) {} public function run(): string { return $this->logger->log("run x{$this->retries}"); } }

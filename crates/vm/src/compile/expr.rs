@@ -357,7 +357,7 @@ impl Compiler<'_> {
         }
         let (base, segs) = self.build_path(target)?;
         self.emit(Op::PushNull); // value operand unused for inc/dec
-        self.emit(Op::StorePath { base, segs, mode });
+        self.emit(Op::StorePath(Box::new(PathOp { base, segs, mode })));
         if want == Want::Discard {
             self.emit(Op::Pop);
         }
@@ -859,7 +859,7 @@ impl Compiler<'_> {
         }
         let (base, segs) = self.build_path(target)?;
         self.compile_expr(rhs)?;
-        self.emit(Op::StorePath { base, segs, mode });
+        self.emit(Op::StorePath(Box::new(PathOp { base, segs, mode })));
         Ok(())
     }
 
@@ -908,7 +908,7 @@ impl Compiler<'_> {
                 self.emit(Op::StoreSlot(tmp));
                 let (base, segs) = self.build_path(target)?;
                 self.emit(Op::LoadSlot(tmp));
-                self.emit(Op::StorePath { base, segs, mode: WriteMode::Assign });
+                self.emit(Op::StorePath(Box::new(PathOp { base, segs, mode: WriteMode::Assign })));
                 self.emit(Op::Pop);
                 Ok(())
             }

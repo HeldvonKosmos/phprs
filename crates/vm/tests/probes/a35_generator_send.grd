@@ -1,2 +1,2 @@
-<?php
+<?grd
 function g() { $x = yield 1; echo "[$x]"; yield 2; } $g = g(); echo $g->current(); echo $g->send("s"), "\n";

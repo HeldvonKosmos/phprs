@@ -1,2 +1,2 @@
-<?php
+<?grd
 function m(string $n, int $a = 0): string { return "$n/$a"; } $args = ["n" => "z", "a" => 9]; echo m(...$args), "\n";

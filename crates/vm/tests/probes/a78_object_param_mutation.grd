@@ -1,2 +1,2 @@
-<?php
+<?grd
 class B { public int $v = 0; } function bump(B $b): void { $b->v = 9; } $a = new B; bump($a); echo $a->v, "\n";

@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Counter { private int $n = 0; public function inc(): int { return ++$this->n; } }
 $c = new Counter();
 $f = function() { return $this->inc(); };

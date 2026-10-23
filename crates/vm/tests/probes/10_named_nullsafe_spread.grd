@@ -1,4 +1,4 @@
-<?php
+<?grd
 function make(string $name, int $age = 0, bool $active = true): string { return "$name/$age/" . ($active ? 'on' : 'off'); }
 echo make(age: 3, name: 'n'), " ", make('m', active: false), " ";
 $args = ['name' => 'z', 'age' => 9]; echo make(...$args), " ";

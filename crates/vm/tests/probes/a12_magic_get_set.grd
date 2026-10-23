@@ -1,2 +1,2 @@
-<?php
+<?grd
 class M { private array $a = []; public function __get(string $k): mixed { return $this->a[$k] ?? "nil"; } public function __set(string $k, mixed $v): void { $this->a[$k] = $v; } } $m = new M; $m->x = 5; echo $m->x, $m->y, "\n";

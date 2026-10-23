@@ -1,2 +1,2 @@
-<?php
+<?grd
 class D { public function __construct(public int $id, public ?string $t = null, private string $s = "x") {} } echo json_encode(new D(1)), "\n";

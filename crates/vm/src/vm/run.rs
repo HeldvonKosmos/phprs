@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use super::call::CallOutcome;
-use super::{ClosureData, Pending, Vm};
+use super::{ClosureData, IcEntry, Pending, Vm};
 use crate::bytecode::*;
 use crate::error::Throw;
 use crate::value::*;
@@ -98,6 +98,7 @@ impl Vm {
 
     #[allow(clippy::too_many_lines)]
     fn exec(&mut self, op: &Op, fidx: usize, midx: u32, module: &Rc<Module>, unit: &CodeUnit, base_depth: usize) -> Result<Flow, Throw> {
+        let ip = self.frames[fidx].ip - 1;
         match op {
             Op::Nop => {}
             Op::Line(n) => self.frames[fidx].line = *n,
@@ -144,8 +145,92 @@ impl Vm {
             Op::Bin(bop) => {
                 let b = self.pop();
                 let a = self.pop();
+                if let (Val::Int(x), Val::Int(y)) = (&a, &b) {
+                    let (x, y) = (*x, *y);
+                    let fast = match bop {
+                        BinOp::Add => x.checked_add(y).map(Val::Int),
+                        BinOp::Sub => x.checked_sub(y).map(Val::Int),
+                        BinOp::Mul => x.checked_mul(y).map(Val::Int),
+                        BinOp::Mod if y != 0 && y != -1 => Some(Val::Int(x % y)),
+                        BinOp::Lt => Some(Val::Bool(x < y)),
+                        BinOp::Le => Some(Val::Bool(x <= y)),
+                        BinOp::Gt => Some(Val::Bool(x > y)),
+                        BinOp::Ge => Some(Val::Bool(x >= y)),
+                        BinOp::Identical => Some(Val::Bool(x == y)),
+                        BinOp::NotIdentical => Some(Val::Bool(x != y)),
+                        _ => None,
+                    };
+                    if let Some(r) = fast {
+                        self.push(r);
+                        return Ok(Flow::Next);
+                    }
+                }
                 let r = self.binary(*bop, a, b)?;
                 self.push(r);
+            }
+            Op::BinSS { a, b, op: bop } => {
+                let x = self.frames[fidx].slots[*a as usize].clone();
+                let y = self.frames[fidx].slots[*b as usize].clone();
+                let (Some(x), Some(y)) = (x, y) else {
+                    let name = unit.slot_names.get(if self.frames[fidx].slots[*a as usize].is_none() { *a } else { *b } as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                    return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
+                };
+                let r = self.fast_bin(*bop, x, y)?;
+                self.push(r);
+            }
+            Op::BinSI { a, imm, op: bop } => {
+                let Some(x) = self.frames[fidx].slots[*a as usize].clone() else {
+                    let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                    return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
+                };
+                let r = self.fast_bin(*bop, x, Val::Int(*imm as i64))?;
+                self.push(r);
+            }
+            Op::BinSC { a, c, op: bop } => {
+                let Some(x) = self.frames[fidx].slots[*a as usize].clone() else {
+                    let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                    return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
+                };
+                let y = self.const_to_val(midx, *c);
+                let r = self.fast_bin(*bop, x, y)?;
+                self.push(r);
+            }
+            Op::JumpUnlessSS { a, b, op: bop, target } => {
+                let x = self.frames[fidx].slots[*a as usize].clone();
+                let y = self.frames[fidx].slots[*b as usize].clone();
+                let (Some(x), Some(y)) = (x, y) else {
+                    return Err(Throw::new("UndefinedVariableError", "Undefined variable"));
+                };
+                if !self.fast_bin(*bop, x, y)?.to_bool() {
+                    self.frames[fidx].ip = *target as usize;
+                }
+            }
+            Op::JumpUnlessSI { a, imm, op: bop, target } => {
+                let cond = match &self.frames[fidx].slots[*a as usize] {
+                    Some(Val::Int(x)) => {
+                        let imm = *imm as i64;
+                        match bop {
+                            BinOp::Lt => *x < imm,
+                            BinOp::Le => *x <= imm,
+                            BinOp::Gt => *x > imm,
+                            BinOp::Ge => *x >= imm,
+                            BinOp::Identical => *x == imm,
+                            BinOp::NotIdentical => *x != imm,
+                            _ => unreachable!(),
+                        }
+                    }
+                    Some(other) => {
+                        let v = other.clone();
+                        self.fast_bin(*bop, v, Val::Int(*imm as i64))?.to_bool()
+                    }
+                    None => {
+                        let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                        return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
+                    }
+                };
+                if !cond {
+                    self.frames[fidx].ip = *target as usize;
+                }
             }
             Op::Un(uop) => {
                 let v = self.pop();
@@ -245,9 +330,29 @@ impl Vm {
             Op::FetchProp(name) | Op::FetchPropQuiet(name) => {
                 let quiet = matches!(op, Op::FetchPropQuiet(_));
                 let obj = self.pop();
-                let n = module.str(*name).to_vec();
-                let v = self.fetch_prop_value(obj, &n, quiet)?;
-                self.push(v);
+                if let Val::Object(h) = obj {
+                    let class = self.objects.get(h).class;
+                    let icx = self.frames[fidx].ic;
+                    let e = self.ics[icx][ip];
+                    if e.class == Some(class)
+                        && let Some(v) = &self.objects.get(h).slots[e.a as usize]
+                    {
+                        let v = v.clone();
+                        self.push(v);
+                        return Ok(Flow::Next);
+                    }
+                    let n = module.str(*name).to_vec();
+                    let scope = self.frames[fidx].class;
+                    if let super::class::PropLookup::Slot(idx) = self.lookup_prop(class, &n, scope) {
+                        self.ics[icx][ip] = IcEntry { class: Some(class), a: idx as u32, b: 0, c: 0, flag: false };
+                    }
+                    let v = self.read_prop(h, &n, quiet)?;
+                    self.push(v);
+                } else {
+                    let n = module.str(*name).to_vec();
+                    let v = self.fetch_prop_value(obj, &n, quiet)?;
+                    self.push(v);
+                }
             }
             Op::FetchPropDyn | Op::FetchPropDynQuiet => {
                 let quiet = matches!(op, Op::FetchPropDynQuiet);
@@ -286,11 +391,63 @@ impl Vm {
                 self.push(Val::bytes(&name));
             }
 
-            Op::StorePath { base, segs, mode } => {
+            Op::StorePath(path) => {
+                let PathOp { base, segs, mode } = &**path;
+                // fast path: `$this->prop = v` / `$this->prop op= v` on a cached slot
+                if let (PathBase::This, [PathSeg::Prop(_)]) = (base, segs.as_slice())
+                    && let Some(this) = self.frames[fidx].this
+                {
+                    let class = self.objects.get(this).class;
+                    let icx = self.frames[fidx].ic;
+                    let e = self.ics[icx][ip];
+                    if e.class == Some(class) && e.flag {
+                        let value = self.pop();
+                        let idx = e.a as usize;
+                        let old = self.objects.get(this).slots[idx].clone().unwrap_or(Val::Null);
+                        let (new, result) = match mode {
+                            WriteMode::Assign => (value.clone(), value),
+                            WriteMode::Compound(bop) => {
+                                let n = self.fast_bin(*bop, old, value)?;
+                                (n.clone(), n)
+                            }
+                            WriteMode::PreInc | WriteMode::PostInc => {
+                                let n = self.inc_dec(old.clone(), true)?;
+                                (n.clone(), if matches!(mode, WriteMode::PreInc) { n } else { old })
+                            }
+                            WriteMode::PreDec | WriteMode::PostDec => {
+                                let n = self.inc_dec(old.clone(), false)?;
+                                (n.clone(), if matches!(mode, WriteMode::PreDec) { n } else { old })
+                            }
+                        };
+                        let ty_ok = match &self.class(class).props[idx].ty {
+                            None => true,
+                            Some(t) => super::path::scalar_type_matches(t, &new),
+                        };
+                        if ty_ok {
+                            self.objects.get_mut(this).slots[idx] = Some(new);
+                            self.push(result);
+                            return Ok(Flow::Next);
+                        }
+                        // type needs coercion/check: fall back to the full path with the popped value restored
+                        self.push(result);
+                        self.objects.get_mut(this).slots[idx] = Some(new);
+                        return Ok(Flow::Next);
+                    }
+                    // fill: plain, non-readonly declared property visible from this scope
+                    if let PathSeg::Prop(n) = segs[0] {
+                        let name = module.str(n).to_vec();
+                        let scope = self.frames[fidx].class;
+                        if let super::class::PropLookup::Slot(idx) = self.lookup_prop(class, &name, scope)
+                            && !self.class(class).props[idx].readonly
+                        {
+                            self.ics[icx][ip] = IcEntry { class: Some(class), a: idx as u32, b: 0, c: 0, flag: true };
+                        }
+                    }
+                }
                 let r = self.store_path(base, segs, *mode, midx)?;
                 self.push(r);
             }
-            Op::UnsetPath { base, segs } => self.unset_path(base, segs, midx)?,
+            Op::UnsetPath(path) => self.unset_path(&path.base, &path.segs, midx)?,
             Op::CompoundSlot { slot, op: bop, discard } => {
                 let rhs = self.pop();
                 let lhs = self.frames[fidx].slots[*slot as usize].take().unwrap_or(Val::Null);
@@ -340,13 +497,45 @@ impl Vm {
                 }
             }
             Op::CallMethod { name, spec } => {
-                let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
+                let argspec = &unit.arg_specs[*spec as usize];
+                let (args, named) = self.pop_args(midx, argspec)?;
                 let obj = self.pop();
-                let n = module.str(*name).to_vec();
                 let Val::Object(h) = obj else {
-                    return Err(Throw::error(format!("Call to a member function {}() on {}", String::from_utf8_lossy(&n), obj.type_name())));
+                    let n = module.str(*name);
+                    return Err(Throw::error(format!("Call to a member function {}() on {}", String::from_utf8_lossy(n), obj.type_name())));
                 };
+                let class = self.objects.get(h).class;
+                let icx = self.frames[fidx].ic;
+                let e = self.ics[icx][ip];
+                if e.class == Some(class) {
+                    let target = super::call::CallTarget {
+                        module: e.a,
+                        unit: e.b,
+                        this: if e.flag { None } else { Some(h) },
+                        class: Some(ClassId(e.c)),
+                        static_class: Some(class),
+                        captures: Vec::new(),
+                        return_override: None,
+                    };
+                    return match self.push_frame(target, args, named)? {
+                        Some(v) => {
+                            self.push(v);
+                            Ok(Flow::Next)
+                        }
+                        None => Ok(Flow::Switch),
+                    };
+                }
+                let n = module.str(*name).to_vec();
                 let scope = self.frames[fidx].class;
+                // fill the cache when the method is a plain accessible user method
+                if let Some(m) = self.find_method_info(class, &n)
+                    && let Some(u) = m.unit
+                    && self.method_accessible(&m, scope)
+                    && class != self.wk().closure
+                    && class != self.wk().generator
+                {
+                    self.ics[icx][ip] = IcEntry { class: Some(class), a: m.module, b: u, c: m.declaring.0, flag: m.is_static };
+                }
                 match self.invoke_method(h, &n, args, named, scope)? {
                     CallOutcome::Pushed => return Ok(Flow::Switch),
                     CallOutcome::Value(v) => self.push(v),
@@ -412,10 +601,17 @@ impl Vm {
                 self.frames[fidx].pending = Pending::Return(v);
                 self.frames[fidx].ip = *l as usize;
             }
+            Op::JumpViaFinally { finally, target } => {
+                let base = self.frames[fidx].stack_base;
+                self.stack.truncate(base);
+                self.frames[fidx].pending = Pending::Jump(*target);
+                self.frames[fidx].ip = *finally as usize;
+            }
             Op::FinallyEnd { outer } => {
                 let pending = std::mem::replace(&mut self.frames[fidx].pending, Pending::None);
                 match pending {
                     Pending::None => {}
+                    Pending::Jump(t) => self.frames[fidx].ip = t as usize,
                     Pending::Return(v) => match outer {
                         Some(l) => {
                             self.frames[fidx].pending = Pending::Return(v);
@@ -433,7 +629,8 @@ impl Vm {
                 }
             }
 
-            Op::MakeClosure { unit: u, captures, bind_this } => {
+            Op::MakeClosure(cl) => {
+                let ClosureOp { unit: u, captures, bind_this } = &**cl;
                 let f = &self.frames[fidx];
                 let caps: Vec<Option<Val>> = captures.iter().map(|c| f.slots[*c as usize].clone()).collect();
                 let data = ClosureData::User {
@@ -592,6 +789,31 @@ impl Vm {
             }
         }
         Ok(Flow::Next)
+    }
+
+    /// Binary op with the int/int fast path inlined.
+    #[inline]
+    pub(crate) fn fast_bin(&mut self, bop: BinOp, a: Val, b: Val) -> Result<Val, Throw> {
+        if let (Val::Int(x), Val::Int(y)) = (&a, &b) {
+            let (x, y) = (*x, *y);
+            let fast = match bop {
+                BinOp::Add => x.checked_add(y).map(Val::Int),
+                BinOp::Sub => x.checked_sub(y).map(Val::Int),
+                BinOp::Mul => x.checked_mul(y).map(Val::Int),
+                BinOp::Mod if y != 0 && y != -1 => Some(Val::Int(x % y)),
+                BinOp::Lt => Some(Val::Bool(x < y)),
+                BinOp::Le => Some(Val::Bool(x <= y)),
+                BinOp::Gt => Some(Val::Bool(x > y)),
+                BinOp::Ge => Some(Val::Bool(x >= y)),
+                BinOp::Identical => Some(Val::Bool(x == y)),
+                BinOp::NotIdentical => Some(Val::Bool(x != y)),
+                _ => None,
+            };
+            if let Some(r) = fast {
+                return Ok(r);
+            }
+        }
+        self.binary(bop, a, b)
     }
 
     fn fetch_prop_value(&mut self, obj: Val, name: &[u8], quiet: bool) -> Result<Val, Throw> {

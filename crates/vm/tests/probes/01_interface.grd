@@ -1,4 +1,4 @@
-<?php
+<?grd
 interface Shape { public function area(): float; }
 class Sq implements Shape { public function __construct(private float $s) {} public function area(): float { return $this->s * $this->s; } }
 $s = new Sq(3);

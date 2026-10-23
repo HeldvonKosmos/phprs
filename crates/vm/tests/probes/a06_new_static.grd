@@ -1,2 +1,2 @@
-<?php
+<?grd
 class A { public static function make(): static { return new static(); } } class B extends A {} echo get_class(B::make()), "\n";

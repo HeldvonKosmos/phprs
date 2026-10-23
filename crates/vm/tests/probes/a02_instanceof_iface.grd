@@ -1,2 +1,2 @@
-<?php
+<?grd
 interface I {} class C implements I {} var_dump((new C) instanceof I);

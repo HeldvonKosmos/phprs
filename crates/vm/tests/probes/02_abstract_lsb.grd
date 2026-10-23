@@ -1,4 +1,4 @@
-<?php
+<?grd
 abstract class Model {
     protected static string $table = 'models';
     public static function table(): string { return static::$table; }

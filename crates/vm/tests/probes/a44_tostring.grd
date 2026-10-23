@@ -1,2 +1,2 @@
-<?php
+<?grd
 class M { public function __toString(): string { return "str"; } } echo new M, " " . new M, "\n";

@@ -1,2 +1,2 @@
-<?php
+<?grd
 class K { public function f(): array { $m = 3; return array_map(fn($x) => $x * $m * $this->g(), [1, 2]); } private function g(): int { return 2; } } echo implode(",", (new K)->f()), "\n";

@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Q { private array $wheres = [];
   public function where(string $c, mixed $v): static { $this->wheres[] = [$c, $v]; return $this; }
   public function when(bool $cond, callable $cb): static { if ($cond) { $cb($this); } return $this; }

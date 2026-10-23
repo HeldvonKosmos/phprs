@@ -1,2 +1,2 @@
-<?php
+<?grd
 class S { public function __construct(public int $a, public int $b) {} } $s = new S(...[1, 2]); $cls = S::class; $t = new $cls(3, 4); echo $s->b, $t->a, "\n";

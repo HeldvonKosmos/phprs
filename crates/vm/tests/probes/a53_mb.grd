@@ -1,2 +1,2 @@
-<?php
+<?grd
 echo mb_strlen("äöü"), strlen("äöü"), mb_substr("äöü", 1, 1), "\n";

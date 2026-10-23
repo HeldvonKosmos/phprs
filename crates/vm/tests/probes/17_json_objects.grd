@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Dto implements JsonSerializable { public function __construct(public int $id, public ?string $t = null, private string $secret = 's') {} public function jsonSerialize(): array { return ['id' => $this->id, 't' => $this->t]; } }
 echo json_encode([new Dto(1), new Dto(2, 'x')]), " ";
 $d = json_decode('{"a":{"b":[1,2,{"c":null}]},"d":1.5}', true); echo $d['a']['b'][2]['c'] ?? 'nil', $d['d'], " ";

@@ -1,2 +1,2 @@
-<?php
+<?grd
 class B { public int $v = 0; } class H { public array $items = []; } $h = new H; $h->items[] = new B; $h->items[0]->v = 5; echo $h->items[0]->v, "\n";

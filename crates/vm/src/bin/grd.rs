@@ -38,6 +38,24 @@ fn main() -> ExitCode {
             if failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
         Some("run") if args.len() > 2 => run_file(&args[2]),
+        Some("dump") if args.len() > 2 => {
+            let source = std::fs::read(&args[2]).expect("read");
+            match grd_vm::compile::compile_source(&args[2], &source) {
+                Ok(m) => {
+                    for (ui, u) in m.units.iter().enumerate() {
+                        println!("== unit {ui} {} (slots {}, params {})", u.name, u.num_slots, u.params.len());
+                        for (i, op) in u.ops.iter().enumerate() {
+                            println!("{i:5}  {op:?}");
+                        }
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         _ => {
             eprintln!("usage: grd parse <file.grd>… | grd compile <file.grd>… | grd run <file.grd>");
             ExitCode::from(64)

@@ -280,6 +280,7 @@ impl Vm {
             pending: Pending::None,
             generator: None,
             line: unit.line,
+            ic: self.ic_base[target.module as usize] + target.unit as usize,
             return_override: target.return_override,
         };
         if unit.is_generator {

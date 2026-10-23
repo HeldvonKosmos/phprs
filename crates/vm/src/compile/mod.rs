@@ -22,6 +22,10 @@ use mago_syntax::parser::parse_file;
 
 use crate::bytecode::*;
 use dialect::Rule;
+
+fn is_cmp(op: BinOp) -> bool {
+    matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Identical | BinOp::NotIdentical)
+}
 use names::Names;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,8 +103,8 @@ pub(crate) struct ClassCtx {
 pub(crate) struct LoopCtx {
     pub break_patches: Vec<usize>,
     pub continue_patches: Vec<usize>,
-    /// Depth of `finally_stack` when the loop started (jumps out of a
-    /// `try/finally` inside the loop skip the finally; known limitation).
+    /// Number of try contexts open when the loop started.
+    pub tries_depth: usize,
     pub is_switch: bool,
 }
 
@@ -112,6 +116,8 @@ pub(crate) struct TryCtx {
 
 pub(crate) struct UnitBuilder {
     pub unit: CodeUnit,
+    /// Op indices that are jump targets (labels taken with `here()`).
+    pub label_targets: std::collections::HashSet<Label>,
     pub slots: HashMap<Vec<u8>, Slot>,
     pub loops: Vec<LoopCtx>,
     pub tries: Vec<TryCtx>,
@@ -125,6 +131,7 @@ impl UnitBuilder {
     pub fn new(name: String, line: u32) -> Self {
         UnitBuilder {
             unit: CodeUnit::new(name, line),
+            label_targets: std::collections::HashSet::new(),
             slots: HashMap::new(),
             loops: Vec::new(),
             tries: Vec::new(),
@@ -135,11 +142,52 @@ impl UnitBuilder {
         }
     }
     pub fn emit(&mut self, op: Op) -> usize {
+        if let Some(idx) = self.try_fuse(&op) {
+            return idx;
+        }
         self.unit.ops.push(op);
         self.unit.ops.len() - 1
     }
-    pub fn here(&self) -> Label {
-        self.unit.ops.len() as Label
+
+    /// Superinstructions: fuse operand loads into binary ops and comparisons
+    /// into conditional jumps. Only ops that no label can target are
+    /// replaced (the middle of an expression), so jump targets stay valid.
+    fn try_fuse(&mut self, op: &Op) -> Option<usize> {
+        let n = self.unit.ops.len();
+        match op {
+            Op::Bin(bop) if n >= 2 && !self.label_boundary(n - 1) => {
+                let fused = match (&self.unit.ops[n - 2], &self.unit.ops[n - 1]) {
+                    (Op::LoadSlot(a), Op::LoadSlot(b)) => Op::BinSS { a: *a, b: *b, op: *bop },
+                    (Op::LoadSlot(a), Op::PushInt(i)) if i32::try_from(*i).is_ok() => Op::BinSI { a: *a, imm: *i as i32, op: *bop },
+                    (Op::LoadSlot(a), Op::PushConst(c)) => Op::BinSC { a: *a, c: *c, op: *bop },
+                    _ => return None,
+                };
+                self.unit.ops.truncate(n - 2);
+                self.unit.ops.push(fused);
+                Some(n - 2)
+            }
+            Op::JumpIfFalse(target) if n >= 1 => {
+                let fused = match &self.unit.ops[n - 1] {
+                    Op::BinSS { a, b, op } if is_cmp(*op) => Op::JumpUnlessSS { a: *a, b: *b, op: *op, target: *target },
+                    Op::BinSI { a, imm, op } if is_cmp(*op) => Op::JumpUnlessSI { a: *a, imm: *imm, op: *op, target: *target },
+                    _ => return None,
+                };
+                self.unit.ops.truncate(n - 1);
+                self.unit.ops.push(fused);
+                Some(n - 1)
+            }
+            _ => None,
+        }
+    }
+
+    /// True if some jump already targets op index `idx` (then it must stay).
+    fn label_boundary(&self, idx: usize) -> bool {
+        self.label_targets.contains(&(idx as Label))
+    }
+    pub fn here(&mut self) -> Label {
+        let l = self.unit.ops.len() as Label;
+        self.label_targets.insert(l);
+        l
     }
     pub fn patch(&mut self, at: usize, label: Label) {
         match &mut self.unit.ops[at] {
@@ -150,6 +198,8 @@ impl UnitBuilder {
             | Op::JumpIfNullKeep(l)
             | Op::JumpIfNotNullKeep(l)
             | Op::ReturnViaFinally(l) => *l = label,
+            Op::JumpViaFinally { target, .. } => *target = label,
+            Op::JumpUnlessSS { target, .. } | Op::JumpUnlessSI { target, .. } => *target = label,
             Op::IterNext { end, .. } => *end = label,
             Op::JumpIfArgPresent { target, .. } => *target = label,
             Op::FinallyEnd { outer } => *outer = Some(label),

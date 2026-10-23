@@ -1,2 +1,2 @@
-<?php
+<?grd
 echo json_encode([...[1, 2], ...["k" => "v"], 3]), "\n";

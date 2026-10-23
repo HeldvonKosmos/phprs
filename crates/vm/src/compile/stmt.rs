@@ -100,7 +100,7 @@ impl Compiler<'_> {
                         }
                         other => {
                             let (base, segs) = self.build_path(other)?;
-                            self.emit(Op::UnsetPath { base, segs });
+                            self.emit(Op::UnsetPath(Box::new(PathOp { base, segs, mode: WriteMode::Assign })));
                         }
                     }
                 }
@@ -347,7 +347,7 @@ impl Compiler<'_> {
         if bind_this {
             self.ub().unit.uses_this = true;
         }
-        self.emit(Op::MakeClosure { unit, captures, bind_this });
+        self.emit(Op::MakeClosure(Box::new(ClosureOp { unit, captures, bind_this })));
         Ok(())
     }
 
@@ -391,7 +391,7 @@ impl Compiler<'_> {
         if bind_this {
             self.ub().unit.uses_this = true;
         }
-        self.emit(Op::MakeClosure { unit, captures, bind_this });
+        self.emit(Op::MakeClosure(Box::new(ClosureOp { unit, captures, bind_this })));
         Ok(())
     }
 
@@ -476,7 +476,8 @@ impl Compiler<'_> {
     }
 
     fn push_loop(&mut self, is_switch: bool) {
-        self.ub().loops.push(LoopCtx { break_patches: Vec::new(), continue_patches: Vec::new(), is_switch });
+        let tries_depth = self.ub().tries.len();
+        self.ub().loops.push(LoopCtx { break_patches: Vec::new(), continue_patches: Vec::new(), tries_depth, is_switch });
     }
 
     /// Pops the loop context; patches breaks to `end` and continues to `cont`.
@@ -503,7 +504,17 @@ impl Compiler<'_> {
             return self.err(span, "`break`/`continue` außerhalb einer Schleife");
         }
         let idx = loops - depth;
-        let j = self.emit(Op::Jump(0));
+        // a `finally` between here and the loop runs first (innermost only)
+        let loop_tries = self.ub().loops[idx].tries_depth;
+        let via_finally = self.ub().tries.iter().enumerate().rev().find(|(ti, t)| *ti >= loop_tries && t.has_finally).map(|(ti, _)| ti);
+        let j = match via_finally {
+            Some(ti) => {
+                let at = self.emit(Op::JumpViaFinally { finally: 0, target: 0 });
+                self.ub().tries[ti].finally_patches.push(at);
+                at
+            }
+            None => self.emit(Op::Jump(0)),
+        };
         let ctx = &mut self.ub().loops[idx];
         // PHP: `continue` inside a switch acts like `break` of that switch
         if is_break || ctx.is_switch {
@@ -628,7 +639,7 @@ impl Compiler<'_> {
                 self.emit(Op::StoreSlot(tmp));
                 let (base, segs) = self.build_path(other)?;
                 self.emit(Op::LoadSlot(tmp));
-                self.emit(Op::StorePath { base, segs, mode: WriteMode::Assign });
+                self.emit(Op::StorePath(Box::new(PathOp { base, segs, mode: WriteMode::Assign })));
                 self.emit(Op::Pop);
                 Ok(())
             }
@@ -706,7 +717,11 @@ impl Compiler<'_> {
             self.ub().patch(j, finally_label);
         }
         for j in &ctx.finally_patches {
-            self.ub().patch(*j, finally_label);
+            if let Op::JumpViaFinally { finally, .. } = &mut self.ub().unit.ops[*j] {
+                *finally = finally_label;
+            } else {
+                self.ub().patch(*j, finally_label);
+            }
         }
         if let Some(fc) = &t.finally_clause {
             self.compile_statements(fc.block.statements.iter())?;

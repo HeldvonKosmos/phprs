@@ -1,2 +1,2 @@
-<?php
+<?grd
 class C implements ArrayAccess { private array $i = []; public function offsetExists(mixed $k): bool { return isset($this->i[$k]); } public function offsetGet(mixed $k): mixed { return $this->i[$k]; } public function offsetSet(mixed $k, mixed $v): void { if ($k === null) { $this->i[] = $v; } else { $this->i[$k] = $v; } } public function offsetUnset(mixed $k): void { unset($this->i[$k]); } } $c = new C; $c[] = 1; $c["k"] = 2; echo $c[0], $c["k"], isset($c["z"]) ? "Y" : "N", "\n";
