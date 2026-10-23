@@ -21,13 +21,12 @@ mago-database = "=1.58.2"
 mago-span = "=1.58.2"
 indexmap = "2"
 serde = { version = "1", features = ["derive"] }
-bincode = { version = "1.3" }
-getrandom = "0.2"
+postcard = { version = "1", features = ["use-std"] }
+getrandom = "0.4"
 serde_json = "1"
-regex = "1"
-fancy-regex = "0.14"
+fancy-regex = "0.19"
 chrono = "0.4"
 chrono-tz = "0.10"
-bcrypt = "0.17"
+bcrypt = "0.19"
 
 [dev-dependencies]

@@ -25,7 +25,7 @@ pub fn register(vm: &mut Vm) {
         let flags = args::int_opt(a, 2, "preg_match", 0)?;
         let offset = args::int_opt(a, 3, "preg_match", 0)?.max(0) as usize;
         let text = s.to_string_lossy();
-        match re.captures_from_pos(&text, offset.min(text.len())).map_err(rt_err)? {
+        match re.captures_from_pos(text.as_str(), offset.min(text.len())).map_err(rt_err)? {
             Some(c) => Ok(Val::array(captures_to_array(&re, &c, flags))),
             None => Ok(Val::empty_array()),
         }
@@ -36,7 +36,7 @@ pub fn register(vm: &mut Vm) {
         let flags = args::int_opt(a, 2, "preg_match_all", 1)?;
         let text = s.to_string_lossy();
         let mut sets: Vec<PhpArray> = Vec::new();
-        for c in re.captures_iter(&text) {
+        for c in re.captures_iter(text.as_str()) {
             let c = c.map_err(rt_err)?;
             sets.push(captures_to_array(&re, &c, flags & !SET_ORDER));
         }
@@ -85,7 +85,7 @@ pub fn register(vm: &mut Vm) {
                 out.push(Val::from(piece));
             }
         };
-        for c in re.captures_iter(&text) {
+        for c in re.captures_iter(text.as_str()) {
             let c = c.map_err(rt_err)?;
             let m = c.get(0).expect("group 0");
             if limit > 0 && pieces + 1 >= limit {
@@ -274,7 +274,7 @@ fn group_names(re: &Regex) -> Vec<Option<String>> {
     re.capture_names().map(|n| n.map(str::to_string)).collect()
 }
 
-fn captures_to_array(re: &Regex, c: &fancy_regex::Captures<'_>, flags: i64) -> PhpArray {
+fn captures_to_array(re: &Regex, c: &fancy_regex::Captures<'_, str>, flags: i64) -> PhpArray {
     let names = group_names(re);
     let mut out = PhpArray::new();
     // PHP drops trailing unmatched groups
@@ -307,7 +307,7 @@ fn captures_to_array(re: &Regex, c: &fancy_regex::Captures<'_>, flags: i64) -> P
 }
 
 /// Expand `$1`, `\1`, `${1}`, `$name` is not supported by PHP; only numeric.
-fn expand_replacement(rep: &str, c: &fancy_regex::Captures<'_>) -> String {
+fn expand_replacement(rep: &str, c: &fancy_regex::Captures<'_, str>) -> String {
     let b: Vec<char> = rep.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -370,7 +370,7 @@ fn preg_replace(vm: &mut Vm, a: &[Val], callback: Option<Val>) -> Result<Val, Th
             let mut last = 0;
             let mut n = 0i64;
             let snapshot = text.clone();
-            for c in re.captures_iter(&snapshot) {
+            for c in re.captures_iter(snapshot.as_str()) {
                 let c = c.map_err(rt_err)?;
                 if limit >= 0 && n >= limit {
                     break;

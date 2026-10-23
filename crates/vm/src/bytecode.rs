@@ -472,11 +472,11 @@ mod size_tests {
 #[cfg(test)]
 mod serde_tests {
     #[test]
-    fn module_round_trips_through_bincode() {
+    fn module_round_trips_through_postcard() {
         let src = b"<?grd\nnamespace A; use B\\C; #[Attr(1)] class K extends C { const X = [1, 'a' => 2.5]; private ?int $n = null; public function m(int $a, string ...$r): static { $f = fn($x) => $x + $a; try { return $this; } finally { $this->n = 1; } } }\nfunction g() { yield 1; }\n$k = new K(); echo $k->m(1)?->n ?? 'x';";
         let m = crate::compile::compile_source("t.grd", src).expect("compile");
-        let bytes = bincode::serialize(&m).expect("serialize");
-        let back: super::Module = bincode::deserialize(&bytes).expect("deserialize");
+        let bytes = postcard::to_allocvec(&m).expect("serialize");
+        let back: super::Module = postcard::from_bytes(&bytes).expect("deserialize");
         assert_eq!(m, back);
         assert!(bytes.len() > 100);
     }

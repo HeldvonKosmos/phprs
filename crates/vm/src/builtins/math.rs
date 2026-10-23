@@ -62,7 +62,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("random_bytes", |_, a| {
         let n = args::int(a, 0, "random_bytes")?.max(0) as usize;
         let mut buf = vec![0u8; n];
-        getrandom::getrandom(&mut buf).map_err(|e| Throw::new("Exception", e.to_string()))?;
+        getrandom::fill(&mut buf).map_err(|e| Throw::new("Exception", e.to_string()))?;
         Ok(Val::bytes(&buf))
     });
     vm.register_native("number_format", number_format);
@@ -124,7 +124,7 @@ fn to_radix(mut v: u128, radix: u32) -> String {
 
 pub(crate) fn rand_u64() -> u64 {
     let mut b = [0u8; 8];
-    let _ = getrandom::getrandom(&mut b);
+    let _ = getrandom::fill(&mut b);
     u64::from_le_bytes(b)
 }
 
