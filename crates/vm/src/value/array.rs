@@ -3,6 +3,11 @@
 
 use indexmap::IndexMap;
 
+/// Hasher of array keys (PERF1): foldhash is several times faster than the
+/// default SipHash and keeps a per-process random seed, so keys from request
+/// data cannot be chosen to collide.
+type KeyHasher = foldhash::fast::RandomState;
+
 use super::{PhpString, Val};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -52,17 +57,17 @@ fn canonical_int(b: &[u8]) -> Option<i64> {
 
 #[derive(Clone, Debug, Default)]
 pub struct PhpArray {
-    map: IndexMap<ArrayKey, Val>,
+    map: IndexMap<ArrayKey, Val, KeyHasher>,
     /// Next index for `$a[] = v` (PHP: one more than the largest int key ever used).
     next_free: i64,
 }
 
 impl PhpArray {
     pub fn new() -> Self {
-        PhpArray { map: IndexMap::new(), next_free: 0 }
+        PhpArray { map: IndexMap::with_hasher(KeyHasher::default()), next_free: 0 }
     }
     pub fn with_capacity(n: usize) -> Self {
-        PhpArray { map: IndexMap::with_capacity(n), next_free: 0 }
+        PhpArray { map: IndexMap::with_capacity_and_hasher(n, KeyHasher::default()), next_free: 0 }
     }
     pub fn from_values(values: impl IntoIterator<Item = Val>) -> Self {
         let mut a = PhpArray::new();

@@ -20,6 +20,7 @@ mago-allocator = "=1.58.2"
 mago-database = "=1.58.2"
 mago-span = "=1.58.2"
 indexmap = "2"
+foldhash = "0.2"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", features = ["use-std"] }
 getrandom = "0.4"
@@ -30,3 +31,8 @@ chrono-tz = "0.10"
 bcrypt = "0.19"
 
 [dev-dependencies]
+
+[features]
+# Per-opcode counts and time for PERF1 (grd run prints a ranking to stderr);
+# costs nothing when off.
+opstats = []

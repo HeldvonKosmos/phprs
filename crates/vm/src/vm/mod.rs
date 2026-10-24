@@ -16,6 +16,8 @@ pub mod project;
 pub(crate) mod ops;
 mod path;
 mod run;
+#[cfg(feature = "opstats")]
+pub mod opstats;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -153,6 +155,9 @@ pub struct Vm {
     /// Local variable slots of all live frames (RUNTIME_ARCHITECTURE §5.1).
     pub(crate) slot_stack: Vec<Option<Val>>,
     pub(crate) stack: Vec<Val>,
+    /// Reused argument buffer for native calls (PERF1); taken while a native
+    /// runs, so a nested call simply allocates its own.
+    pub(crate) arg_scratch: Vec<Val>,
     pub output: Vec<u8>,
     pub(crate) iters: Vec<Option<IterState>>,
     /// Inline caches: one `Vec<IcEntry>` per unit (index = `ic_base[module] + unit`), indexed by op.
@@ -195,6 +200,7 @@ impl Vm {
             frames: Vec::new(),
             slot_stack: Vec::new(),
             stack: Vec::new(),
+            arg_scratch: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),
             ics: Vec::new(),

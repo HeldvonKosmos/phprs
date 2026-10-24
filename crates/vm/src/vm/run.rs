@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use super::call::CallOutcome;
-use super::{ClosureData, IcEntry, Pending, Vm};
+use super::{ClosureData, FuncRef, IcEntry, Pending, Vm};
 use crate::bytecode::*;
 use crate::error::Throw;
 use crate::value::*;
@@ -37,12 +37,181 @@ impl Vm {
             let midx = self.frames[fidx].module_idx;
             let unit_idx = self.frames[fidx].unit as usize;
             let unit = &module.units[unit_idx];
+            let slot_base = self.frames[fidx].slot_base;
+            let icx = self.frames[fidx].ic;
+            // `ip` lives in a local while the fast path runs; it is written back
+            // to the frame before anything else (exec, unwinding) can look at it
+            let mut ip = self.frames[fidx].ip;
             loop {
-                let ip = self.frames[fidx].ip;
-                self.frames[fidx].ip = ip + 1;
                 let op = &unit.ops[ip];
-                match self.exec(op, fidx, midx, &module, unit, base_depth) {
-                    Ok(Flow::Next) => {}
+                // PERF1 fast path: the frequent simple ops without a call into
+                // `exec`; every case that is not plainly numeric/simple falls
+                // through to `exec`, which keeps all semantics and errors
+                #[cfg(not(feature = "opstats"))]
+                match op {
+                    Op::Line(n) => {
+                        self.frames[fidx].line = *n;
+                        ip += 1;
+                        continue;
+                    }
+                    Op::Nop => {
+                        ip += 1;
+                        continue;
+                    }
+                    Op::PushInt(i) => {
+                        self.stack.push(Val::Int(*i));
+                        ip += 1;
+                        continue;
+                    }
+                    Op::PushNull => {
+                        self.stack.push(Val::Null);
+                        ip += 1;
+                        continue;
+                    }
+                    Op::PushTrue => {
+                        self.stack.push(Val::Bool(true));
+                        ip += 1;
+                        continue;
+                    }
+                    Op::PushFalse => {
+                        self.stack.push(Val::Bool(false));
+                        ip += 1;
+                        continue;
+                    }
+                    Op::Pop => {
+                        self.stack.pop();
+                        ip += 1;
+                        continue;
+                    }
+                    Op::LoadSlot(s) => {
+                        if let Some(v) = &self.slot_stack[slot_base + *s as usize] {
+                            let v = v.clone();
+                            self.stack.push(v);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::StoreSlot(s) => {
+                        let v = self.stack.pop().expect("store operand");
+                        self.slot_stack[slot_base + *s as usize] = Some(v);
+                        ip += 1;
+                        continue;
+                    }
+                    Op::Jump(l) => {
+                        let t = *l as usize;
+                        if t <= ip {
+                            let prof = &mut self.profiles[icx];
+                            prof.backedges = prof.backedges.saturating_add(1);
+                            if prof.backedges >= super::HOT_BACKEDGES {
+                                prof.hot = true;
+                            }
+                        }
+                        ip = t;
+                        continue;
+                    }
+                    Op::JumpIfFalse(l) => {
+                        let v = self.stack.pop().expect("condition");
+                        ip = if v.to_bool() { ip + 1 } else { *l as usize };
+                        continue;
+                    }
+                    Op::JumpIfTrue(l) => {
+                        let v = self.stack.pop().expect("condition");
+                        ip = if v.to_bool() { *l as usize } else { ip + 1 };
+                        continue;
+                    }
+                    Op::JumpUnlessSI { a, imm, op: bop, target } => {
+                        if let Some(Val::Int(x)) = &self.slot_stack[slot_base + *a as usize] {
+                            let (x, imm) = (*x, *imm as i64);
+                            let cond = match bop {
+                                BinOp::Lt => x < imm,
+                                BinOp::Le => x <= imm,
+                                BinOp::Gt => x > imm,
+                                BinOp::Ge => x >= imm,
+                                BinOp::Identical => x == imm,
+                                BinOp::NotIdentical => x != imm,
+                                _ => unreachable!(),
+                            };
+                            ip = if cond { ip + 1 } else { *target as usize };
+                            continue;
+                        }
+                    }
+                    Op::JumpUnlessSS { a, b, op: bop, target } => {
+                        if let (Some(x), Some(y)) = (&self.slot_stack[slot_base + *a as usize], &self.slot_stack[slot_base + *b as usize])
+                            && let Some(r) = num_fast(*bop, x, y)
+                        {
+                            ip = if r.to_bool() { ip + 1 } else { *target as usize };
+                            continue;
+                        }
+                    }
+                    Op::Bin(bop) => {
+                        let n = self.stack.len();
+                        if let Some(r) = num_fast(*bop, &self.stack[n - 2], &self.stack[n - 1]) {
+                            let tags = super::type_tag(&self.stack[n - 2]) | (super::type_tag(&self.stack[n - 1]) << 4);
+                            self.profiles[icx].types[ip] |= tags;
+                            self.stack.truncate(n - 2);
+                            self.stack.push(r);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::BinSI { a, imm, op: bop } => {
+                        if let Some(x) = &self.slot_stack[slot_base + *a as usize]
+                            && let Some(r) = num_fast(*bop, x, &Val::Int(*imm as i64))
+                        {
+                            let tags = super::type_tag(x) | (1 << 4);
+                            self.profiles[icx].types[ip] |= tags;
+                            self.stack.push(r);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::BinSS { a, b, op: bop } => {
+                        if let (Some(x), Some(y)) = (&self.slot_stack[slot_base + *a as usize], &self.slot_stack[slot_base + *b as usize])
+                            && let Some(r) = num_fast(*bop, x, y)
+                        {
+                            let tags = super::type_tag(x) | (super::type_tag(y) << 4);
+                            self.profiles[icx].types[ip] |= tags;
+                            self.stack.push(r);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::IncSlotDiscard { slot, mode } => {
+                        if let Some(Val::Int(x)) = &mut self.slot_stack[slot_base + *slot as usize] {
+                            let next = match mode {
+                                WriteMode::PreInc | WriteMode::PostInc => x.checked_add(1),
+                                _ => x.checked_sub(1),
+                            };
+                            if let Some(v) = next {
+                                *x = v;
+                                ip += 1;
+                                continue;
+                            }
+                        }
+                    }
+                    Op::CompoundSlot { slot, op: bop, discard } => {
+                        if let (Some(lhs), Some(rhs)) = (&self.slot_stack[slot_base + *slot as usize], self.stack.last())
+                            && let Some(r) = num_fast(*bop, lhs, rhs)
+                        {
+                            self.stack.pop();
+                            if !*discard {
+                                self.stack.push(r.clone());
+                            }
+                            self.slot_stack[slot_base + *slot as usize] = Some(r);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
+                self.frames[fidx].ip = ip + 1;
+                #[cfg(feature = "opstats")]
+                let started = std::time::Instant::now();
+                let flow = self.exec(op, fidx, midx, &module, unit, base_depth);
+                #[cfg(feature = "opstats")]
+                super::opstats::record(op, started.elapsed());
+                match flow {
+                    Ok(Flow::Next) => ip = self.frames[fidx].ip,
                     Ok(Flow::Switch) => continue 'frames,
                     Ok(Flow::Done(v)) => return Ok(v),
                     Err(t) => {
@@ -151,25 +320,9 @@ impl Vm {
                     let icx = self.frames[fidx].ic;
                     self.profiles[icx].types[ip] |= super::type_tag(&a) | (super::type_tag(&b) << 4);
                 }
-                if let (Val::Int(x), Val::Int(y)) = (&a, &b) {
-                    let (x, y) = (*x, *y);
-                    let fast = match bop {
-                        BinOp::Add => x.checked_add(y).map(Val::Int),
-                        BinOp::Sub => x.checked_sub(y).map(Val::Int),
-                        BinOp::Mul => x.checked_mul(y).map(Val::Int),
-                        BinOp::Mod if y != 0 && y != -1 => Some(Val::Int(x % y)),
-                        BinOp::Lt => Some(Val::Bool(x < y)),
-                        BinOp::Le => Some(Val::Bool(x <= y)),
-                        BinOp::Gt => Some(Val::Bool(x > y)),
-                        BinOp::Ge => Some(Val::Bool(x >= y)),
-                        BinOp::Identical => Some(Val::Bool(x == y)),
-                        BinOp::NotIdentical => Some(Val::Bool(x != y)),
-                        _ => None,
-                    };
-                    if let Some(r) = fast {
-                        self.push(r);
-                        return Ok(Flow::Next);
-                    }
+                if let Some(r) = num_fast(*bop, &a, &b) {
+                    self.push(r);
+                    return Ok(Flow::Next);
                 }
                 let r = self.binary(*bop, a, b)?;
                 self.push(r);
@@ -519,7 +672,26 @@ impl Vm {
             }
 
             Op::CallFuncId { id, spec } => {
-                let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
+                let aspec = &unit.arg_specs[*spec as usize];
+                // native function with positional arguments: pass them through a
+                // reused buffer, no allocation per call (PERF1)
+                if let FuncRef::Native(i) = self.function_table[id.0 as usize]
+                    && aspec.is_simple()
+                {
+                    let n = aspec.count();
+                    let func = self.natives[i as usize].1;
+                    let mut buf = std::mem::take(&mut self.arg_scratch);
+                    let at = self.stack.len() - n;
+                    buf.extend(self.stack.drain(at..));
+                    let r = func(self, &buf);
+                    buf.clear();
+                    if buf.capacity() > self.arg_scratch.capacity() {
+                        self.arg_scratch = buf;
+                    }
+                    self.push(r?);
+                    return Ok(Flow::Next);
+                }
+                let (args, named) = self.pop_args(midx, aspec)?;
                 let f = self.function_table[id.0 as usize].clone();
                 match self.invoke_funcref(f, args, named)? {
                     CallOutcome::Pushed => return Ok(Flow::Switch),
@@ -943,24 +1115,8 @@ impl Vm {
     /// Binary op with the int/int fast path inlined.
     #[inline]
     pub(crate) fn fast_bin(&mut self, bop: BinOp, a: Val, b: Val) -> Result<Val, Throw> {
-        if let (Val::Int(x), Val::Int(y)) = (&a, &b) {
-            let (x, y) = (*x, *y);
-            let fast = match bop {
-                BinOp::Add => x.checked_add(y).map(Val::Int),
-                BinOp::Sub => x.checked_sub(y).map(Val::Int),
-                BinOp::Mul => x.checked_mul(y).map(Val::Int),
-                BinOp::Mod if y != 0 && y != -1 => Some(Val::Int(x % y)),
-                BinOp::Lt => Some(Val::Bool(x < y)),
-                BinOp::Le => Some(Val::Bool(x <= y)),
-                BinOp::Gt => Some(Val::Bool(x > y)),
-                BinOp::Ge => Some(Val::Bool(x >= y)),
-                BinOp::Identical => Some(Val::Bool(x == y)),
-                BinOp::NotIdentical => Some(Val::Bool(x != y)),
-                _ => None,
-            };
-            if let Some(r) = fast {
-                return Ok(r);
-            }
+        if let Some(r) = num_fast(bop, &a, &b) {
+            return Ok(r);
         }
         self.binary(bop, a, b)
     }
@@ -1001,5 +1157,68 @@ impl Vm {
                 self.value_type_name(v)
             )))
         }
+    }
+}
+
+/// Arithmetic and comparison of two numbers without the generic path
+/// (PERF1): int/int, float/float and mixed, with PHP's results — int
+/// division that divides evenly stays int, overflow promotes to float via the
+/// generic path, `===` between int and float is false. `None` means: take the
+/// generic path (overflow, division by zero, other types or operators).
+#[inline(always)]
+pub(crate) fn num_fast(bop: BinOp, a: &Val, b: &Val) -> Option<Val> {
+    match (a, b) {
+        (Val::Int(x), Val::Int(y)) => {
+            let (x, y) = (*x, *y);
+            match bop {
+                BinOp::Add => x.checked_add(y).map(Val::Int),
+                BinOp::Sub => x.checked_sub(y).map(Val::Int),
+                BinOp::Mul => x.checked_mul(y).map(Val::Int),
+                BinOp::Div => {
+                    if y == 0 || y == -1 {
+                        None
+                    } else if x % y == 0 {
+                        Some(Val::Int(x / y))
+                    } else {
+                        Some(Val::Float(x as f64 / y as f64))
+                    }
+                }
+                BinOp::Mod if y != 0 && y != -1 => Some(Val::Int(x % y)),
+                BinOp::Lt => Some(Val::Bool(x < y)),
+                BinOp::Le => Some(Val::Bool(x <= y)),
+                BinOp::Gt => Some(Val::Bool(x > y)),
+                BinOp::Ge => Some(Val::Bool(x >= y)),
+                BinOp::Identical => Some(Val::Bool(x == y)),
+                BinOp::NotIdentical => Some(Val::Bool(x != y)),
+                BinOp::BitAnd => Some(Val::Int(x & y)),
+                BinOp::BitOr => Some(Val::Int(x | y)),
+                BinOp::BitXor => Some(Val::Int(x ^ y)),
+                BinOp::Spaceship => Some(Val::Int((x > y) as i64 - (x < y) as i64)),
+                _ => None,
+            }
+        }
+        (Val::Float(_), Val::Float(_)) | (Val::Int(_), Val::Float(_)) | (Val::Float(_), Val::Int(_)) => {
+            let both_float = matches!((a, b), (Val::Float(_), Val::Float(_)));
+            let f = |v: &Val| match v {
+                Val::Int(i) => *i as f64,
+                Val::Float(f) => *f,
+                _ => unreachable!(),
+            };
+            let (x, y) = (f(a), f(b));
+            match bop {
+                BinOp::Add => Some(Val::Float(x + y)),
+                BinOp::Sub => Some(Val::Float(x - y)),
+                BinOp::Mul => Some(Val::Float(x * y)),
+                BinOp::Div if y != 0.0 => Some(Val::Float(x / y)),
+                BinOp::Lt => Some(Val::Bool(x < y)),
+                BinOp::Le => Some(Val::Bool(x <= y)),
+                BinOp::Gt => Some(Val::Bool(x > y)),
+                BinOp::Ge => Some(Val::Bool(x >= y)),
+                BinOp::Identical => Some(Val::Bool(both_float && x == y)),
+                BinOp::NotIdentical => Some(Val::Bool(!(both_float && x == y))),
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }

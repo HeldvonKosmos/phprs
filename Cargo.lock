@@ -2278,6 +2278,7 @@ dependencies = [
  "chrono",
  "chrono-tz 0.10.4",
  "fancy-regex",
+ "foldhash",
  "getrandom 0.4.3",
  "indexmap",
  "mago-allocator",

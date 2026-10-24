@@ -104,6 +104,8 @@ fn run_file(path: &str) -> ExitCode {
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(&vm.output);
     let _ = stdout.flush();
+    #[cfg(feature = "opstats")]
+    eprint!("{}", grd_vm::vm::opstats::report());
     match result {
         Ok(_) => ExitCode::SUCCESS,
         Err(grd_vm::vm::RunError::Compile(e)) => {

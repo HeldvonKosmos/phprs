@@ -32,6 +32,10 @@ impl Vm {
 
     /// Pop the arguments of a call from the stack according to `spec`.
     pub(crate) fn pop_args(&mut self, module: u32, spec: &ArgSpec) -> Result<(Vec<Val>, Vec<(Vec<u8>, Val)>), Throw> {
+        // positional only (the common case): the popped values are the arguments
+        if spec.is_simple() {
+            return Ok((self.pop_n(spec.count()), Vec::new()));
+        }
         let raw = self.pop_n(spec.count());
         let mut args = Vec::with_capacity(raw.len());
         let mut named = Vec::new();
