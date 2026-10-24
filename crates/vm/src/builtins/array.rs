@@ -21,7 +21,8 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("array_values", |_, a| Ok(Val::array(args::array(a, 0, "array_values")?.reindexed())));
     vm.register_native("array_merge", |_, a| {
-        let mut out = PhpArray::new();
+        let total: usize = a.iter().map(|v| if let Val::Array(x) = v { x.len() } else { 0 }).sum();
+        let mut out = PhpArray::with_capacity(total);
         for (i, v) in a.iter().enumerate() {
             let Val::Array(arr) = v else { return Err(Throw::type_error(format!("array_merge(): Argument #{} must be of type array, {} given", i + 1, v.type_name()))) };
             merge_into(&mut out, arr);
@@ -220,13 +221,42 @@ pub fn register(vm: &mut Vm) {
         Ok(Val::array(out))
     });
     vm.register_native("array_unique", |_, a| {
+        // strict identity (DIALECT §5.1) through a hash set; arrays, objects
+        // and NaN are compared directly (PERF1: was quadratic)
+        #[derive(PartialEq, Eq, Hash)]
+        enum Seen {
+            Null,
+            Bool(bool),
+            Int(i64),
+            Float(u64),
+            Str(PhpString),
+        }
         let arr = args::array(a, 0, "array_unique")?;
-        let mut out = PhpArray::new();
-        let mut seen: Vec<Val> = Vec::new();
+        let mut out = PhpArray::with_capacity(arr.len());
+        let mut seen: std::collections::HashSet<Seen, foldhash::fast::RandomState> = std::collections::HashSet::with_capacity_and_hasher(arr.len(), Default::default());
+        let mut others: Vec<Val> = Vec::new();
         for (k, v) in arr.iter() {
-            let dup = seen.iter().any(|s| identical(s, v));
-            if !dup {
-                seen.push(v.clone());
+            let key = match v {
+                Val::Null => Some(Seen::Null),
+                Val::Bool(b) => Some(Seen::Bool(*b)),
+                Val::Int(i) => Some(Seen::Int(*i)),
+                Val::Float(f) if f.is_nan() => None,
+                Val::Float(f) => Some(Seen::Float(if *f == 0.0 { 0 } else { f.to_bits() })),
+                Val::Str(s) => Some(Seen::Str(s.clone())),
+                _ => None,
+            };
+            let fresh = match key {
+                Some(key) => seen.insert(key),
+                None => {
+                    if others.iter().any(|s| identical(s, v)) {
+                        false
+                    } else {
+                        others.push(v.clone());
+                        true
+                    }
+                }
+            };
+            if fresh {
                 out.insert(k.clone(), v.clone());
             }
         }

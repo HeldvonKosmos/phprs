@@ -244,6 +244,47 @@ impl Vm {
                                         continue;
                                     }
                                 }
+                                // `$a[$k][] = v` and `$a[$k1][$k2] = v`: the inner array is
+                                // created when missing, as in PHP; anything else that
+                                // is not an array takes the generic path
+                                [PathSeg::Dim, inner @ (PathSeg::Append | PathSeg::Dim)] if matches!(self.slot_stack[at], Some(Val::Array(_))) => {
+                                    let nk = if matches!(inner, PathSeg::Dim) { 2 } else { 1 };
+                                    let key_of = |v: &Val| match v {
+                                        Val::Int(i) => Some(ArrayKey::Int(*i)),
+                                        Val::Str(s) => Some(ArrayKey::from_string(s)),
+                                        _ => None,
+                                    };
+                                    let k1 = key_of(&self.stack[n - 1 - nk]);
+                                    let k2 = if nk == 2 { key_of(&self.stack[n - 2]) } else { None };
+                                    let inner_ok = match (&self.slot_stack[at], &k1) {
+                                        (Some(Val::Array(outer)), Some(k)) => matches!(outer.get(k), None | Some(Val::Array(_))),
+                                        _ => false,
+                                    };
+                                    if let Some(k1) = k1
+                                        && inner_ok
+                                        && (nk == 1 || k2.is_some())
+                                    {
+                                        let value = self.stack.pop().expect("value");
+                                        self.stack.truncate(n - 1 - nk);
+                                        if let Some(Val::Array(outer)) = &mut self.slot_stack[at] {
+                                            let outer = Rc::make_mut(outer);
+                                            let slot = outer.entry_mut(k1);
+                                            if slot.is_null() {
+                                                *slot = Val::empty_array();
+                                            }
+                                            if let Val::Array(innr) = slot {
+                                                let innr = Rc::make_mut(innr);
+                                                match k2 {
+                                                    Some(k2) => innr.insert(k2, value.clone()),
+                                                    None => innr.push(value.clone()),
+                                                }
+                                            }
+                                        }
+                                        self.stack.push(value);
+                                        ip += 1;
+                                        continue;
+                                    }
+                                }
                                 [PathSeg::Append] if matches!(self.slot_stack[at], Some(Val::Array(_))) => {
                                     let value = self.stack.pop().expect("value");
                                     if let Some(Val::Array(a)) = &mut self.slot_stack[at] {

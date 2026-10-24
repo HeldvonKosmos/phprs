@@ -79,7 +79,8 @@ impl PhpArray {
         PhpArray { map: IndexMap::with_capacity_and_hasher(n, KeyHasher::default()), next_free: 0 }
     }
     pub fn from_values(values: impl IntoIterator<Item = Val>) -> Self {
-        let mut a = PhpArray::new();
+        let values = values.into_iter();
+        let mut a = PhpArray::with_capacity(values.size_hint().0);
         for v in values {
             a.push(v);
         }
@@ -158,7 +159,11 @@ impl PhpArray {
     }
     /// Re-index with 0..n (used by `array_values`, `sort`, …).
     pub fn reindexed(&self) -> PhpArray {
-        PhpArray::from_values(self.map.values().cloned())
+        let mut a = PhpArray::with_capacity(self.map.len());
+        for v in self.map.values() {
+            a.push(v.clone());
+        }
+        a
     }
 }
 
