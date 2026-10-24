@@ -93,7 +93,10 @@ fn run_file(path: &str) -> ExitCode {
         }
     };
     let mut vm = match grd_vm::vm::Vm::with_prelude() {
-        Ok(vm) => vm,
+        Ok(mut vm) => {
+            grd_jit::install(&mut vm);
+            vm
+        }
         Err(e) => {
             eprintln!("grd: prelude failed: {e}");
             return ExitCode::from(70);

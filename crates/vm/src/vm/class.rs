@@ -113,7 +113,8 @@ impl Vm {
         self.ic_base.push(self.ics.len());
         for u in &module.units {
             self.ics.push(vec![super::IcEntry::default(); u.ops.len()]);
-            self.profiles.push(super::CodeProfile { types: vec![0; u.ops.len()], ..Default::default() });
+            self.profiles.push(super::CodeProfile { types: vec![0; u.ops.len()], jit_no_loop: vec![false; u.ops.len()], ..Default::default() });
+            self.jit_funcs.push(super::jit::JitSlotState::Untried);
         }
         Ok(())
     }

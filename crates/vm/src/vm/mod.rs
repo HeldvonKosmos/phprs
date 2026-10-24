@@ -16,6 +16,7 @@ pub mod project;
 pub(crate) mod ops;
 mod path;
 mod run;
+pub mod jit;
 #[cfg(feature = "opstats")]
 pub mod opstats;
 
@@ -44,6 +45,8 @@ pub struct CodeProfile {
     /// Per op: observed operand types of binary ops, low nibble = lhs,
     /// high nibble = rhs (1 int, 2 float, 4 string, 8 other).
     pub types: Vec<u8>,
+    /// Per op: loop region at this header could not be compiled (JIT).
+    pub jit_no_loop: Vec<bool>,
 }
 
 pub const HOT_CALLS: u32 = 1_000;
@@ -171,6 +174,16 @@ pub struct Vm {
     pub(crate) ic_base: Vec<usize>,
     /// Profiles, parallel to `ics` (same index).
     pub profiles: Vec<CodeProfile>,
+    /// JIT backend (crate grd-jit), if installed; see `jit.rs`.
+    pub(crate) jit: Option<Box<dyn jit::JitBackend>>,
+    /// Whole-function JIT state per code unit (indexed like `profiles`).
+    pub(crate) jit_funcs: Vec<jit::JitSlotState>,
+    /// Loop-region JIT state per (unit index, loop header ip).
+    pub(crate) jit_loops: HashMap<(usize, usize), jit::JitSlotState>,
+    /// Reused state buffer for JIT calls.
+    pub(crate) jit_buf: Vec<u64>,
+    /// (calls, back-edges) before compiling.
+    pub(crate) jit_hot: (u32, u32),
     pub(crate) enum_cases: HashMap<(ClassId, Vec<u8>), ObjHandle>,
     pub(crate) static_values: Vec<HashMap<Vec<u8>, Val>>,
     pub well_known: Option<WellKnown>,
@@ -212,6 +225,11 @@ impl Vm {
             ics: Vec::new(),
             ic_base: Vec::new(),
             profiles: Vec::new(),
+            jit: None,
+            jit_funcs: Vec::new(),
+            jit_loops: HashMap::new(),
+            jit_buf: Vec::new(),
+            jit_hot: (jit::JIT_HOT_CALLS, jit::JIT_HOT_BACKEDGES),
             enum_cases: HashMap::new(),
             static_values: Vec::new(),
             well_known: None,

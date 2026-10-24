@@ -1,0 +1,26 @@
+[package]
+name = "grd-jit"
+version = "0.1.0"
+edition = "2024"
+description = "JIT tier of the grd VM: hot numeric functions and loops compiled to machine code with Cranelift (DECISIONS D6; the only crate with unsafe code)"
+publish = false
+
+[lib]
+name = "grd_jit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "grd"
+path = "src/bin/grd.rs"
+
+[features]
+opstats = ["grd-vm/opstats"]
+
+[dependencies]
+grd-vm = { path = "../vm" }
+# Cranelift directly, without Wasmtime (DECISIONS "Cranelift direkt"); exact pin.
+cranelift-codegen = "=0.137.0"
+cranelift-frontend = "=0.137.0"
+cranelift-jit = "=0.137.0"
+cranelift-module = "=0.137.0"
+cranelift-native = "=0.137.0"

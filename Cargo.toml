@@ -5,6 +5,7 @@
 resolver = "2"
 members = [
     "crates/vm",
+    "crates/jit",
     "crates/framework",
     "crates/pkg",
 ]

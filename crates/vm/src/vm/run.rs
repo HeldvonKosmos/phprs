@@ -105,6 +105,20 @@ impl Vm {
                             if prof.backedges >= super::HOT_BACKEDGES {
                                 prof.hot = true;
                             }
+                            // hot loop: run it as compiled code (JIT1b, OSR)
+                            if prof.backedges >= self.jit_hot.1 && !prof.jit_no_loop[t] && self.jit.is_some() {
+                                match self.jit_loop(fidx, icx, slot_base, t, ip) {
+                                    super::jit::LoopOutcome::Resume(next) => {
+                                        ip = next;
+                                        continue;
+                                    }
+                                    super::jit::LoopOutcome::NotEntered => {
+                                        if matches!(self.jit_loops.get(&(icx, t)), Some(super::jit::JitSlotState::Failed)) {
+                                            self.profiles[icx].jit_no_loop[t] = true;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         ip = t;
                         continue;
@@ -792,9 +806,19 @@ impl Vm {
                 if let FuncRef::User { module: tm, unit: tu } = self.function_table[id.0 as usize]
                     && aspec.is_simple()
                 {
+                    let n = aspec.count();
+                    // compiled whole function (JIT1b): pure numeric code returns directly
+                    if self.jit.is_some() {
+                        let jic = self.ic_base[tm as usize] + tu as usize;
+                        if !matches!(self.jit_funcs[jic], super::jit::JitSlotState::Failed)
+                            && let Some(v) = self.jit_call(tm, tu, jic, n)
+                        {
+                            self.push(v);
+                            return Ok(Flow::Next);
+                        }
+                    }
                     let tmod = self.modules[tm as usize].clone();
                     let tunit = &tmod.units[tu as usize];
-                    let n = aspec.count();
                     if !tunit.is_generator && n <= tunit.params.len() && !tunit.params.iter().any(|p| p.variadic) {
                         let base = self.slot_stack.len();
                         self.slot_stack.resize(base + tunit.num_slots as usize, None);

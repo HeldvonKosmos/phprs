@@ -10,10 +10,6 @@ publish = false
 name = "grd_vm"
 path = "src/lib.rs"
 
-[[bin]]
-name = "grd"
-path = "src/bin/grd.rs"
-
 [dependencies]
 mago-syntax = "=1.58.2"
 mago-allocator = "=1.58.2"
