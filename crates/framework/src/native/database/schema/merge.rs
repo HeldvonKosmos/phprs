@@ -2,9 +2,10 @@
 //! every source file is parsed into a schema of its own (`addTable`,
 //! `addField`, … with `ensureTable` placeholders), which is then merged into
 //! the result (`merge`): a table new to the result is taken as it is; for an
-//! existing table the later file's DEFINE TABLE wins — also when it is only
-//! the placeholder `DEFINE TABLE <t> TYPE NORMAL SCHEMAFULL PERMISSIONS NONE`
-//! (finding R4h) — and fields, indexes and events are combined like PHP's
+//! existing table the later file's DEFINE TABLE wins, but a placeholder
+//! (`DEFINE TABLE <t> TYPE NORMAL SCHEMAFULL PERMISSIONS NONE`) never
+//! replaces a definition (R4h; the original let a file that only adds a
+//! field reset the table to SCHEMAFULL) — and fields, indexes and events are combined like PHP's
 //! `array_merge`: names win by key, but integer-like names are renumbered
 //! and kept twice (finding R4h).
 
@@ -85,8 +86,10 @@ impl Schema {
                     self.tables.insert(name, ot);
                 }
                 Some(t) => {
-                    t.define = ot.define;
-                    t.placeholder = ot.placeholder;
+                    if !ot.placeholder {
+                        t.define = ot.define;
+                        t.placeholder = false;
+                    }
                     t.fields = array_merge(&t.fields, ot.fields);
                     t.indexes = array_merge(&t.indexes, ot.indexes);
                     t.events = array_merge(&t.events, ot.events);
@@ -146,12 +149,14 @@ mod tests {
     }
 
     #[test]
-    fn later_placeholder_replaces_the_definition_as_in_the_original() {
-        // finding R4h: a later file that only adds a field resets the table
+    fn a_later_placeholder_keeps_the_definition() {
+        // R4h: the original let a file that only adds a field reset the table
         let mut s = Schema::default();
         s.merge_source("DEFINE TABLE t SCHEMALESS;", "blueprint");
         s.merge_source("DEFINE FIELD a ON t TYPE int;", "manually");
-        assert_eq!(s.tables["t"].define.as_ref().unwrap().text, "DEFINE TABLE t TYPE NORMAL SCHEMAFULL PERMISSIONS NONE");
+        assert_eq!(s.tables["t"].define.as_ref().unwrap().text, "DEFINE TABLE t SCHEMALESS");
+        assert!(!s.tables["t"].placeholder);
+        assert_eq!(s.tables["t"].fields.len(), 1);
     }
 
     #[test]

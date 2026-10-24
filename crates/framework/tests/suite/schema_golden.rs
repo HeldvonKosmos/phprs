@@ -4,6 +4,11 @@
 //! - Edge cases (`fixtures/schema_golden/cases/*/N.surql`, merged in file
 //!   order) against `expected.out`, which PHP 8.4 produced with the platform
 //!   classes (`fixtures/schema_golden/driver.php`). Always runs.
+//! - Where a fix of an original finding (R4h) changes the output on purpose,
+//!   `expected.r4h.out` next to `expected.out` holds the intended output; the
+//!   PHP output stays frozen in `expected.out`. `GRD_GOLDEN_WRITE=1` writes
+//!   `expected.r4h.out` for every case whose output differs from PHP (review
+//!   the diff before committing) and removes it where they agree again.
 //! - When `php` and `refs/platform/schema-tooling` exist: the expectations are
 //!   still what PHP prints, and the real platform schema files (confidential,
 //!   read at run time, nothing stored) give the same output in PHP and Rust.
@@ -64,9 +69,20 @@ fn first_diff(a: &str, b: &str) -> String {
 #[test]
 fn schema_port_matches_php_on_edge_cases() {
     let mut failures = Vec::new();
+    let write = std::env::var("GRD_GOLDEN_WRITE").as_deref() == Ok("1");
     for (name, files, expected) in cases() {
-        let want = std::fs::read_to_string(&expected).expect("expected.out");
+        let php = std::fs::read_to_string(&expected).expect("expected.out");
+        let r4h = expected.with_file_name("expected.r4h.out");
         let got = rust_output(&files);
+        if write {
+            if got == php {
+                let _ = std::fs::remove_file(&r4h);
+            } else {
+                std::fs::write(&r4h, &got).expect("write expected.r4h.out");
+            }
+            continue;
+        }
+        let want = std::fs::read_to_string(&r4h).unwrap_or(php);
         if got != want {
             failures.push(format!("{name}: {}", first_diff(&got, &want)));
         }

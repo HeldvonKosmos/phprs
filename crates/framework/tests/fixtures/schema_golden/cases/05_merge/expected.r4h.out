@@ -1,0 +1,16 @@
+-- ------------------------------
+-- TABLE: t
+-- ------------------------------
+
+DEFINE TABLE t SCHEMALESS;
+
+DEFINE FIELD a ON t TYPE float;
+DEFINE FIELD b ON t TYPE string;
+DEFINE FIELD c ON t TYPE bool;
+
+
+-- ------------------------------
+-- TABLE: u
+-- ------------------------------
+
+DEFINE TABLE u;
