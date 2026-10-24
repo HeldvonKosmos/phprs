@@ -15,11 +15,20 @@ lto = true
 codegen-units = 1
 strip = true
 
+# Debuginfo klein halten (24.10.2026, NACHRICHT 5c): die ~270 Abhängigkeiten ohne
+# Debuginfo, eigener Code nur mit Zeilentabellen. Vorher: 2,1 GB je Test-Binary,
+# target/debug 221 GB.
 [profile.dev]
 opt-level = 0
-debug = true
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.test]
 opt-level = 1
-debug = true
+debug = "line-tables-only"
 incremental = true
+
+[profile.test.package."*"]
+debug = false
