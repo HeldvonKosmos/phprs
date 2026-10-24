@@ -131,13 +131,6 @@ pub fn register(vm: &mut Vm) {
         let ts = args::int_opt(a, 1, "tz", 0)?;
         Ok(Val::Int(z.offset_at(ts) as i64))
     });
-    vm.register_native("__grd_date_format", |vm, a| {
-        let ts = args::int(a, 0, "date")?;
-        let us = args::int_opt(a, 1, "date", 0)?;
-        let fmt = args::string(a, 2, "date")?;
-        let z = zone_arg(vm, a, 3)?;
-        Ok(Val::from(format_date(&fmt.to_string_lossy(), ts, us, &z)))
-    });
     vm.register_native("date", |vm, a| {
         let fmt = args::string(a, 0, "date")?;
         let ts = match a.get(1) { None | Some(Val::Null) => now_secs(), _ => args::int(a, 1, "date")? };
@@ -171,11 +164,6 @@ pub fn register(vm: &mut Vm) {
         let (mo, d, y) = (get(3, now.month() as i64)?, get(4, now.day() as i64)?, get(5, now.year() as i64)?);
         Ok(Val::Int(make_time(&z, y, mo, d, h, mi, s)))
     });
-    vm.register_native("__grd_mktime", |vm, a| {
-        let z = zone_arg(vm, a, 6)?;
-        let v: Vec<i64> = (0..6).map(|i| args::int(a, i, "mktime")).collect::<Result<_, _>>()?;
-        Ok(Val::Int(make_time(&z, v[5], v[3], v[4], v[0], v[1], v[2])))
-    });
     vm.register_native("checkdate", |_, a| {
         let (m, d, y) = (args::int(a, 0, "checkdate")?, args::int(a, 1, "checkdate")?, args::int(a, 2, "checkdate")?);
         Ok(Val::Bool(NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32).is_some() && (1..=12).contains(&m) && d >= 1))
@@ -186,62 +174,6 @@ pub fn register(vm: &mut Vm) {
         let z = zone_arg(vm, &[], 0)?;
         Ok(match parse_datetime(&s.to_string_lossy(), base, &z) {
             Some((ts, _)) => Val::Int(ts),
-            None => Val::Bool(false),
-        })
-    });
-    vm.register_native("__grd_date_parse", |vm, a| {
-        let s = args::string(a, 0, "date")?;
-        let base = args::int(a, 1, "date")?;
-        let z = zone_arg(vm, a, 2)?;
-        Ok(match parse_datetime(&s.to_string_lossy(), base, &z) {
-            Some((ts, tz)) => Val::array(PhpArray::from_values([Val::Int(ts), tz.map(|t| Val::from(t.name())).unwrap_or(Val::Null)])),
-            None => Val::Bool(false),
-        })
-    });
-    vm.register_native("__grd_date_fields", |vm, a| {
-        let ts = args::int(a, 0, "date")?;
-        let z = zone_arg(vm, a, 1)?;
-        let l = z.to_local(ts);
-        Ok(Val::array(PhpArray::from_values([
-            Val::Int(l.year() as i64),
-            Val::Int(l.month() as i64),
-            Val::Int(l.day() as i64),
-            Val::Int(l.hour() as i64),
-            Val::Int(l.minute() as i64),
-            Val::Int(l.second() as i64),
-            Val::Int(l.weekday().num_days_from_sunday() as i64),
-            Val::Int(l.ordinal0() as i64),
-            Val::Int(z.offset_at(ts) as i64),
-        ])))
-    });
-    vm.register_native("__grd_date_add", |vm, a| {
-        // ts, y, m, d, h, i, s, sign, tz
-        let ts = args::int(a, 0, "date")?;
-        let sign = args::int(a, 7, "date")?;
-        let z = zone_arg(vm, a, 8)?;
-        let v: Vec<i64> = (1..7).map(|i| args::int(a, i, "date")).collect::<Result<_, _>>()?;
-        Ok(Val::Int(date_add(ts, [v[0], v[1], v[2], v[3], v[4], v[5]], sign, &z)))
-    });
-    vm.register_native("__grd_date_diff", |vm, a| {
-        // returns [y, m, d, h, i, s, days, invert]
-        let (t1, t2) = (args::int(a, 0, "date")?, args::int(a, 1, "date")?);
-        let z = zone_arg(vm, a, 2)?;
-        Ok(Val::array(PhpArray::from_values(date_diff(t1, t2, &z).into_iter().map(Val::Int))))
-    });
-    vm.register_native("__grd_date_set", |vm, a| {
-        // ts, y, m, d, h, i, s (each null = keep), tz
-        let ts = args::int(a, 0, "date")?;
-        let z = zone_arg(vm, a, 7)?;
-        let get = |i: usize| -> Result<Option<i64>, Throw> { match a.get(i) { None | Some(Val::Null) => Ok(None), _ => args::int(a, i, "date").map(Some) } };
-        let parts = [get(1)?, get(2)?, get(3)?, get(4)?, get(5)?, get(6)?];
-        Ok(Val::Int(date_set(ts, parts, &z)))
-    });
-    vm.register_native("__grd_date_create_from_format", |vm, a| {
-        let fmt = args::string(a, 0, "date")?.to_string_lossy();
-        let s = args::string(a, 1, "date")?.to_string_lossy();
-        let z = zone_arg(vm, a, 2)?;
-        Ok(match parse_with_format(&fmt, &s, &z) {
-            Some(ts) => Val::Int(ts),
             None => Val::Bool(false),
         })
     });
