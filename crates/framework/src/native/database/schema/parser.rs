@@ -1,83 +1,183 @@
-//! `.surql` file → statements (port of `SurqlFileParser`, from its
-//! description). Behaviour kept as in the PHP original, including its known
-//! gaps (AUFTRAG R4 b): the splitter knows only `--` comments, single and
-//! double quotes know only the doubled quote as escape, unsupported DEFINE
-//! kinds and non-DEFINE statements are skipped. Unlike the original, every
-//! skip is reported as a [`Warning`]; the output is unchanged by that.
+//! `.surql` file → statements: port of the platform's `SurqlFileParser`
+//! (R4b2, byte-identical to PHP 8.4, checked by the golden tests). Kept as in
+//! the original, including its findings (R4h): only `--` comments; in single
+//! quotes only `''` escapes, in double quotes the backslash; statements are
+//! trimmed with PHP's `trim` (space, \t, \n, \r, \0, \x0B — not Unicode
+//! spaces); the classifier matches `^DEFINE\s+(TABLE|FIELD|INDEX|EVENT)`
+//! case-insensitively with ASCII `\w` names or backtick names, so `IF NOT
+//! EXISTS`/`OVERWRITE` and non-ASCII names are read the way PHP reads them.
+//! Unlike the original, every skipped statement is reported as a
+//! [`Warning`]; the output is unchanged by that.
+
+use std::sync::OnceLock;
+
+use regex::bytes::Regex;
 
 use super::ast::{Kind, Statement, Warning};
 
-/// Split a file into statements at `;` outside quotes, backticks and `--`
-/// comments. Comments are removed, each statement is trimmed; empty
-/// statements are dropped.
+/// PHP `trim()` with its default characters.
+fn php_trim(b: &[u8]) -> &[u8] {
+    let ws = |c: &u8| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\0' | b'\x0b');
+    let start = b.iter().position(|c| !ws(c)).unwrap_or(b.len());
+    let end = b.iter().rposition(|c| !ws(c)).map_or(start, |e| e + 1);
+    &b[start..end]
+}
+
+/// Split a file into statements (literal port of `splitStatements`).
 pub fn split_statements(src: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let chars: Vec<char> = src.chars().collect();
+    let content = src.as_bytes();
+    let len = content.len();
+    let mut statements = Vec::new();
+    let mut current: Vec<u8> = Vec::new();
+    let mut push = |current: &mut Vec<u8>, statements: &mut Vec<String>| {
+        let t = php_trim(current);
+        if !t.is_empty() {
+            statements.push(String::from_utf8_lossy(t).into_owned());
+        }
+        current.clear();
+    };
     let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        match c {
-            '\'' | '"' => {
-                // quoted string; the doubled quote is the only escape
-                cur.push(c);
+    while i < len {
+        let c = content[i];
+        // -- single-line comment: skip to end of line
+        if c == b'-' && content.get(i + 1) == Some(&b'-') {
+            while i < len && content[i] != b'\n' {
                 i += 1;
-                while i < chars.len() {
-                    cur.push(chars[i]);
-                    if chars[i] == c {
-                        if i + 1 < chars.len() && chars[i + 1] == c {
-                            cur.push(c);
-                            i += 2;
-                            continue;
-                        }
+            }
+            continue;
+        }
+        // 'single quoted': '' is an escaped quote
+        if c == b'\'' {
+            current.push(c);
+            i += 1;
+            while i < len {
+                let sc = content[i];
+                current.push(sc);
+                i += 1;
+                if sc == b'\'' {
+                    if content.get(i) == Some(&b'\'') {
+                        current.push(content[i]);
+                        i += 1;
+                    } else {
                         break;
                     }
-                    i += 1;
-                }
-                i += 1;
-            }
-            '`' => {
-                cur.push(c);
-                i += 1;
-                while i < chars.len() {
-                    cur.push(chars[i]);
-                    if chars[i] == '`' {
-                        break;
-                    }
-                    i += 1;
-                }
-                i += 1;
-            }
-            '-' if chars.get(i + 1) == Some(&'-') => {
-                // comment to end of line (the newline stays as separator)
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
                 }
             }
-            ';' => {
-                push_stmt(&mut out, &mut cur);
+            continue;
+        }
+        // "double quoted": backslash escapes the next character
+        if c == b'"' {
+            current.push(c);
+            i += 1;
+            while i < len {
+                let sc = content[i];
+                current.push(sc);
+                i += 1;
+                if sc == b'\\' && i < len {
+                    current.push(content[i]);
+                    i += 1;
+                    continue;
+                }
+                if sc == b'"' {
+                    break;
+                }
+            }
+            continue;
+        }
+        // `backtick identifier`
+        if c == b'`' {
+            current.push(c);
+            i += 1;
+            while i < len && content[i] != b'`' {
+                current.push(content[i]);
                 i += 1;
             }
-            _ => {
-                cur.push(c);
+            if i < len {
+                current.push(content[i]);
                 i += 1;
             }
+            continue;
+        }
+        if c == b';' {
+            push(&mut current, &mut statements);
+            i += 1;
+            continue;
+        }
+        current.push(c);
+        i += 1;
+    }
+    push(&mut current, &mut statements);
+    statements
+}
+
+/// The classifier's patterns (`classify`): PCRE without `u`, so `\w` and
+/// `\s` and case folding are ASCII.
+fn patterns() -> &'static [(Kind, Regex); 4] {
+    static P: OnceLock<[(Kind, Regex); 4]> = OnceLock::new();
+    P.get_or_init(|| {
+        let id = r"(`[^`]+`|\w+)";
+        let re = |s: String| Regex::new(&format!("(?i-u){s}")).expect("pattern");
+        [
+            (Kind::Table, re(format!(r"^DEFINE\s+TABLE\s+{id}"))),
+            (Kind::Field, re(format!(r"^DEFINE\s+FIELD\s+{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
+            (Kind::Index, re(format!(r"^DEFINE\s+INDEX\s+{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
+            (Kind::Event, re(format!(r"^DEFINE\s+EVENT\s+{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
+        ]
+    })
+}
+
+/// `trim($identifier, '`')`.
+fn unquote(id: &[u8]) -> String {
+    let start = id.iter().position(|c| *c != b'`').unwrap_or(id.len());
+    let end = id.iter().rposition(|c| *c != b'`').map_or(start, |e| e + 1);
+    String::from_utf8_lossy(&id[start..end]).into_owned()
+}
+
+/// Classify one statement (as produced by [`split_statements`]). `Ok(None)`
+/// for an empty statement, `Err` with the reason for anything the original
+/// silently ignores.
+pub fn parse_statement(stmt: &str, source: &str) -> Result<Option<Statement>, Warning> {
+    if stmt.is_empty() {
+        return Ok(None);
+    }
+    for (kind, re) in patterns() {
+        if let Some(m) = re.captures(stmt.as_bytes()) {
+            let first = unquote(&m[1]);
+            let (name, table) = match kind {
+                Kind::Table => (first.clone(), first),
+                _ => (first, unquote(&m[2])),
+            };
+            return Ok(Some(Statement { kind: *kind, name, table, text: stmt.to_string(), source: source.to_string() }));
         }
     }
-    push_stmt(&mut out, &mut cur);
-    out
-}
-
-fn push_stmt(out: &mut Vec<String>, cur: &mut String) {
-    let t = cur.trim();
-    if !t.is_empty() {
-        out.push(t.to_string());
+    let warn = |m: String| Warning { source: source.to_string(), message: m };
+    let mut words = stmt.split_ascii_whitespace();
+    if !words.next().is_some_and(|w| w.eq_ignore_ascii_case("DEFINE")) {
+        return Err(warn(format!("skipped non-DEFINE statement: {}", first_line(stmt))));
     }
-    cur.clear();
+    match words.next().map(|k| k.to_ascii_uppercase()) {
+        Some(k) if ["TABLE", "FIELD", "INDEX", "EVENT"].contains(&k.as_str()) => Err(warn(format!("unreadable DEFINE {k} skipped: {}", first_line(stmt)))),
+        Some(k) => Err(warn(format!("unsupported DEFINE {k} skipped: {}", first_line(stmt)))),
+        None => Err(warn(format!("incomplete statement skipped: {stmt}"))),
+    }
 }
 
-/// Words of a statement: whitespace-separated, a backtick-quoted name is one
-/// word, quoted strings are one word.
+/// All supported statements of a file plus the warnings for skipped ones.
+pub fn parse_file(src: &str, source: &str) -> (Vec<Statement>, Vec<Warning>) {
+    let mut stmts = Vec::new();
+    let mut warnings = Vec::new();
+    for s in split_statements(src) {
+        match parse_statement(&s, source) {
+            Ok(Some(st)) => stmts.push(st),
+            Ok(None) => {}
+            Err(w) => warnings.push(w),
+        }
+    }
+    (stmts, warnings)
+}
+
+/// Words of a statement for [`clause_type`]: whitespace-separated, a
+/// backtick-quoted name or a quoted string is one word.
 fn words(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut it = s.chars().peekable();
@@ -108,76 +208,6 @@ fn words(s: &str) -> Vec<String> {
         out.push(w);
     }
     out
-}
-
-fn unquote(w: &str) -> String {
-    w.strip_prefix('`').and_then(|x| x.strip_suffix('`')).unwrap_or(w).to_string()
-}
-
-fn is(w: Option<&String>, kw: &str) -> bool {
-    w.is_some_and(|x| x.eq_ignore_ascii_case(kw))
-}
-
-/// Parse one statement. `Ok(None)` for an empty statement, `Err` with the
-/// reason for anything the schema model does not hold.
-pub fn parse_statement(stmt: &str, source: &str) -> Result<Option<Statement>, Warning> {
-    let text = stmt.trim().trim_end_matches(';').trim();
-    if text.is_empty() {
-        return Ok(None);
-    }
-    let w = words(text);
-    let warn = |m: String| Warning { source: source.to_string(), message: m };
-    if !is(w.first(), "DEFINE") {
-        return Err(warn(format!("skipped non-DEFINE statement: {}", first_line(text))));
-    }
-    let kind = match w.get(1).map(|k| k.to_ascii_uppercase()).as_deref() {
-        Some("TABLE") => Kind::Table,
-        Some("FIELD") => Kind::Field,
-        Some("INDEX") => Kind::Index,
-        Some("EVENT") => Kind::Event,
-        Some(other) => return Err(warn(format!("unsupported DEFINE {other} skipped: {}", first_line(text)))),
-        None => return Err(warn(format!("incomplete statement skipped: {text}"))),
-    };
-    let mut i = 2;
-    if is(w.get(i), "OVERWRITE") {
-        i += 1;
-    } else if is(w.get(i), "IF") && is(w.get(i + 1), "NOT") && is(w.get(i + 2), "EXISTS") {
-        i += 3;
-    }
-    let Some(name) = w.get(i).map(|n| unquote(n)) else {
-        return Err(warn(format!("DEFINE {} without a name skipped", kind.keyword())));
-    };
-    let table = if kind == Kind::Table {
-        name.clone()
-    } else {
-        let mut j = i + 1;
-        if !is(w.get(j), "ON") {
-            return Err(warn(format!("DEFINE {} {name} without ON <table> skipped", kind.keyword())));
-        }
-        j += 1;
-        if is(w.get(j), "TABLE") {
-            j += 1;
-        }
-        match w.get(j) {
-            Some(t) => unquote(t),
-            None => return Err(warn(format!("DEFINE {} {name} without a table skipped", kind.keyword()))),
-        }
-    };
-    Ok(Some(Statement { kind, name, table, text: text.to_string(), source: source.to_string() }))
-}
-
-/// All supported statements of a file plus the warnings for skipped ones.
-pub fn parse_file(src: &str, source: &str) -> (Vec<Statement>, Vec<Warning>) {
-    let mut stmts = Vec::new();
-    let mut warnings = Vec::new();
-    for s in split_statements(src) {
-        match parse_statement(&s, source) {
-            Ok(Some(st)) => stmts.push(st),
-            Ok(None) => {}
-            Err(w) => warnings.push(w),
-        }
-    }
-    (stmts, warnings)
 }
 
 fn first_line(s: &str) -> &str {
@@ -212,10 +242,11 @@ mod tests {
     }
 
     #[test]
-    fn doubled_quote_is_the_only_escape() {
-        // as in the PHP original: '' escapes, \' does not (known finding)
+    fn escapes_as_in_the_original() {
+        // single quotes: '' escapes, \' does not (finding R4h); double quotes: backslash
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it''s;x';"), vec!["DEFINE FIELD a ON t DEFAULT 'it''s;x'"]);
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it\\'s;x';").len(), 2);
+        assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT \"q;\\\"r\" ;"), vec!["DEFINE FIELD a ON t DEFAULT \"q;\\\"r\""]);
     }
 
     #[test]
@@ -233,10 +264,15 @@ mod tests {
     #[test]
     fn keys_of_statements() {
         let p = |s: &str| parse_statement(s, "f").unwrap().unwrap();
-        let t = p("define table if not exists `tasks` SCHEMALESS");
+        let t = p("define table `tasks` SCHEMALESS");
         assert_eq!((t.kind, t.name.as_str(), t.table.as_str()), (Kind::Table, "tasks", "tasks"));
-        let f = p("DEFINE FIELD OVERWRITE address.city ON TABLE `tasks` TYPE string");
+        let f = p("DEFINE FIELD `address.city` ON TABLE `tasks` TYPE string");
         assert_eq!((f.kind, f.name.as_str(), f.table.as_str()), (Kind::Field, "address.city", "tasks"));
+        // as in the original (finding R4h): `IF NOT EXISTS` and `OVERWRITE`
+        // are read as names, a dotted name ends at the dot
+        assert_eq!(p("DEFINE TABLE IF NOT EXISTS w").name, "IF");
+        assert!(parse_statement("DEFINE FIELD OVERWRITE b ON t TYPE int", "f").is_err());
+        assert!(parse_statement("DEFINE FIELD address.city ON t TYPE string", "f").is_err());
         let i = p("DEFINE INDEX uniq ON tasks FIELDS title UNIQUE");
         assert_eq!((i.kind, i.table.as_str()), (Kind::Index, "tasks"));
         let e = p("DEFINE EVENT changed ON TABLE tasks WHEN $event = 'UPDATE' THEN {}");

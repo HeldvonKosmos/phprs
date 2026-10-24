@@ -49,7 +49,8 @@ pub struct Column {
     pub assert: Option<String>,
     pub unique: bool,
     pub index: bool,
-    /// `OVERWRITE` instead of `IF NOT EXISTS`.
+    /// `->change()`: no effect on the statement — in the declarative files
+    /// the later definition wins anyway; kept for Laravel-style code.
     pub change: bool,
 }
 
@@ -78,20 +79,22 @@ impl BlueprintData {
         format!("{}_{}_{}", self.table, fields.join("_"), if unique { "unique" } else { "index" })
     }
 
-    /// The statements; `create` adds the `DEFINE TABLE`.
+    /// The statements; `create` adds the `DEFINE TABLE`. Plain `DEFINE …`
+    /// without `IF NOT EXISTS`/`OVERWRITE`: the merge reads `blueprint.surql`
+    /// like the platform's PHP classes, which take `IF`/`OVERWRITE` for the
+    /// name (R4b2); SurrealKit compares and applies the definitions.
     pub fn statements(&self, create: bool) -> Vec<String> {
         let t = &self.table;
         let mut out = Vec::new();
         if create {
-            out.push(format!("DEFINE TABLE IF NOT EXISTS {t} {}", if self.schemafull { "SCHEMAFULL" } else { "SCHEMALESS" }));
+            out.push(format!("DEFINE TABLE {t} {}", if self.schemafull { "SCHEMAFULL" } else { "SCHEMALESS" }));
         }
         for c in &self.columns {
             if c.ty.is_empty() {
                 continue;
             }
             let ty = if c.nullable && !c.ty.starts_with("option<") { format!("option<{}>", c.ty) } else { c.ty.clone() };
-            let mode = if c.change { "OVERWRITE" } else { "IF NOT EXISTS" };
-            let mut s = format!("DEFINE FIELD {mode} {} ON TABLE {t} TYPE {ty}", c.name);
+            let mut s = format!("DEFINE FIELD {} ON TABLE {t} TYPE {ty}", c.name);
             if let Some(d) = &c.default {
                 s.push_str(&format!(" DEFAULT {}", d.to_sql()));
             }
@@ -102,7 +105,7 @@ impl BlueprintData {
             if c.unique || c.index {
                 let fields = vec![c.name.clone()];
                 out.push(format!(
-                    "DEFINE INDEX IF NOT EXISTS {} ON TABLE {t} FIELDS {}{}",
+                    "DEFINE INDEX {} ON TABLE {t} FIELDS {}{}",
                     self.index_name(&fields, c.unique),
                     c.name,
                     if c.unique { " UNIQUE" } else { "" }
@@ -110,7 +113,7 @@ impl BlueprintData {
             }
         }
         for (name, fields, unique) in &self.indexes {
-            out.push(format!("DEFINE INDEX IF NOT EXISTS {name} ON TABLE {t} FIELDS {}{}", fields.join(", "), if *unique { " UNIQUE" } else { "" }));
+            out.push(format!("DEFINE INDEX {name} ON TABLE {t} FIELDS {}{}", fields.join(", "), if *unique { " UNIQUE" } else { "" }));
         }
         for name in &self.drop_indexes {
             out.push(format!("REMOVE INDEX IF EXISTS {name} ON TABLE {t}"));
@@ -366,12 +369,12 @@ mod tests {
         assert_eq!(
             b.statements(true),
             vec![
-                "DEFINE TABLE IF NOT EXISTS tasks SCHEMALESS",
-                "DEFINE FIELD IF NOT EXISTS title ON TABLE tasks TYPE string",
-                "DEFINE FIELD IF NOT EXISTS done ON TABLE tasks TYPE bool DEFAULT false",
-                "DEFINE FIELD IF NOT EXISTS client_id ON TABLE tasks TYPE option<record<clients>>",
-                "DEFINE INDEX IF NOT EXISTS tasks_client_id_index ON TABLE tasks FIELDS client_id",
-                "DEFINE INDEX IF NOT EXISTS tasks_title_unique ON TABLE tasks FIELDS title UNIQUE",
+                "DEFINE TABLE tasks SCHEMALESS",
+                "DEFINE FIELD title ON TABLE tasks TYPE string",
+                "DEFINE FIELD done ON TABLE tasks TYPE bool DEFAULT false",
+                "DEFINE FIELD client_id ON TABLE tasks TYPE option<record<clients>>",
+                "DEFINE INDEX tasks_client_id_index ON TABLE tasks FIELDS client_id",
+                "DEFINE INDEX tasks_title_unique ON TABLE tasks FIELDS title UNIQUE",
                 "REMOVE FIELD IF EXISTS old ON TABLE tasks",
             ]
         );

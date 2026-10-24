@@ -1,0 +1,1 @@
+DEFINE FIELD 1 ON t TYPE string;

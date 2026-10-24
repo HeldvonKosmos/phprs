@@ -1,0 +1,25 @@
+-- ------------------------------
+-- TABLE: later
+-- ------------------------------
+
+DEFINE TABLE later SCHEMALESS;
+
+DEFINE INDEX i ON later FIELDS a;
+
+
+-- ------------------------------
+-- TABLE: lonely
+-- ------------------------------
+
+DEFINE TABLE lonely TYPE NORMAL SCHEMAFULL PERMISSIONS NONE;
+
+DEFINE FIELD a ON lonely TYPE int;
+
+
+-- ------------------------------
+-- TABLE: quoted tbl
+-- ------------------------------
+
+DEFINE TABLE quoted tbl TYPE NORMAL SCHEMAFULL PERMISSIONS NONE;
+
+DEFINE EVENT e ON `quoted tbl` WHEN true THEN {};

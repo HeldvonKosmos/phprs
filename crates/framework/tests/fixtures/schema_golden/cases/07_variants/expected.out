@@ -1,0 +1,19 @@
+-- ------------------------------
+-- TABLE: IF
+-- ------------------------------
+
+DEFINE TABLE IF NOT EXISTS w SCHEMALESS;
+
+
+-- ------------------------------
+-- TABLE: OVERWRITE
+-- ------------------------------
+
+DEFINE TABLE OVERWRITE v SCHEMALESS;
+
+
+-- ------------------------------
+-- TABLE: t
+-- ------------------------------
+
+DEFINE TABLE t SCHEMAFULL;

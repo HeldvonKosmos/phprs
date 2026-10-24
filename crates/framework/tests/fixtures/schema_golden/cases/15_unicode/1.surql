@@ -1,0 +1,2 @@
+DEFINE TABLE café SCHEMAFULL;
+DEFINE FIELD größe ON café TYPE int;

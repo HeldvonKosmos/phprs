@@ -1,0 +1,7 @@
+DEFINE TABLE user SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD name ON user TYPE string;
+DEFINE FIELD email ON TABLE user TYPE string;
+DEFINE INDEX email_idx ON user FIELDS email UNIQUE;
+DEFINE EVENT changed ON user WHEN $event = "UPDATE" THEN {};
+DEFINE TABLE account SCHEMALESS;
+DEFINE FIELD age ON account TYPE int;

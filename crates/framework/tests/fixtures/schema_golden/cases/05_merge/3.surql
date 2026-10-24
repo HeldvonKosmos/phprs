@@ -1,0 +1,1 @@
+DEFINE FIELD a ON t TYPE float;

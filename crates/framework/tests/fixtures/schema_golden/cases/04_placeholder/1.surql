@@ -1,0 +1,4 @@
+DEFINE FIELD a ON lonely TYPE int;
+DEFINE INDEX i ON later FIELDS a;
+DEFINE TABLE later SCHEMALESS;
+DEFINE EVENT e ON `quoted tbl` WHEN true THEN {};

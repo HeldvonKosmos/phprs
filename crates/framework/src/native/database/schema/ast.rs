@@ -1,8 +1,8 @@
 //! Schema model of the declarative schema (DECISIONS "Schema-Verwaltung
 //! deklarativ", R4b): tables with their DEFINE TABLE statement and the
 //! FIELD/INDEX/EVENT statements keyed by name. Port of the platform's
-//! `App\Database\Migration\Ast/*` from its description (the PHP sources are
-//! not delivered yet; byte-identity is checked in R4a).
+//! `App\Database\Migration\Ast/*` (R4b2; byte-identity checked by the golden
+//! tests in `tests/suite/schema_golden.rs`).
 
 use indexmap::IndexMap;
 

@@ -1,5 +1,5 @@
-//! Schema → `temporary.surql` text (port of `SurqlGenerator`, from its
-//! description): one block per table, sorted like PHP `ksort`; a block has a
+//! Schema → `temporary.surql` text (port of `SurqlGenerator`, R4b2,
+//! byte-identical to PHP 8.4): one block per table, sorted like PHP `ksort`; a block has a
 //! header framed by lines of 30 dashes, the DEFINE TABLE statement, then
 //! fields, indexes and events (each group sorted, separated by one empty
 //! line); blocks are separated by two empty lines; the file ends with one
@@ -30,9 +30,7 @@ pub fn generate(schema: &Schema) -> String {
         }
         blocks.push(lines.join("\n"));
     }
-    if blocks.is_empty() {
-        return String::new();
-    }
+    // as in the original, also for an empty schema: implode + "\n"
     let mut out = blocks.join("\n\n\n");
     out.push('\n');
     out
@@ -98,8 +96,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_schema_is_empty_text() {
-        assert_eq!(generate(&Schema::default()), "");
+    fn empty_schema_is_a_newline() {
+        assert_eq!(generate(&Schema::default()), "\n");
     }
 
     #[test]

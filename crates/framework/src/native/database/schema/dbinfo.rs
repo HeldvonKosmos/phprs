@@ -1,5 +1,4 @@
-//! Current database state → schema (port of `SurqlDbParser`, from its
-//! description): `INFO FOR DB` gives the DEFINE TABLE statements, `INFO FOR
+//! Current database state → schema (port of `SurqlDbParser`, R4b2): `INFO FOR DB` gives the DEFINE TABLE statements, `INFO FOR
 //! TABLE <t>` the DEFINE FIELD/INDEX/EVENT statements. SurrealKit's own
 //! tables are left out, as in the platform. The query itself runs in R4d
 //! (`migrate_pull`); this module only turns the answers into the model.
@@ -30,7 +29,8 @@ pub fn from_info(db_tables: &[(String, String)], tables: &IndexMap<String, Table
         kind,
         name: name.to_string(),
         table: table.to_string(),
-        text: text.trim().trim_end_matches(';').trim().to_string(),
+        // stored as INFO returns it, like SurqlDbParser
+        text: text.to_string(),
         source: SOURCE.to_string(),
     };
     for (name, define) in db_tables {

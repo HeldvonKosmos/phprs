@@ -1,0 +1,4 @@
+DEFINE TABLE `t` SCHEMAFULL;
+DEFINE FIELD `my field` ON `t` TYPE int;
+DEFINE FIELD a ON t TYPE int;
+DEFINE FIELD `a` ON t TYPE string;

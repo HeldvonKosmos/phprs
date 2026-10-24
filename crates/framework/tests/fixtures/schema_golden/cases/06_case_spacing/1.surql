@@ -1,0 +1,6 @@
+define table T1 schemafull;
+Define   Field
+  x
+  on	table   T1 type int;
+DEFINE INDEX  ix ON T1
+ FIELDS x;

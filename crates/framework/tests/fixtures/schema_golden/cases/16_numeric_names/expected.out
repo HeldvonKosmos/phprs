@@ -1,0 +1,9 @@
+-- ------------------------------
+-- TABLE: t
+-- ------------------------------
+
+DEFINE TABLE t TYPE NORMAL SCHEMAFULL PERMISSIONS NONE;
+
+DEFINE FIELD 1 ON t TYPE int;
+DEFINE FIELD 2 ON t TYPE int;
+DEFINE FIELD 1 ON t TYPE string;

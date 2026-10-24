@@ -1,25 +1,55 @@
-//! Merging statements into the schema (port of `SurqlSchema::merge` and
-//! `ensureTable`, from their description): a later statement wins per key —
-//! the DEFINE TABLE statement as a whole, fields, indexes and events by name
-//! within their table. A field/index/event of a table that has no DEFINE
-//! TABLE yet creates a placeholder `DEFINE TABLE <t> SCHEMAFULL PERMISSIONS
-//! NONE`, which a later DEFINE TABLE replaces.
+//! Merging (port of `SurqlSchema`, R4b2, byte-identical to PHP 8.4):
+//! every source file is parsed into a schema of its own (`addTable`,
+//! `addField`, … with `ensureTable` placeholders), which is then merged into
+//! the result (`merge`): a table new to the result is taken as it is; for an
+//! existing table the later file's DEFINE TABLE wins — also when it is only
+//! the placeholder `DEFINE TABLE <t> TYPE NORMAL SCHEMAFULL PERMISSIONS NONE`
+//! (finding R4h) — and fields, indexes and events are combined like PHP's
+//! `array_merge`: names win by key, but integer-like names are renumbered
+//! and kept twice (finding R4h).
+
+use indexmap::IndexMap;
 
 use super::ast::{Kind, Schema, Statement, TableDef, Warning};
 
-pub const PLACEHOLDER_SUFFIX: &str = "SCHEMAFULL PERMISSIONS NONE";
+pub const PLACEHOLDER_SUFFIX: &str = "TYPE NORMAL SCHEMAFULL PERMISSIONS NONE";
+
+/// PHP array key rule: a decimal integer string without leading zeros (and
+/// not `-0`) within i64 is an integer key.
+fn is_int_key(s: &str) -> bool {
+    let digits = s.strip_prefix('-').unwrap_or(s);
+    !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()) && (digits == "0" || !digits.starts_with('0')) && s != "-0" && s.parse::<i64>().is_ok()
+}
+
+/// `array_merge($a, $b)` for string-keyed maps whose keys may be integer-like.
+fn array_merge(a: &IndexMap<String, Statement>, b: IndexMap<String, Statement>) -> IndexMap<String, Statement> {
+    let mut out: IndexMap<String, Statement> = IndexMap::new();
+    let mut next = 0i64;
+    for (k, v) in a.iter().map(|(k, v)| (k.clone(), v.clone())).chain(b) {
+        if is_int_key(&k) {
+            out.insert(next.to_string(), v);
+            next += 1;
+        } else {
+            out.insert(k, v);
+        }
+    }
+    out
+}
 
 impl Schema {
-    pub fn merge(&mut self, statements: Vec<Statement>, warnings: Vec<Warning>) {
+    /// Statements of one file into a schema of its own (`addTable` replaces
+    /// the definition and keeps fields; `ensureTable` creates placeholders).
+    fn from_file(statements: Vec<Statement>) -> Schema {
+        let mut s = Schema::default();
         for st in statements {
             match st.kind {
                 Kind::Table => {
-                    let t = self.tables.entry(st.name.clone()).or_default();
+                    let t = s.tables.entry(st.name.clone()).or_default();
                     t.define = Some(st);
                     t.placeholder = false;
                 }
                 Kind::Field | Kind::Index | Kind::Event => {
-                    let t = self.ensure_table(&st.table, &st.source);
+                    let t = s.ensure_table(&st.table, &st.source);
                     let map = match st.kind {
                         Kind::Field => &mut t.fields,
                         Kind::Index => &mut t.indexes,
@@ -29,7 +59,7 @@ impl Schema {
                 }
             }
         }
-        self.warnings.extend(warnings);
+        s
     }
 
     fn ensure_table(&mut self, table: &str, source: &str) -> &mut TableDef {
@@ -47,7 +77,33 @@ impl Schema {
         t
     }
 
-    /// Parse and merge one source text.
+    /// `SurqlSchema::merge`: `other` (a later file) wins.
+    pub fn merge_schema(&mut self, other: Schema) {
+        for (name, ot) in other.tables {
+            match self.tables.get_mut(&name) {
+                None => {
+                    self.tables.insert(name, ot);
+                }
+                Some(t) => {
+                    t.define = ot.define;
+                    t.placeholder = ot.placeholder;
+                    t.fields = array_merge(&t.fields, ot.fields);
+                    t.indexes = array_merge(&t.indexes, ot.indexes);
+                    t.events = array_merge(&t.events, ot.events);
+                }
+            }
+        }
+        self.warnings.extend(other.warnings);
+    }
+
+    /// The statements of one file, merged as a file of their own.
+    pub fn merge(&mut self, statements: Vec<Statement>, warnings: Vec<Warning>) {
+        let mut file = Schema::from_file(statements);
+        file.warnings = warnings;
+        self.merge_schema(file);
+    }
+
+    /// Parse and merge one source file.
     pub fn merge_source(&mut self, text: &str, source: &str) {
         let (st, w) = super::parser::parse_file(text, source);
         self.merge(st, w);
@@ -83,10 +139,28 @@ mod tests {
         let mut s = Schema::default();
         s.merge_source("DEFINE INDEX i ON comments FIELDS x;", "a");
         assert!(s.tables["comments"].placeholder);
-        assert_eq!(s.tables["comments"].define.as_ref().unwrap().text, "DEFINE TABLE comments SCHEMAFULL PERMISSIONS NONE");
+        assert_eq!(s.tables["comments"].define.as_ref().unwrap().text, "DEFINE TABLE comments TYPE NORMAL SCHEMAFULL PERMISSIONS NONE");
         s.merge_source("DEFINE TABLE comments SCHEMALESS;", "b");
         assert!(!s.tables["comments"].placeholder);
         assert_eq!(s.tables["comments"].indexes.len(), 1, "fields/indexes survive the table replacement");
+    }
+
+    #[test]
+    fn later_placeholder_replaces_the_definition_as_in_the_original() {
+        // finding R4h: a later file that only adds a field resets the table
+        let mut s = Schema::default();
+        s.merge_source("DEFINE TABLE t SCHEMALESS;", "blueprint");
+        s.merge_source("DEFINE FIELD a ON t TYPE int;", "manually");
+        assert_eq!(s.tables["t"].define.as_ref().unwrap().text, "DEFINE TABLE t TYPE NORMAL SCHEMAFULL PERMISSIONS NONE");
+    }
+
+    #[test]
+    fn integer_like_names_are_renumbered_like_array_merge() {
+        // finding R4h: `DEFINE FIELD 1` from two files stays twice
+        let mut s = Schema::default();
+        s.merge_source("DEFINE TABLE t;\nDEFINE FIELD 1 ON t TYPE int;\nDEFINE FIELD 2 ON t TYPE int;", "a");
+        s.merge_source("DEFINE TABLE t;\nDEFINE FIELD 1 ON t TYPE string;", "b");
+        assert_eq!(s.tables["t"].fields.len(), 3);
     }
 
     #[test]
