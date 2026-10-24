@@ -145,19 +145,37 @@ impl BuilderData {
     }
 
     /// `"field:desc,other"` → `ORDER BY field COLLATE DESC, other COLLATE ASC`.
-    pub fn sort(&mut self, spec: &str) -> &mut Self {
+    /// `"title:desc, id"`. Field names and directions go into the query, so
+    /// both are checked: a field is an identifier path (`a.b_c`), a
+    /// direction `asc` or `desc`; anything else is an error and the builder
+    /// stays unchanged (the spec often comes from the request).
+    pub fn try_sort(&mut self, spec: &str) -> Result<&mut Self, String> {
+        let mut parsed = Vec::new();
         for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let (field, dir) = part.split_once(':').unwrap_or((part, "asc"));
-            let f = self.order_field(field.trim());
-            self.orders.push(format!("{f} COLLATE {}", dir.trim().to_ascii_uppercase()));
+            parsed.push((check_field(field.trim())?, check_dir(dir.trim())?));
         }
-        self
+        for (field, dir) in parsed {
+            let f = self.order_field(&field);
+            self.orders.push(format!("{f} COLLATE {dir}"));
+        }
+        Ok(self)
+    }
+
+    /// `try_sort` for specs written in code (tests); panics on an invalid one.
+    pub fn sort(&mut self, spec: &str) -> &mut Self {
+        self.try_sort(spec).expect("valid sort spec")
+    }
+
+    pub fn try_order_by(&mut self, field: &str, dir: &str) -> Result<&mut Self, String> {
+        let (field, dir) = (check_field(field)?, check_dir(dir)?);
+        let f = self.order_field(&field);
+        self.orders.push(format!("{f} {dir}"));
+        Ok(self)
     }
 
     pub fn order_by(&mut self, field: &str, dir: &str) -> &mut Self {
-        let f = self.order_field(field);
-        self.orders.push(format!("{f} {}", dir.to_ascii_uppercase()));
-        self
+        self.try_order_by(field, dir).expect("valid order")
     }
 
     fn projection_sql(&self) -> String {
@@ -267,6 +285,21 @@ fn this_data<'a>(vm: &'a mut Vm, c: &Call) -> Result<&'a mut BuilderData, Throw>
 }
 
 /// A builder object for `table` (no model).
+/// A sort/order field: identifiers separated by dots.
+fn check_field(field: &str) -> Result<String, String> {
+    let ok = !field.is_empty()
+        && field.split('.').all(|seg| seg.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    if ok { Ok(field.to_string()) } else { Err(format!("invalid sort field `{field}`")) }
+}
+
+fn check_dir(dir: &str) -> Result<&'static str, String> {
+    match dir.to_ascii_lowercase().as_str() {
+        "asc" => Ok("ASC"),
+        "desc" => Ok("DESC"),
+        _ => Err(format!("invalid sort direction `{dir}` (asc or desc)")),
+    }
+}
+
 pub fn new_for_table(vm: &mut Vm, table: &str, soft_deletes: bool, model: Option<ClassId>) -> Result<ObjHandle, Throw> {
     let class = vm.lookup_class(CLASS.as_bytes()).ok_or_else(|| Throw::error("Builder class missing"))?;
     let h = vm.instantiate(class, Vec::new())?;
@@ -471,15 +504,23 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .method("orderBy", |vm, c| {
             let field = string_arg(&c, 0, "Builder::orderBy")?;
             let dir = if c.args.len() > 1 { string_arg(&c, 1, "Builder::orderBy")? } else { "asc".into() };
-            this_data(vm, &c)?.order_by(&field, &dir);
+            this_data(vm, &c)?.try_order_by(&field, &dir).map_err(Throw::value_error)?;
             Ok(Val::Object(c.this()?))
         })
         .method("sort", |vm, c| {
-            let spec = match c.args.first() {
-                None | Some(Val::Null) => request_param(vm, "sort").and_then(|v| v.to_php_string().ok()).map(|s| s.to_string_lossy()).unwrap_or_default(),
-                Some(_) => string_arg(&c, 0, "Builder::sort")?,
+            let from_request = matches!(c.args.first(), None | Some(Val::Null));
+            let spec = if from_request {
+                request_param(vm, "sort").and_then(|v| v.to_php_string().ok()).map(|s| s.to_string_lossy()).unwrap_or_default()
+            } else {
+                string_arg(&c, 0, "Builder::sort")?
             };
-            this_data(vm, &c)?.sort(&spec);
+            if let Err(e) = this_data(vm, &c)?.try_sort(&spec) {
+                // a bad `?sort=` is the client's error: 400
+                if from_request {
+                    vm.call_value(&Val::str("abort"), vec![Val::Int(400), Val::str(&e)])?;
+                }
+                return Err(Throw::value_error(e));
+            }
             Ok(Val::Object(c.this()?))
         })
         .method("withCount", |vm, c| {
@@ -707,6 +748,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sort_specs_are_checked() {
+        // the spec comes from `?sort=`: nothing but identifier paths and asc/desc reach the query
+        let mut b = BuilderData::new("t", false);
+        for bad in ["title:desc;DELETE t", "title; DELETE t", "title:up", "ti tle", "(title)", "title:asc DROP", "1abc", "a..b", "a.-b"] {
+            assert!(b.try_sort(bad).is_err(), "{bad}");
+            assert!(b.orders.is_empty(), "{bad} left nothing behind");
+        }
+        assert!(b.try_order_by("title", "desc; DROP").is_err());
+        b.try_sort("title:DESC, client.name:asc, _id").unwrap();
+        assert_eq!(b.orders.len(), 3);
+    }
+
     use super::*;
 
     #[test]
