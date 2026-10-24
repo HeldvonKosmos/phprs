@@ -9,27 +9,55 @@ pub struct Handler {
     pub method: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct RouteEntry {
+    pub method: String,
+    pub path: String,
+    pub handler: Handler,
+    pub middleware: Vec<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Group {
+    pub prefix: String,
+    pub middleware: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct RouteTable {
-    by_method: HashMap<String, matchit::Router<Handler>>,
-    entries: Vec<(String, String, Handler)>,
+    by_method: HashMap<String, matchit::Router<usize>>,
+    entries: Vec<RouteEntry>,
+    /// Open `Route::group(...)` blocks, innermost last.
+    pub groups: Vec<Group>,
+    /// `Route::aliasMiddleware('auth', AuthMiddleware::class)`.
+    pub aliases: HashMap<String, String>,
 }
 
 impl RouteTable {
-    pub fn add(&mut self, method: &str, path: &str, handler: Handler) -> Result<(), String> {
+    /// Adds a route under the open groups; returns its index.
+    pub fn add(&mut self, method: &str, path: &str, handler: Handler) -> Result<usize, String> {
         let method = method.to_ascii_uppercase();
-        let path = normalize(path);
+        let mut full = String::new();
+        let mut middleware = Vec::new();
+        for g in &self.groups {
+            full.push_str(&normalize(&g.prefix));
+            middleware.extend(g.middleware.iter().cloned());
+        }
+        full.push_str(&normalize(path));
+        let path = normalize(&full.replace("//", "/"));
+        let index = self.entries.len();
         self.by_method
             .entry(method.clone())
             .or_default()
-            .insert(path.clone(), handler.clone())
+            .insert(path.clone(), index)
             .map_err(|e| format!("route {method} {path}: {e}"))?;
-        self.entries.push((method, path, handler));
-        Ok(())
+        self.entries.push(RouteEntry { method, path, handler, middleware, name: None });
+        Ok(index)
     }
 
-    /// Specific method first, then `ANY`.
-    pub fn find(&self, method: &str, path: &str) -> Option<(Handler, Vec<(String, String)>)> {
+    /// Specific method first, then `ANY`; HEAD falls back to GET.
+    pub fn find(&self, method: &str, path: &str) -> Option<(RouteEntry, Vec<(String, String)>)> {
         let path = normalize(path);
         let method = method.to_ascii_uppercase();
         let method = if method == "HEAD" { "GET".to_string() } else { method };
@@ -38,10 +66,19 @@ impl RouteTable {
                 && let Ok(found) = router.at(&path)
             {
                 let params = found.params.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-                return Some((found.value.clone(), params));
+                return Some((self.entries[*found.value].clone(), params));
             }
         }
         None
+    }
+
+    pub fn entry_mut(&mut self, index: usize) -> Option<&mut RouteEntry> {
+        self.entries.get_mut(index)
+    }
+
+    /// Middleware names → class names through the alias map.
+    pub fn resolve_middleware(&self, names: &[String]) -> Vec<String> {
+        names.iter().map(|n| self.aliases.get(n).cloned().unwrap_or_else(|| n.clone())).collect()
     }
 
     pub fn len(&self) -> usize {
@@ -52,7 +89,7 @@ impl RouteTable {
         self.entries.is_empty()
     }
 
-    pub fn entries(&self) -> &[(String, String, Handler)] {
+    pub fn entries(&self) -> &[RouteEntry] {
         &self.entries
     }
 }
@@ -66,19 +103,36 @@ fn normalize(path: &str) -> String {
 mod tests {
     use super::*;
 
+    fn h(m: &str) -> Handler {
+        Handler { class: "C".into(), method: m.into() }
+    }
+
     #[test]
     fn matches_params_and_any() {
         let mut t = RouteTable::default();
-        let h = |m: &str| Handler { class: "C".into(), method: m.into() };
         t.add("get", "/tasks", h("index")).unwrap();
         t.add("GET", "/tasks/{id}", h("show")).unwrap();
         t.add("any", "/ping", h("ping")).unwrap();
-        assert_eq!(t.find("GET", "/tasks/").unwrap().0.method, "index");
-        let (handler, params) = t.find("get", "/tasks/42").unwrap();
-        assert_eq!(handler.method, "show");
+        assert_eq!(t.find("GET", "/tasks/").unwrap().0.handler.method, "index");
+        let (entry, params) = t.find("get", "/tasks/42").unwrap();
+        assert_eq!(entry.handler.method, "show");
         assert_eq!(params, vec![("id".to_string(), "42".to_string())]);
-        assert_eq!(t.find("POST", "/ping").unwrap().0.method, "ping");
+        assert_eq!(t.find("POST", "/ping").unwrap().0.handler.method, "ping");
         assert!(t.find("POST", "/tasks").is_none());
         assert!(t.add("GET", "/tasks", h("dup")).is_err());
+    }
+
+    #[test]
+    fn groups_prefix_and_middleware() {
+        let mut t = RouteTable::default();
+        t.aliases.insert("auth".into(), "App\\Auth".into());
+        t.groups.push(Group { prefix: "/admin/".into(), middleware: vec!["auth".into()] });
+        t.groups.push(Group { prefix: "tasks".into(), middleware: vec![] });
+        let i = t.add("GET", "/", h("index")).unwrap();
+        t.entry_mut(i).unwrap().middleware.push("Own".into());
+        t.groups.clear();
+        let (entry, _) = t.find("GET", "/admin/tasks").unwrap();
+        assert_eq!(entry.path, "/admin/tasks");
+        assert_eq!(t.resolve_middleware(&entry.middleware), vec!["App\\Auth".to_string(), "Own".to_string()]);
     }
 }

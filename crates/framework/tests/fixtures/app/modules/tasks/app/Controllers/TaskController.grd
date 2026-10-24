@@ -58,6 +58,22 @@ final class TaskController
         return Response::redirect('/tasks');
     }
 
+    public function validated(): Response
+    {
+        $data = request()->validate([
+            'title' => 'required|string|max:20',
+            'priority' => 'integer|between:1,5',
+            'done' => 'nullable|boolean',
+            'email' => 'nullable|email',
+        ]);
+        return Response::json(['validated' => $data], 201);
+    }
+
+    public function notFound(): array
+    {
+        abort(404, 'no such task');
+    }
+
     public function db(): array
     {
         $task = Task::create(['title' => 'from http', 'done' => false]);

@@ -1,0 +1,58 @@
+<?grd
+namespace OpenGrid\Http;
+
+abstract class Controller
+{
+}
+
+abstract class Middleware
+{
+    abstract public function handle(Request $request, \Closure $next): mixed;
+}
+
+/**
+ * Runs the route's middleware chain; the innermost step calls the controller
+ * through the native `opengrid_run_controller`.
+ */
+final class Pipeline
+{
+    public function __construct(private array $middleware, private int $index = 0)
+    {
+    }
+
+    public function next(): \Closure
+    {
+        return fn(Request $request) => $this->proceed($request);
+    }
+
+    public function proceed(Request $request): mixed
+    {
+        if ($this->index >= count($this->middleware)) {
+            return \opengrid_run_controller($request);
+        }
+        $class = $this->middleware[$this->index];
+        $middleware = new $class();
+        if (!($middleware instanceof Middleware)) {
+            throw new \TypeError($class . ' is not an OpenGrid\Http\Middleware');
+        }
+        return $middleware->handle($request, (new Pipeline($this->middleware, $this->index + 1))->next());
+    }
+}
+
+class HttpException extends \RuntimeException
+{
+    public function __construct(private int $status, string $message = '', private array $headers = [])
+    {
+        parent::__construct($message, $status);
+    }
+
+    public function getStatusCode(): int
+    {
+        return $this->status;
+    }
+
+    public function getHeaders(): array
+    {
+        return $this->headers;
+    }
+}

@@ -1,0 +1,21 @@
+<?grd
+namespace Tasks\Http\Middleware;
+
+use OpenGrid\Http\Middleware;
+use OpenGrid\Http\Request;
+use OpenGrid\Http\Response;
+
+final class RequireToken extends Middleware
+{
+    public function handle(Request $request, \Closure $next): mixed
+    {
+        if ($request->header('x-token') != 'secret') {
+            abort(401, 'token required');
+        }
+        $response = $next($request);
+        if ($response instanceof Response) {
+            $response->header('X-Middleware', 'token');
+        }
+        return $response;
+    }
+}

@@ -66,7 +66,11 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             pick(pairs_to_array(&params), &c)
         })
         .method("ip", |_, _| Ok(Val::Null))
-        .method("body", |vm, _| Ok(Val::bytes(&state(vm)?.req.body)));
+        .method("body", |vm, _| Ok(Val::bytes(&state(vm)?.req.body)))
+        .method("validate", |vm, c| {
+            let all = input_all(vm)?;
+            super::validation::validate_or_throw(vm, &all, &c.arg(0))
+        });
     vm.register_class(def)?;
     vm.register_native("request", |vm, _| {
         let s = state(vm)?;

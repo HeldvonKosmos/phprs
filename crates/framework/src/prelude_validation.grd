@@ -1,0 +1,20 @@
+<?grd
+namespace OpenGrid\Validation;
+
+class ValidationException extends \RuntimeException
+{
+    public function __construct(string $message, private array $errors = [])
+    {
+        parent::__construct($message, 422);
+    }
+
+    public function errors(): array
+    {
+        return $this->errors;
+    }
+
+    public function status(): int
+    {
+        return 422;
+    }
+}

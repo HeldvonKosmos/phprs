@@ -7,6 +7,7 @@ pub mod log;
 pub mod request;
 pub mod response;
 pub mod route;
+pub mod validation;
 
 use grd_vm::error::Throw;
 use grd_vm::value::{ArrayKey, PhpArray, Val};
@@ -21,6 +22,23 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     log::register(vm)?;
     config::register(vm)?;
     database::register(vm)?;
+    validation::register(vm)?;
+    vm.register_native("opengrid_run_controller", |vm, _| crate::dispatch::run_controller(vm));
+    // abort(404, 'message') → HttpException
+    vm.register_native("abort", |vm, a| {
+        let status = match a.first() {
+            Some(v) => v.to_int()?,
+            None => return Err(Throw::argument_count("abort(): status missing")),
+        };
+        let message = match a.get(1) {
+            Some(Val::Str(s)) => s.to_string_lossy(),
+            _ => reason_phrase(status as u16).to_string(),
+        };
+        let headers = a.get(2).cloned().unwrap_or(Val::empty_array());
+        let class = vm.lookup_class(b"OpenGrid\\Http\\HttpException").ok_or_else(|| Throw::error("HttpException class missing"))?;
+        let h = vm.instantiate(class, vec![Val::Int(status), Val::str(&message), headers])?;
+        Err(Throw::existing(h))
+    });
     Ok(())
 }
 
@@ -49,4 +67,22 @@ pub(crate) fn pairs_to_array(pairs: &[(String, String)]) -> Val {
         arr.insert(ArrayKey::from_str(k), Val::str(v));
     }
     Val::array(arr)
+}
+
+pub fn reason_phrase(status: u16) -> &'static str {
+    match status {
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        409 => "Conflict",
+        410 => "Gone",
+        419 => "Page Expired",
+        422 => "Unprocessable Content",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        503 => "Service Unavailable",
+        _ => "Error",
+    }
 }

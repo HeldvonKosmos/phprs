@@ -25,6 +25,7 @@ matchit = "0.9"
 surrealdb = { version = "3.3", features = ["kv-mem"] }
 chrono = "0.4"
 indexmap = "2"
+regex = "1"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

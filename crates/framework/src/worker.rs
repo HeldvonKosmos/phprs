@@ -15,7 +15,7 @@ use crate::native::database::model::ModelMeta;
 use crate::native::database::surreal::{Db, DbConfig};
 
 use crate::http::HttpRequest;
-use crate::routes::RouteTable;
+use crate::routes::{Handler, RouteTable};
 
 /// Host context of a worker VM: lives as long as the VM; `request` is
 /// swapped per request.
@@ -35,6 +35,7 @@ pub struct WorkerCtx {
 
 pub struct RequestState {
     pub req: HttpRequest,
+    pub handler: Handler,
     pub params: Vec<(String, String)>,
     pub object: Option<ObjHandle>,
     pub input: Option<Val>,
@@ -66,6 +67,10 @@ impl PoolOptions {
     }
 }
 
+/// Dialect part of the framework: Middleware, Pipeline, Controller, HttpException, ValidationException.
+pub const FRAMEWORK_PRELUDE_HTTP: &str = include_str!("prelude_http.grd");
+pub const FRAMEWORK_PRELUDE_VALIDATION: &str = include_str!("prelude_validation.grd");
+
 type Job = Box<dyn FnOnce(&mut Vm) + Send>;
 
 pub struct Pool {
@@ -84,6 +89,9 @@ pub enum PoolError {
 pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
     let mut vm = Vm::with_prelude().map_err(|t| format!("prelude: {}", t.message))?;
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
+    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION)] {
+        vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
+    }
     vm.set_host(Box::new(WorkerCtx { routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new() }));
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
