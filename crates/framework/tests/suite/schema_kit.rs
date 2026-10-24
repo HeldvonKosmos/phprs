@@ -125,7 +125,8 @@ fn rollout_cycle_on_persistent_embedded_db() {
 
         // plan, start (expand), complete
         kit::write_temporary(&root, &with_table("DEFINE TABLE invoices SCHEMAFULL PERMISSIONS NONE;\n")).unwrap();
-        let id = kit::rollout_plan(&root, "add-invoices", false).await.expect("plan");
+        let (id, report) = kit::rollout_plan(&db, &root, "add-invoices").await.expect("plan");
+        assert!(report.passed() && report.additions.contains(&"table invoices".to_string()), "{}", report.summary());
         assert!(id.ends_with("__add_invoices"), "{id}");
         assert!(root.join("database/rollouts").join(format!("{id}.toml")).is_file());
         kit::rollout_start(&db, &root, Some(&id)).await.expect("start");
@@ -136,7 +137,7 @@ fn rollout_cycle_on_persistent_embedded_db() {
         kit::write_temporary(&root, &with_table("DEFINE TABLE invoices SCHEMAFULL PERMISSIONS NONE;\nDEFINE TABLE payments SCHEMAFULL PERMISSIONS NONE;\n")).unwrap();
         // manifest ids carry a second-resolution timestamp
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        let id2 = kit::rollout_plan(&root, "add-payments", false).await.expect("plan 2");
+        let (id2, _) = kit::rollout_plan(&db, &root, "add-payments").await.expect("plan 2");
         kit::rollout_start(&db, &root, Some(&id2)).await.expect("start 2");
         assert!(tables(&db).await.contains(&"payments".to_string()));
         kit::rollout_rollback(&db, &root, Some(&id2)).await.expect("rollback");
@@ -155,10 +156,69 @@ fn rollout_start_without_baseline_says_what_to_do() {
         let db = open("mem://").await;
         kit::sync(&db, &root, V1, SyncOptions::default()).await.expect("sync");
         kit::write_temporary(&root, &with_table("DEFINE TABLE extra SCHEMALESS;\n")).unwrap();
-        let id = kit::rollout_plan(&root, "x", false).await.expect("plan");
+        let (id, _) = kit::rollout_plan(&db, &root, "x").await.expect("plan");
         let e = kit::rollout_start(&db, &root, Some(&id)).await.unwrap_err();
         assert!(e.0.contains("zuerst `rollout baseline`"), "{e}");
     });
     std::fs::remove_dir_all(&root).unwrap();
 }
 
+
+/// Rollouts may only extend the schema (Jonas 24.10.): the preflight check
+/// discards a plan that removes or redefines an existing object or adds a
+/// required field to an existing table, and refuses to start a manifest that
+/// was edited to remove objects or change data.
+#[test]
+fn preflight_allows_only_additions() {
+    let root = tmp("preflight");
+    let url = format!("surrealkv://{}", root.join("data").display());
+    rt().block_on(async {
+        let db = open(&url).await;
+        kit::sync(&db, &root, V1, SyncOptions::default()).await.expect("sync");
+        kit::rollout_baseline(&db, &root).await.expect("baseline");
+        let planned = |root: &std::path::Path| kit::manifests(root).len();
+
+        // removing a table
+        kit::write_temporary(&root, "DEFINE TABLE tasks SCHEMAFULL PERMISSIONS NONE;\nDEFINE FIELD title ON tasks TYPE string;\n").unwrap();
+        let e = kit::rollout_plan(&db, &root, "drop-notes").await.unwrap_err();
+        assert!(e.0.contains("table notes exists and would be removed") || e.0.contains("drop_") || e.0.contains("remove"), "{e}");
+        assert_eq!(planned(&root), 0, "rejected plan is discarded");
+
+        // changing an existing field
+        kit::write_temporary(&root, &V1.replace("TYPE string", "TYPE int")).unwrap();
+        let e = kit::rollout_plan(&db, &root, "retype").await.unwrap_err();
+        assert!(!e.0.is_empty());
+        assert_eq!(planned(&root), 0);
+
+        // a new required field on an existing table
+        kit::write_temporary(&root, &with_table("DEFINE FIELD owner ON tasks TYPE string;\n")).unwrap();
+        let e = kit::rollout_plan(&db, &root, "owner").await.unwrap_err();
+        assert!(e.0.contains("new required field"), "{e}");
+        assert_eq!(planned(&root), 0);
+
+        // an optional field and a new table pass
+        kit::write_temporary(&root, &with_table("DEFINE FIELD owner ON tasks TYPE option<string>;\nDEFINE TABLE labels SCHEMALESS PERMISSIONS NONE;\n")).unwrap();
+        let (id, report) = kit::rollout_plan(&db, &root, "owner-optional").await.expect("additive plan passes");
+        assert!(report.additions.contains(&"field tasks.owner".to_string()) && report.additions.contains(&"table labels".to_string()), "{}", report.summary());
+
+        // a frozen target schema edited by hand to retype an existing field is refused at start
+        let frozen = root.join("database/rollouts").join(&id).join("schema/temporary.surql");
+        let original = std::fs::read_to_string(&frozen).unwrap();
+        let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(root.join("database/rollouts")).status();
+        std::fs::write(&frozen, original.replace("DEFINE FIELD title ON tasks TYPE string", "DEFINE FIELD title ON tasks TYPE int")).unwrap();
+        let e = kit::rollout_start(&db, &root, Some(&id)).await.unwrap_err();
+        assert!(e.0.contains("field tasks.title exists and would change"), "{e}");
+        std::fs::write(&frozen, original).unwrap();
+
+        // a manifest edited by hand to change data is refused at start
+        let path = root.join("database/rollouts").join(format!("{id}.toml"));
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("\n[[steps]]\nid = \"wipe\"\nphase = \"complete\"\nkind = \"run_sql\"\nsql = \"DELETE tasks;\"\n");
+        let _ = std::process::Command::new("chmod").arg("u+w").arg(&path).status();
+        std::fs::write(&path, text).unwrap();
+        let e = kit::rollout_start(&db, &root, Some(&id)).await.unwrap_err();
+        assert!(e.0.contains("`wipe`"), "{e}");
+        assert!(!tables(&db).await.contains(&"labels".to_string()), "nothing applied");
+    });
+    std::fs::remove_dir_all(&root).unwrap();
+}

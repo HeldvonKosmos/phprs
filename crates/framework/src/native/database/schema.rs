@@ -12,6 +12,7 @@ pub mod generator;
 pub mod kit;
 pub mod merge;
 pub mod parser;
+pub mod preflight;
 pub mod sources;
 
 /// Merge all schema sources of a project in their fixed order and generate

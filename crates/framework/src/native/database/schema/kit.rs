@@ -94,19 +94,37 @@ pub async fn rollout_baseline(db: &Surreal<Any>, root: &Path) -> Result<(), KitE
     guarded("rollout baseline", async move { run_baseline(&db, &f, &Module::default_module()).await }).await
 }
 
-/// Plan a rollout from the schema folder against the last snapshot; writes
-/// `database/rollouts/<id>.toml` and returns the new id.
-pub async fn rollout_plan(root: &Path, name: &str, allow_modified: bool) -> Result<String, KitError> {
+/// Plan a rollout from the schema folder against the last snapshot
+/// (`database/rollouts/<id>.toml`) and run the preflight check on it right
+/// away: a rollout that would remove or redefine an existing object is
+/// discarded again (manifest, directory and snapshots restored) and the
+/// report comes back as the error. Changes to existing objects are never
+/// planned (`allow_modified` stays off); rollouts only extend the schema.
+pub async fn rollout_plan(db: &Surreal<Any>, root: &Path, name: &str) -> Result<(String, super::preflight::Report), KitError> {
     let f = folder_str(root);
     let before = manifests(root);
-    let opts = RolloutPlanOpts { name: Some(name.to_string()), dry_run: false, allow_modified };
+    let opts = RolloutPlanOpts { name: Some(name.to_string()), dry_run: false, allow_modified: false };
     let f2 = f.clone();
     guarded("rollout plan", async move { run_plan(&f2, opts).await }).await?;
-    manifests(root).into_iter().find(|m| !before.contains(m)).ok_or_else(|| KitError("rollout plan: no change against the last snapshot, nothing planned".into()))
+    let id = manifests(root).into_iter().find(|m| !before.contains(m)).ok_or_else(|| KitError("rollout plan: no change against the last snapshot, nothing planned".into()))?;
+    let report = super::preflight::check(db, root, &id).await?;
+    if !report.passed() {
+        let (f3, id2) = (f.clone(), id.clone());
+        guarded("rollout discard", async move { surrealkit::rollout::run_discard(&f3, &id2, false) }).await?;
+        return Err(KitError(format!("{}
+rollout {id} was discarded; rollouts may only add tables, fields, indexes and events", report.summary())));
+    }
+    Ok((id, report))
 }
 
 /// Expansion phase of a rollout (`surrealkit rollout start`).
 pub async fn rollout_start(db: &Surreal<Any>, root: &Path, id: Option<&str>) -> Result<(), KitError> {
+    // preflight on every start: manifests may be edited by hand or planned elsewhere
+    let target = match id {
+        Some(i) => i.to_string(),
+        None => manifests(root).pop().ok_or_else(|| KitError("rollout start: no planned rollout".into()))?,
+    };
+    super::preflight::require(db, root, &target).await?;
     let (db, f, sel) = (db.clone(), folder_str(root), id.map(str::to_string));
     guarded("rollout start", async move { run_start(&db, &f, RolloutExecutionOpts::new(sel), &TemplateVars::default()).await }).await.map_err(hint_baseline)
 }

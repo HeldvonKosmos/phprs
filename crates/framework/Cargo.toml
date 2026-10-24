@@ -28,6 +28,8 @@ surrealdb = { version = "3.3", features = ["kv-mem", "kv-surrealkv"] }
 surrealkit = { version = "=1.0.0-beta.6", default-features = false, features = ["kv-mem"] }
 # SurrealKit reports progress through `log`; forward it into tracing.
 tracing-log = "0.2"
+# rollout manifests for the preflight check
+toml = "1"
 chrono = "0.4"
 indexmap = "2"
 regex = "1"
