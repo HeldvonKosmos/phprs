@@ -6,6 +6,8 @@
 //! - `parse`: mago front end.
 //! Compiler and VM follow in later phases.
 
+#![forbid(unsafe_code)]
+
 pub mod builtins;
 pub mod bytecode;
 pub mod compile;

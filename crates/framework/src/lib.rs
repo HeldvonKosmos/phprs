@@ -2,6 +2,8 @@
 //! catch-all routing into dialect controllers, and the native classes the
 //! dialect sees. The interpreter lives in `grd-vm` and knows nothing of HTTP.
 
+#![forbid(unsafe_code)]
+
 pub mod app;
 pub mod dispatch;
 pub mod http;

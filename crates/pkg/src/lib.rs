@@ -1,6 +1,8 @@
 //! OpenGrid module manager (Composer-compatible). Moved from the old
 //! `bin/phprs/src/pkg`; the class scan no longer needs the legacy lexer.
 
+#![forbid(unsafe_code)]
+
 pub mod commands;
 pub mod composer;
 pub mod config;
