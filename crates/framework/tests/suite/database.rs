@@ -118,3 +118,32 @@ fn database_over_http() {
     let body: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
     assert_eq!(body["count"], 2);
 }
+
+#[test]
+fn validation_exists_and_unique_against_the_database() {
+    let pool = pool("v1");
+    let out = run(
+        &pool,
+        r#"<?grd
+use Tasks\Models\Task;
+use OpenGrid\Validation\Validator;
+
+$a = Task::create(['title' => 'Alpha', 'done' => false]);
+Task::create(['title' => 'Beta', 'done' => true]);
+$rules = ['title' => 'required|unique:tasks,title'];
+echo json_encode(Validator::errors(['title' => 'Alpha'], $rules)), "\n";
+echo json_encode(Validator::errors(['title' => 'Gamma'], $rules)), "\n";
+// the column defaults to the field name; an id can be excluded (updates)
+echo json_encode(Validator::errors(['title' => 'Alpha'], ['title' => 'unique:tasks'])), "\n";
+echo json_encode(Validator::errors(['title' => 'Alpha'], ['title' => 'unique:tasks,title,' . $a->id->key()])), "\n";
+echo json_encode(Validator::errors(['task' => 'Beta'], ['task' => 'exists:tasks,title'])), "\n";
+echo json_encode(Validator::errors(['task' => 'Nope'], ['task' => 'exists:tasks,title'])), "\n";
+echo json_encode(Validator::errors([], ['task' => 'nullable|exists:tasks,title'])), "\n";
+try { Validator::errors(['x' => 1], ['x' => 'unique:tasks;drop,title']); } catch (ValueError $e) { echo "rejected\n"; }
+"#,
+    );
+    assert_eq!(
+        out,
+        "{\"title\":[\"The title has already been taken.\"]}\n[]\n{\"title\":[\"The title has already been taken.\"]}\n[]\n[]\n{\"task\":[\"The selected task is invalid.\"]}\n[]\nrejected\n"
+    );
+}

@@ -101,8 +101,13 @@ fn same(a: &Val, b: &Val) -> bool {
     }
 }
 
-/// Checks one field against its rules. `None` → ok; `Some(msgs)` → failures.
-fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
+/// Counts rows for `exists:`/`unique:` (V1): `(table, column, value,
+/// except)` → number of records with `column = value` (and an id other than
+/// `except`). Without one, the database rules fail with an error.
+pub type DbCount<'a> = &'a mut dyn FnMut(&str, &str, &Val, Option<&Val>) -> Result<u64, Throw>;
+
+/// Checks one field against its rules; the failure messages.
+fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<DbCount<'_>>) -> Result<Vec<String>, Throw> {
     let key = ArrayKey::from_str(field);
     let present = data.contains_key(&key);
     let value = data.get(&key).cloned().unwrap_or(Val::Null);
@@ -110,7 +115,7 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
     let mut msgs = Vec::new();
     let name = human(field);
     if rules.iter().any(|r| r == "sometimes") && !present {
-        return msgs;
+        return Ok(msgs);
     }
     if !rules.iter().any(|r| r == "required") && is_empty(&value) {
         // optional and empty: only `present`/`filled` can complain
@@ -120,7 +125,7 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
         if rules.iter().any(|r| r == "filled") && present {
             msgs.push(format!("The {name} field must have a value."));
         }
-        return msgs;
+        return Ok(msgs);
     }
     // Laravel's presentOrRuleIsImplicit: a missing field or a blank string is
     // checked only by implicit rules (`required`, `present`, `filled`)
@@ -181,6 +186,16 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
             "same" => args.first().and_then(|o| data.get(&ArrayKey::from_str(o))).is_some_and(|c| same(c, &value)),
             "different" => !args.first().and_then(|o| data.get(&ArrayKey::from_str(o))).is_some_and(|c| same(c, &value)),
             "accepted" => matches!(str_of(&value).as_str(), "1" | "true" | "yes" | "on") || matches!(value, Val::Bool(true)),
+            // V1: `exists:table[,column]`, `unique:table[,column[,except]]`;
+            // the column defaults to the field name (as in Laravel)
+            "exists" | "unique" => {
+                let table = args.first().copied().unwrap_or("");
+                let column = args.get(1).copied().filter(|c| !c.is_empty()).unwrap_or(field);
+                let except = args.get(2).copied().filter(|e| !e.is_empty() && !e.eq_ignore_ascii_case("null")).map(Val::str);
+                let Some(count) = db.as_mut() else { return Err(Throw::error(format!("validation rule `{name_r}` needs the database"))) };
+                let n = count(table, column, &value, except.as_ref())?;
+                if name_r == "exists" { n > 0 } else { n == 0 }
+            }
             _ => {
                 msgs.push(fail(format!("Unknown validation rule `{name_r}` for {name}.")));
                 true
@@ -214,6 +229,8 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
                 "same" => format!("The {name} field must match {}.", human(a0)),
                 "different" => format!("The {name} field and {} must be different.", human(a0)),
                 "accepted" => format!("The {name} field must be accepted."),
+                "unique" => format!("The {name} has already been taken."),
+                "exists" => format!("The selected {name} is invalid."),
                 other => format!("The {name} field failed the {other} rule."),
             });
             if nullable && value.is_null() {
@@ -221,11 +238,16 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
             }
         }
     }
-    msgs
+    Ok(msgs)
+}
+
+/// Validate `data` against `rules` without database rules.
+pub fn validate(data: &Val, rules: &Val) -> Result<Result<Val, Errors>, Throw> {
+    validate_with(data, rules, None)
 }
 
 /// Validate `data` against `rules`; returns the validated subset or the errors.
-pub fn validate(data: &Val, rules: &Val) -> Result<Result<Val, Errors>, Throw> {
+pub fn validate_with(data: &Val, rules: &Val, mut db: Option<DbCount<'_>>) -> Result<Result<Val, Errors>, Throw> {
     let empty = PhpArray::new();
     let data = match data {
         Val::Array(a) => a.as_ref(),
@@ -240,7 +262,7 @@ pub fn validate(data: &Val, rules: &Val) -> Result<Result<Val, Errors>, Throw> {
             ArrayKey::Int(i) => i.to_string(),
         };
         let field_rules = rules_of(r)?;
-        let msgs = check_field(data, &field, &field_rules);
+        let msgs = check_field(data, &field, &field_rules, &mut db)?;
         if msgs.is_empty() {
             if let Some(v) = data.get(&ArrayKey::from_str(&field)) {
                 validated.insert(ArrayKey::from_str(&field), v.clone());
@@ -260,9 +282,36 @@ pub fn errors_array(errors: &Errors) -> Val {
     Val::array(out)
 }
 
+/// `exists:`/`unique:` against SurrealDB on this worker's connection (V1).
+/// Table and column must be plain identifiers; they are put into the query,
+/// the value and the excluded id are bound.
+fn db_count(vm: &mut Vm, table: &str, column: &str, value: &Val, except: Option<&Val>) -> Result<u64, Throw> {
+    let ident = |s: &str| !s.is_empty() && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !ident(table) || !ident(column) {
+        return Err(Throw::new("ValueError", format!("validation: invalid table or column `{table}`, `{column}`")));
+    }
+    let mut vars = std::collections::BTreeMap::new();
+    vars.insert("v".to_string(), crate::native::database::value::to_surreal(vm, value)?);
+    let mut cond = format!("`{column}` = $v");
+    if let Some(e) = except {
+        let rid = crate::native::database::record_id::from_val(vm, table, e)?;
+        vars.insert("ex".to_string(), surrealdb::types::Value::RecordId(rid));
+        cond.push_str(" AND id != $ex");
+    }
+    let r = crate::native::database::query_one(vm, &format!("RETURN count((SELECT VALUE id FROM `{table}` WHERE {cond}))"), vars)?;
+    let n = crate::native::database::value::from_surreal(vm, r)?;
+    Ok(n.to_int().unwrap_or(0).max(0) as u64)
+}
+
+/// Validate with the database rules on the worker's connection.
+pub fn validate_vm(vm: &mut Vm, data: &Val, rules: &Val) -> Result<Result<Val, Errors>, Throw> {
+    let mut count = |t: &str, c: &str, v: &Val, e: Option<&Val>| db_count(vm, t, c, v, e);
+    validate_with(data, rules, Some(&mut count))
+}
+
 /// Validate or throw `ValidationException`.
 pub fn validate_or_throw(vm: &mut Vm, data: &Val, rules: &Val) -> Result<Val, Throw> {
-    match validate(data, rules)? {
+    match validate_vm(vm, data, rules)? {
         Ok(v) => Ok(v),
         Err(errors) => {
             let class = vm.lookup_class(EXCEPTION.as_bytes()).ok_or_else(|| Throw::error("ValidationException class missing"))?;
@@ -277,13 +326,13 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let def = NativeClassDef::new(CLASS)
         .final_class()
         .static_method("validate", |vm, c| validate_or_throw(vm, &c.arg(0), &c.arg(1)))
-        .static_method("errors", |_, c| {
-            Ok(match validate(&c.arg(0), &c.arg(1))? {
+        .static_method("errors", |vm, c| {
+            Ok(match validate_vm(vm, &c.arg(0), &c.arg(1))? {
                 Ok(_) => Val::empty_array(),
                 Err(e) => errors_array(&e),
             })
         })
-        .static_method("passes", |_, c| Ok(Val::Bool(validate(&c.arg(0), &c.arg(1))?.is_ok())));
+        .static_method("passes", |vm, c| Ok(Val::Bool(validate_vm(vm, &c.arg(0), &c.arg(1))?.is_ok())));
     vm.register_class(def)?;
     Ok(())
 }
