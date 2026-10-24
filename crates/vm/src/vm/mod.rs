@@ -14,6 +14,7 @@ mod link;
 pub mod native;
 pub mod project;
 pub(crate) mod ops;
+pub use ops::{set_strict_dialect, strict_dialect};
 mod path;
 mod run;
 pub mod jit;

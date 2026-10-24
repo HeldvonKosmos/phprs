@@ -12,6 +12,38 @@ fn div_by_zero() -> Throw {
     Throw::new("DivisionByZeroError", "Division by zero")
 }
 
+/// Strict dialect (D8, DIALECT §5.2): integer overflow raises
+/// `ArithmeticError` and local variables keep their type (GRD021). Off by
+/// default until the dialect cost measurement (DX1) has been reviewed; then
+/// PHP's behaviour applies (overflow switches to float). Process-wide,
+/// because arithmetic has no VM at hand; `GRD_STRICT=1` or
+/// `set_strict_dialect`.
+static STRICT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(2);
+
+pub fn strict_dialect() -> bool {
+    use std::sync::atomic::Ordering;
+    match STRICT.load(Ordering::Relaxed) {
+        0 => false,
+        1 => true,
+        _ => {
+            let on = std::env::var("GRD_STRICT").as_deref() == Ok("1");
+            STRICT.store(on as u8, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+pub fn set_strict_dialect(on: bool) {
+    STRICT.store(on as u8, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Overflow of an int operation: `ArithmeticError` in the strict dialect,
+/// otherwise PHP's float result.
+#[cold]
+fn overflow(sym: &str, float: f64) -> Result<Val, Throw> {
+    if strict_dialect() { Err(Throw::new("ArithmeticError", format!("Integer overflow in {sym}"))) } else { Ok(Val::Float(float)) }
+}
+
 fn modulo_by_zero() -> Throw {
     Throw::new("DivisionByZeroError", "Modulo by zero")
 }
@@ -29,14 +61,29 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
     let x = a.as_number(sym)?;
     let y = b.as_number(sym)?;
     Ok(match (op, x, y) {
-        (BinOp::Add, Numeric::Int(i), Numeric::Int(j)) => i.checked_add(j).map(Val::Int).unwrap_or(Val::Float(i as f64 + j as f64)),
-        (BinOp::Sub, Numeric::Int(i), Numeric::Int(j)) => i.checked_sub(j).map(Val::Int).unwrap_or(Val::Float(i as f64 - j as f64)),
-        (BinOp::Mul, Numeric::Int(i), Numeric::Int(j)) => i.checked_mul(j).map(Val::Int).unwrap_or(Val::Float(i as f64 * j as f64)),
+        (BinOp::Add, Numeric::Int(i), Numeric::Int(j)) => match i.checked_add(j) {
+            Some(v) => Val::Int(v),
+            None => overflow(sym, i as f64 + j as f64)?,
+        },
+        (BinOp::Sub, Numeric::Int(i), Numeric::Int(j)) => match i.checked_sub(j) {
+            Some(v) => Val::Int(v),
+            None => overflow(sym, i as f64 - j as f64)?,
+        },
+        (BinOp::Mul, Numeric::Int(i), Numeric::Int(j)) => match i.checked_mul(j) {
+            Some(v) => Val::Int(v),
+            None => overflow(sym, i as f64 * j as f64)?,
+        },
         (BinOp::Div, Numeric::Int(i), Numeric::Int(j)) => {
             if j == 0 {
                 return Err(div_by_zero());
             }
-            if i % j == 0 && !(i == i64::MIN && j == -1) { Val::Int(i / j) } else { Val::Float(i as f64 / j as f64) }
+            if i == i64::MIN && j == -1 {
+                overflow(sym, i as f64 / j as f64)?
+            } else if i % j == 0 {
+                Val::Int(i / j)
+            } else {
+                Val::Float(i as f64 / j as f64)
+            }
         }
         (BinOp::Mod, _, _) => {
             let i = match x {
@@ -55,7 +102,10 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
         (BinOp::Pow, Numeric::Int(i), Numeric::Int(j)) if j >= 0 => {
             match i.checked_pow(j.min(u32::MAX as i64) as u32) {
                 Some(v) if j <= u32::MAX as i64 => Val::Int(v),
-                _ => Val::Float((i as f64).powf(j as f64)),
+                // 0, 1 and -1 never overflow, whatever the exponent
+                _ if i == 0 || i == 1 => Val::Int(i),
+                _ if i == -1 => Val::Int(if j % 2 == 0 { 1 } else { -1 }),
+                _ => overflow(sym, (i as f64).powf(j as f64))?,
             }
         }
         (BinOp::Add, _, _) => Val::Float(x.as_f64() + y.as_f64()),
@@ -214,7 +264,10 @@ impl Vm {
     pub(crate) fn unary(&mut self, op: UnOp, v: Val) -> Result<Val, Throw> {
         Ok(match op {
             UnOp::Neg => match v.as_number("-")? {
-                Numeric::Int(i) => i.checked_neg().map(Val::Int).unwrap_or(Val::Float(-(i as f64))),
+                Numeric::Int(i) => match i.checked_neg() {
+                    Some(v) => Val::Int(v),
+                    None => overflow("-", -(i as f64))?,
+                },
                 Numeric::Float(f) => Val::Float(-f),
             },
             UnOp::Plus => v.as_number("+")?.to_val(),
@@ -292,7 +345,10 @@ impl Vm {
         Ok(match v {
             Val::Int(i) => {
                 let r = if inc { i.checked_add(1) } else { i.checked_sub(1) };
-                r.map(Val::Int).unwrap_or(Val::Float(if inc { i as f64 + 1.0 } else { i as f64 - 1.0 }))
+                match r {
+                    Some(v) => Val::Int(v),
+                    None => overflow(if inc { "++" } else { "--" }, if inc { i as f64 + 1.0 } else { i as f64 - 1.0 })?,
+                }
             }
             Val::Float(f) => Val::Float(if inc { f + 1.0 } else { f - 1.0 }),
             Val::Null => {
