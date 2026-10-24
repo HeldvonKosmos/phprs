@@ -25,7 +25,7 @@ use crate::error::Throw;
 use crate::value::*;
 
 pub use call::CallOutcome;
-pub use native::{Call, Callable, FromVal, IntoVal, NativeClassDef, NativeMethodDef, ObjectHandlers};
+pub use native::{ArithFn, Call, Callable, CloneFn, CompareFn, FromVal, IntoVal, NativeClassDef, NativeMethodDef, ObjectHandlers};
 pub use class::{MethodInfo, PropInfo, RtClass};
 pub use generator::GeneratorState;
 pub use iter::IterState;
@@ -220,6 +220,8 @@ impl Vm {
             .map_err(|e| Throw::error(format!("prelude: {e}")))?;
         vm.load_module(module)?;
         vm.run_main((vm.modules.len() - 1) as u32)?;
+        // native classes that implement prelude interfaces
+        crate::builtins::datetime_class::register(&mut vm)?;
         vm.resolve_well_known();
         Ok(vm)
     }

@@ -77,6 +77,10 @@ impl Names {
         if let Some(rest) = name.strip_prefix(b"\\") {
             return rest.to_vec();
         }
+        // `namespace\Foo` is relative to the current namespace
+        if name.len() > 10 && name[..10].eq_ignore_ascii_case(b"namespace\\") {
+            return self.prefix_namespace(&name[10..]);
+        }
         let low = lower(name);
         if SPECIAL.contains(&low.as_slice()) || BUILTIN_TYPES.contains(&low.as_slice()) {
             return low;

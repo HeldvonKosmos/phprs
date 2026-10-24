@@ -883,6 +883,11 @@ impl Vm {
                 // native payloads are cloned where possible
                 if let Some(d) = self.objects.get(h).native_ref::<ClosureData>().cloned() {
                     self.objects.get_mut(new).native = Some(Box::new(d));
+                } else if let Some(n) = self.native_info(self.objects.get(h).class)
+                    && let Some(cl) = n.handlers.clone
+                    && let Some(copy) = self.objects.get(h).native.as_deref().and_then(|p| cl(p))
+                {
+                    self.objects.get_mut(new).native = Some(copy);
                 }
                 let class = self.objects.get(new).class;
                 if self.class(class).find_method(b"__clone").is_some() {

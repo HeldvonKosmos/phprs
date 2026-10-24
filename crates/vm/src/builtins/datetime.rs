@@ -1,5 +1,6 @@
-//! Dates: native helpers (`__grd_date_*`) used by the prelude's DateTime
-//! classes, plus `date`, `time`, `mktime`, `strtotime`, `checkdate`.
+//! Dates: `date`, `time`, `mktime`, `strtotime`, `checkdate`, the helpers
+//! (`__grd_date_*`) still used by the prelude's DateTimeZone/DateInterval, and
+//! the Rust functions behind the native DateTime classes (`datetime_class`).
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Timelike, Weekday};
 use chrono_tz::OffsetName;
@@ -16,7 +17,7 @@ pub(crate) enum Zone {
 }
 
 impl Zone {
-    fn parse(name: &str) -> Option<Zone> {
+    pub(crate) fn parse(name: &str) -> Option<Zone> {
         let n = name.trim();
         if n.eq_ignore_ascii_case("utc") || n.eq_ignore_ascii_case("z") || n.eq_ignore_ascii_case("gmt") {
             return Some(Zone::Named(chrono_tz::UTC));
@@ -26,13 +27,13 @@ impl Zone {
         }
         n.parse::<chrono_tz::Tz>().ok().map(Zone::Named)
     }
-    fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         match self {
             Zone::Named(tz) => tz.name().to_string(),
             Zone::Fixed(o) => format_offset(o.local_minus_utc(), true),
         }
     }
-    fn offset_at(&self, ts: i64) -> i32 {
+    pub(crate) fn offset_at(&self, ts: i64) -> i32 {
         match self {
             Zone::Named(tz) => tz.offset_from_utc_datetime(&DateTime::from_timestamp(ts, 0).unwrap_or_default().naive_utc()).fix().local_minus_utc(),
             Zone::Fixed(o) => o.local_minus_utc(),
@@ -218,56 +219,22 @@ pub fn register(vm: &mut Vm) {
         let ts = args::int(a, 0, "date")?;
         let sign = args::int(a, 7, "date")?;
         let z = zone_arg(vm, a, 8)?;
-        let v: Vec<i64> = (1..7).map(|i| args::int(a, i, "date").map(|x| x * sign)).collect::<Result<_, _>>()?;
-        let l = z.to_local(ts);
-        let moved = add_months(l, v[0] * 12 + v[1]) + Duration::days(v[2]) + Duration::hours(v[3]) + Duration::minutes(v[4]) + Duration::seconds(v[5]);
-        Ok(Val::Int(z.from_local(moved)))
+        let v: Vec<i64> = (1..7).map(|i| args::int(a, i, "date")).collect::<Result<_, _>>()?;
+        Ok(Val::Int(date_add(ts, [v[0], v[1], v[2], v[3], v[4], v[5]], sign, &z)))
     });
     vm.register_native("__grd_date_diff", |vm, a| {
         // returns [y, m, d, h, i, s, days, invert]
         let (t1, t2) = (args::int(a, 0, "date")?, args::int(a, 1, "date")?);
         let z = zone_arg(vm, a, 2)?;
-        let (from, to, invert) = if t1 <= t2 { (t1, t2, 0) } else { (t2, t1, 1) };
-        let (a1, a2) = (z.to_local(from), z.to_local(to));
-        let mut y = a2.year() - a1.year();
-        let mut m = a2.month() as i32 - a1.month() as i32;
-        let mut d = a2.day() as i32 - a1.day() as i32;
-        let mut secs = a2.num_seconds_from_midnight() as i64 - a1.num_seconds_from_midnight() as i64;
-        if secs < 0 {
-            secs += 86400;
-            d -= 1;
-        }
-        if d < 0 {
-            // borrow days of the previous month of `to`
-            let prev = add_months(a2, -1);
-            d += days_in_month(prev.year(), prev.month()) as i32;
-            m -= 1;
-        }
-        if m < 0 {
-            m += 12;
-            y -= 1;
-        }
-        let days = (to - from) / 86400;
-        Ok(Val::array(PhpArray::from_values([
-            Val::Int(y as i64),
-            Val::Int(m as i64),
-            Val::Int(d as i64),
-            Val::Int(secs / 3600),
-            Val::Int((secs % 3600) / 60),
-            Val::Int(secs % 60),
-            Val::Int(days),
-            Val::Int(invert),
-        ])))
+        Ok(Val::array(PhpArray::from_values(date_diff(t1, t2, &z).into_iter().map(Val::Int))))
     });
     vm.register_native("__grd_date_set", |vm, a| {
         // ts, y, m, d, h, i, s (each null = keep), tz
         let ts = args::int(a, 0, "date")?;
         let z = zone_arg(vm, a, 7)?;
-        let l = z.to_local(ts);
-        let get = |i: usize, cur: i64| -> Result<i64, Throw> { match a.get(i) { None | Some(Val::Null) => Ok(cur), _ => args::int(a, i, "date") } };
-        let (y, mo, d) = (get(1, l.year() as i64)?, get(2, l.month() as i64)?, get(3, l.day() as i64)?);
-        let (h, mi, s) = (get(4, l.hour() as i64)?, get(5, l.minute() as i64)?, get(6, l.second() as i64)?);
-        Ok(Val::Int(make_time(&z, y, mo, d, h, mi, s)))
+        let get = |i: usize| -> Result<Option<i64>, Throw> { match a.get(i) { None | Some(Val::Null) => Ok(None), _ => args::int(a, i, "date").map(Some) } };
+        let parts = [get(1)?, get(2)?, get(3)?, get(4)?, get(5)?, get(6)?];
+        Ok(Val::Int(date_set(ts, parts, &z)))
     });
     vm.register_native("__grd_date_create_from_format", |vm, a| {
         let fmt = args::string(a, 0, "date")?.to_string_lossy();
@@ -290,6 +257,54 @@ pub fn register(vm: &mut Vm) {
             None => Val::Bool(false),
         })
     });
+}
+
+/// `(seconds, microseconds)` of the wall clock.
+pub(crate) fn now_micros() -> (i64, i64) {
+    let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    (d.as_secs() as i64, d.subsec_micros() as i64)
+}
+
+/// `ts` moved by `[y, m, d, h, i, s] * sign` in zone `z` (calendar arithmetic).
+pub(crate) fn date_add(ts: i64, parts: [i64; 6], sign: i64, z: &Zone) -> i64 {
+    let v: Vec<i64> = parts.iter().map(|x| x * sign).collect();
+    let l = z.to_local(ts);
+    let moved = add_months(l, v[0] * 12 + v[1]) + Duration::days(v[2]) + Duration::hours(v[3]) + Duration::minutes(v[4]) + Duration::seconds(v[5]);
+    z.from_local(moved)
+}
+
+/// `[y, m, d, h, i, s, days, invert]` between two instants, like DateTime::diff.
+pub(crate) fn date_diff(t1: i64, t2: i64, z: &Zone) -> [i64; 8] {
+    let (from, to, invert) = if t1 <= t2 { (t1, t2, 0) } else { (t2, t1, 1) };
+    let (a1, a2) = (z.to_local(from), z.to_local(to));
+    let mut y = a2.year() - a1.year();
+    let mut m = a2.month() as i32 - a1.month() as i32;
+    let mut d = a2.day() as i32 - a1.day() as i32;
+    let mut secs = a2.num_seconds_from_midnight() as i64 - a1.num_seconds_from_midnight() as i64;
+    if secs < 0 {
+        secs += 86400;
+        d -= 1;
+    }
+    if d < 0 {
+        // borrow days of the previous month of `to`
+        let prev = add_months(a2, -1);
+        d += days_in_month(prev.year(), prev.month()) as i32;
+        m -= 1;
+    }
+    if m < 0 {
+        m += 12;
+        y -= 1;
+    }
+    let days = (to - from) / 86400;
+    [y as i64, m as i64, d as i64, secs / 3600, (secs % 3600) / 60, secs % 60, days, invert]
+}
+
+/// Replace date/time fields (`None` = keep) in zone `z`.
+pub(crate) fn date_set(ts: i64, parts: [Option<i64>; 6], z: &Zone) -> i64 {
+    let l = z.to_local(ts);
+    let cur = [l.year() as i64, l.month() as i64, l.day() as i64, l.hour() as i64, l.minute() as i64, l.second() as i64];
+    let v: Vec<i64> = parts.iter().zip(cur).map(|(p, c)| p.unwrap_or(c)).collect();
+    make_time(z, v[0], v[1], v[2], v[3], v[4], v[5])
 }
 
 fn now_secs() -> i64 {
@@ -701,7 +716,7 @@ fn parse_time_token(t: &str) -> Option<(NaiveTime, Option<Zone>)> {
 }
 
 /// `DateTime::createFromFormat` subset: Y m d H i s j n G D M y U, literals.
-fn parse_with_format(fmt: &str, s: &str, z: &Zone) -> Option<i64> {
+pub(crate) fn parse_with_format(fmt: &str, s: &str, z: &Zone) -> Option<i64> {
     let now = z.to_local(now_secs());
     let (mut y, mut mo, mut d, mut h, mut mi, mut sec) = (now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
     let mut reset_time = false;

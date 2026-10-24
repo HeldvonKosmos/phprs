@@ -3,7 +3,8 @@
 
 mod array;
 mod core;
-mod datetime;
+pub(crate) mod datetime;
+pub mod datetime_class;
 pub mod json;
 mod math;
 mod misc;

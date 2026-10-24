@@ -139,7 +139,13 @@ impl Vm {
                 }
                 Ok(Val::array(out))
             }
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => arith(op, &a, &b),
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow => {
+                // native value types (Decimal, Duration, DateTimeImmutable, …) through their handler
+                if let Some(v) = self.native_arith(op, &a, &b)? {
+                    return Ok(v);
+                }
+                arith(op, &a, &b)
+            }
             BinOp::Concat => {
                 let t = self.to_string_val(&b)?;
                 let mut s = match a {
@@ -168,6 +174,24 @@ impl Vm {
             }
             BinOp::Coalesce => Ok(if a.is_null() { b } else { a }),
         }
+    }
+
+    /// `Some(value)` if one side is an object whose native class handles the operator.
+    fn native_arith(&mut self, op: BinOp, a: &Val, b: &Val) -> Result<Option<Val>, Throw> {
+        if let Val::Object(h) = a
+            && let Some(n) = self.native_info(self.objects.get(*h).class)
+            && let Some(f) = n.handlers.arith
+            && let Some(v) = f(self, *h, op, b, false)?
+        {
+            return Ok(Some(v));
+        }
+        if let Val::Object(h) = b
+            && let Some(n) = self.native_info(self.objects.get(*h).class)
+            && let Some(f) = n.handlers.arith
+        {
+            return f(self, *h, op, a, true);
+        }
+        Ok(None)
     }
 
     /// `Some(ordering)` if one side is an object whose native class has a compare handler.

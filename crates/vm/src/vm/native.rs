@@ -43,6 +43,12 @@ pub type PayloadFn = fn() -> Box<dyn Any>;
 /// `compare(vm, this, other)`: ordering of a native value type against any value
 /// (`None` = incomparable). Used for `==`, `<`, `>`, `<=>` on objects of the class.
 pub type CompareFn = fn(&mut Vm, ObjHandle, &Val) -> Result<Option<std::cmp::Ordering>, Throw>;
+/// Arithmetic on a native value type (`$decimal + 1`, `$duration * 2`):
+/// `(vm, this, op, other, reversed)`; `reversed` = the object was the right
+/// operand. `None` = not handled (falls through to the normal TypeError).
+pub type ArithFn = fn(&mut Vm, ObjHandle, crate::bytecode::BinOp, &Val, bool) -> Result<Option<Val>, Throw>;
+/// Copy of a native payload for `clone $obj`.
+pub type CloneFn = fn(&dyn Any) -> Option<Box<dyn Any>>;
 
 /// Object handlers of a native class; `None` falls through to the normal
 /// property machinery (declared slots, `__get`/`__set`).
@@ -53,6 +59,8 @@ pub struct ObjectHandlers {
     pub isset: Option<PropIssetFn>,
     pub unset: Option<PropUnsetFn>,
     pub compare: Option<CompareFn>,
+    pub arith: Option<ArithFn>,
+    pub clone: Option<CloneFn>,
 }
 
 pub struct NativeMethodDef {
