@@ -15,6 +15,8 @@ mod middleware;
 mod relations;
 #[path = "suite/reload.rs"]
 mod reload;
+#[path = "suite/scaffold.rs"]
+mod scaffold;
 #[path = "suite/schema_files.rs"]
 mod schema_files;
 #[path = "suite/schema_golden.rs"]

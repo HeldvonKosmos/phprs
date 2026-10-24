@@ -1,0 +1,23 @@
+# Loco configuration for production. The embedded database lives in
+# .opengrid/db; at start only planned rollouts are applied (R4d).
+logger:
+  enable: true
+  pretty_backtrace: false
+  level: info
+  format: json
+
+server:
+  port: 5150
+  binding: 0.0.0.0
+  host: http://localhost
+  middlewares: {}
+
+workers:
+  mode: BackgroundAsync
+
+settings:
+  app:
+    name: __NAME__
+  opengrid:
+    root: .
+    workers: 4

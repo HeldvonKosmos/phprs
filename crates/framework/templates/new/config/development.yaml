@@ -1,0 +1,24 @@
+# Loco configuration for development (`opengrid start`).
+# The database is embedded and needs no configuration: surrealkv://.opengrid/db
+# (a SurrealDB server instead: settings.opengrid.database.url or SURREAL_DB_*).
+logger:
+  enable: true
+  pretty_backtrace: true
+  level: info
+  format: compact
+
+server:
+  port: 5150
+  binding: localhost
+  host: http://localhost
+  middlewares: {}
+
+workers:
+  mode: BackgroundAsync
+
+settings:
+  app:
+    name: __NAME__
+  opengrid:
+    root: .
+    workers: 2

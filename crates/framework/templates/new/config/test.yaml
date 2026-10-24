@@ -1,0 +1,24 @@
+# Loco configuration for tests (in-memory database).
+logger:
+  enable: true
+  pretty_backtrace: true
+  level: info
+  format: compact
+
+server:
+  port: 5150
+  binding: localhost
+  host: http://localhost
+  middlewares: {}
+
+workers:
+  mode: BackgroundAsync
+
+settings:
+  app:
+    name: __NAME__
+  opengrid:
+    root: .
+    workers: 2
+    database:
+      url: mem://

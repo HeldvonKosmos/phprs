@@ -1,0 +1,4 @@
+# OpenGrid: embedded database and control socket (DECISIONS D2, D5)
+/.opengrid/
+# caches and logs
+/storage/

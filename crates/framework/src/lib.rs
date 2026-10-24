@@ -9,6 +9,7 @@ pub mod dispatch;
 pub mod http;
 pub mod native;
 pub mod routes;
+pub mod scaffold;
 pub mod session;
 pub mod worker;
 
