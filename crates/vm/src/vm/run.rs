@@ -1380,11 +1380,13 @@ pub(crate) fn slot_type_ok(old: Option<&Val>, new: &Val, unit: &CodeUnit, slot: 
     match old {
         None | Some(Val::Null) => true,
         Some(o) => {
-            if matches!(new, Val::Null) {
+            let same = if matches!(new, Val::Null) {
                 !unit.slot_not_null.get(slot as usize).copied().unwrap_or(false)
             } else {
                 std::mem::discriminant(o) == std::mem::discriminant(new)
-            }
+            };
+            // a local without a static type takes any value
+            same || unit.slot_mixed.get(slot as usize).copied().unwrap_or(false)
         }
     }
 }

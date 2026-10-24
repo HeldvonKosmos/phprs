@@ -74,10 +74,12 @@ pub fn compile_source(file_name: &str, source: &[u8]) -> CResult<Module> {
         });
     }
     // GRD021: a local keeps the type of its first assignment (D10)
-    if let Some(v) = typecheck::count_grd021(program, source).violations.first() {
+    let types = typecheck::count_grd021(program, source);
+    if let Some(v) = types.violations.first() {
         return Err(CompileError { code: Some("GRD021"), message: v.message(), hint: Some(v.hint()), line: v.line, file: file_name.to_string() });
     }
     let mut c = Compiler::new(file_name, source);
+    c.mixed_vars = types.mixed;
     c.compile_program(program)?;
     Ok(c.module)
 }
@@ -177,6 +179,8 @@ pub(crate) struct UnitBuilder {
     pub last_line: u32,
     /// Slots that already had their first assignment (GRD021 null rule).
     pub first_assigned: std::collections::HashSet<Slot>,
+    /// Variables without a static type in this unit (GRD021: not checked).
+    pub mixed: std::collections::HashSet<Vec<u8>>,
 }
 
 impl UnitBuilder {
@@ -186,6 +190,7 @@ impl UnitBuilder {
             label_targets: std::collections::HashSet::new(),
             slots: HashMap::new(),
             first_assigned: std::collections::HashSet::new(),
+            mixed: std::collections::HashSet::new(),
             loops: Vec::new(),
             tries: Vec::new(),
             function_name: Vec::new(),
@@ -266,6 +271,13 @@ impl UnitBuilder {
         let s = self.unit.num_slots;
         self.unit.num_slots += 1;
         self.slots.insert(name.to_vec(), s);
+        if self.mixed.contains(name) {
+            let i = s as usize;
+            if self.unit.slot_mixed.len() <= i {
+                self.unit.slot_mixed.resize(i + 1, false);
+            }
+            self.unit.slot_mixed[i] = true;
+        }
         s
     }
     pub fn lookup_slot(&self, name: &[u8]) -> Option<Slot> {
@@ -320,6 +332,8 @@ pub struct Compiler<'src> {
     /// Report mode (`grd check --report`, DX1): errors of a statement are
     /// collected here and compilation continues with the next statement.
     pub(crate) report: Option<Vec<CompileError>>,
+    /// GRD021: variables without a static type, per function (typecheck).
+    pub(crate) mixed_vars: HashMap<u32, std::collections::HashSet<Vec<u8>>>,
 }
 
 impl<'src> Compiler<'src> {
@@ -335,6 +349,7 @@ impl<'src> Compiler<'src> {
             units: Vec::new(),
             anon_class_counter: 0,
             report: None,
+            mixed_vars: HashMap::new(),
         }
     }
 
@@ -444,6 +459,7 @@ impl<'src> Compiler<'src> {
 
     pub fn compile_program(&mut self, program: &Program<'_>) -> CResult<()> {
         self.push_unit("{main}".to_string(), 1);
+        self.ub().mixed = self.mixed_vars.get(&u32::MAX).cloned().unwrap_or_default();
         self.compile_statements(program.statements.iter())?;
         let main = self.pop_unit();
         self.module.main = main;

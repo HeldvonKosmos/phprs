@@ -17,7 +17,7 @@
 //! The same pass counts for `grd check --report` (strict variant: also a
 //! first `null` fixes the type).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use mago_span::HasSpan;
 use mago_syntax::cst::*;
@@ -88,6 +88,10 @@ pub struct Grd021Counts {
     pub lines: Vec<u32>,
     /// All violations of the rule in force.
     pub violations: Vec<Violation>,
+    /// Per scope (key: start offset of its parameter list; the top level is
+    /// `u32::MAX`), the variables whose type is not static (`mixed`): the
+    /// first non-null value had no evident type. The VM does not check them.
+    pub mixed: HashMap<u32, HashSet<Vec<u8>>>,
 }
 
 #[derive(Default)]
@@ -98,10 +102,13 @@ struct Var {
     ty: Option<T>,
     /// may hold null (`?T`, or first assignment `null`, or nullable parameter)
     nullable: bool,
+    /// no static type: the first non-null value had no evident type
+    mixed: bool,
 }
 
 #[derive(Default)]
 struct Scope {
+    key: u32,
     vars: HashMap<Vec<u8>, Var>,
 }
 
@@ -139,16 +146,16 @@ impl Counter<'_> {
     }
 
     fn enter(&mut self, params: Option<&FunctionLikeParameterList<'_>>) {
-        let mut scope = Scope::default();
+        let mut scope = Scope { key: params.map(|p| p.span().start.offset).unwrap_or(u32::MAX), ..Default::default() };
         for p in params.into_iter().flat_map(|l| l.parameters.iter()) {
             let name = p.variable.name.strip_prefix(b"$").unwrap_or(p.variable.name).to_vec();
             let default_null = p.default_value.as_ref().is_some_and(|d| matches!(d.value, Expression::Literal(Literal::Null(_))));
             let var = match p.hint.as_ref().and_then(hint_type) {
                 // variadic parameters are arrays
-                _ if p.ellipsis.is_some() => Var { first: Some(T::Array), ty: Some(T::Array), nullable: false },
-                Some((t, nullable)) => Var { first: Some(t), ty: Some(t), nullable: nullable || default_null },
-                // untyped: its type comes from the argument at run time
-                None => Var { first: None, ty: None, nullable: true },
+                _ if p.ellipsis.is_some() => Var { first: Some(T::Array), ty: Some(T::Array), nullable: false, mixed: false },
+                Some((t, nullable)) => Var { first: Some(t), ty: Some(t), nullable: nullable || default_null, mixed: false },
+                // untyped or a union: no static type
+                None => Var { first: None, ty: None, nullable: true, mixed: true },
             };
             scope.vars.insert(name, var);
         }
@@ -156,7 +163,17 @@ impl Counter<'_> {
     }
 
     fn known(&self, name: &[u8]) -> Option<T> {
-        self.scopes.last()?.vars.get(name)?.ty
+        let v = self.scopes.last()?.vars.get(name)?;
+        if v.mixed { None } else { v.ty }
+    }
+
+    fn leave(&mut self) {
+        if let Some(scope) = self.scopes.pop() {
+            let mixed: HashSet<Vec<u8>> = scope.vars.into_iter().filter(|(_, v)| v.mixed).map(|(k, _)| k).collect();
+            if !mixed.is_empty() {
+                self.counts.mixed.insert(scope.key, mixed);
+            }
+        }
     }
 
     fn type_of(&self, e: &Expression<'_>) -> Option<T> {
@@ -215,16 +232,19 @@ impl Counter<'_> {
     fn assign(&mut self, name: &[u8], t: Option<T>, line: u32) {
         let Some(t) = t else {
             self.counts.not_judged += 1;
-            // an unknown value may be null; a variable first assigned this
-            // way is checked at run time
+            // the first non-null value without an evident type: `mixed`
             let var = self.scope().vars.entry(name.to_vec()).or_default();
-            if var.first.is_none() {
+            if var.ty.is_none() {
+                var.mixed = true;
                 var.nullable = true;
             }
             return;
         };
         self.counts.judged += 1;
         let var = self.scope().vars.entry(name.to_vec()).or_default();
+        if var.mixed {
+            return;
+        }
         let first = *var.first.get_or_insert(t);
         let strict_hit = first != t;
         let mut violation = None;
@@ -266,25 +286,25 @@ impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
         self.enter(Some(&f.parameter_list));
     }
     fn walk_out_function(&mut self, _: &'ast Function<'arena>, _: &mut ()) {
-        self.scopes.pop();
+        self.leave();
     }
     fn walk_in_method(&mut self, m: &'ast Method<'arena>, _: &mut ()) {
         self.enter(Some(&m.parameter_list));
     }
     fn walk_out_method(&mut self, _: &'ast Method<'arena>, _: &mut ()) {
-        self.scopes.pop();
+        self.leave();
     }
     fn walk_in_closure(&mut self, c: &'ast Closure<'arena>, _: &mut ()) {
         self.enter(Some(&c.parameter_list));
     }
     fn walk_out_closure(&mut self, _: &'ast Closure<'arena>, _: &mut ()) {
-        self.scopes.pop();
+        self.leave();
     }
     fn walk_in_arrow_function(&mut self, a: &'ast ArrowFunction<'arena>, _: &mut ()) {
         self.enter(Some(&a.parameter_list));
     }
     fn walk_out_arrow_function(&mut self, _: &'ast ArrowFunction<'arena>, _: &mut ()) {
-        self.scopes.pop();
+        self.leave();
     }
     fn walk_in_assignment(&mut self, a: &'ast Assignment<'arena>, _: &mut ()) {
         let Some(name) = var_name(a.lhs) else { return };
@@ -315,7 +335,8 @@ impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
 
 /// Check / count GRD021 in a parsed program.
 pub fn count_grd021(program: &Program<'_>, source: &[u8]) -> Grd021Counts {
-    let mut c = Counter { scopes: vec![Scope::default()], counts: Grd021Counts::default(), source };
+    let mut c = Counter { scopes: vec![Scope { key: u32::MAX, ..Default::default() }], counts: Grd021Counts::default(), source };
     walk_program_mut(&mut c, program, &mut ());
+    c.leave();
     c.counts
 }

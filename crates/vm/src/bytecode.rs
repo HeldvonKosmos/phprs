@@ -362,6 +362,10 @@ pub struct CodeUnit {
     /// parameter). Missing entries mean "may".
     #[serde(default)]
     pub slot_not_null: Vec<bool>,
+    /// GRD021: `true` for a local without a static type (`mixed`, the first
+    /// non-null value had no evident type); the VM does not check it.
+    #[serde(default)]
+    pub slot_mixed: Vec<bool>,
 }
 
 impl CodeUnit {
@@ -387,6 +391,7 @@ impl CodeUnit {
             line,
             lines: Vec::new(),
             slot_not_null: Vec::new(),
+            slot_mixed: Vec::new(),
         }
     }
 }

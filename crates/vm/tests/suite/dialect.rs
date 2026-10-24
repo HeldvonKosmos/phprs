@@ -95,10 +95,14 @@ fn local_variables_keep_their_type_at_run_time() {
         }
         out
     };
-    let out = run("<?grd $a = [1, 'x']; $v = $a[0]; try { $v = $a[1]; } catch (TypeError $e) { echo $e->getMessage(); }");
+    // a typed local (first value evident) takes only its type, also from values the compiler cannot see
+    let out = run("<?grd $a = [1, 'x']; $v = 0; $v = $a[0]; try { $v = $a[1]; } catch (TypeError $e) { echo $e->getMessage(); }");
     assert!(out.contains("GRD021: die lokale Variable $v ist int, zugewiesen wird string"), "{out}");
-    let out = run("<?grd $a = [5, null]; $v = $a[0]; $v = $a[1]; echo 'ok';");
-    assert_eq!(out, "ok", "null into a local whose first value was not evident is allowed");
+    // a local whose first value has no evident type is `mixed` (D10, 22:20)
+    let out = run("<?grd $a = [5, null, 'x', [1]]; $v = $a[0]; $v = $a[1]; $v = $a[2]; $v = $a[3]; echo 'ok';");
+    assert_eq!(out, "ok");
+    let out = run("<?grd function f(string|array $keys) { $keys = (array) $keys; return count($keys); } echo f('a');");
+    assert_eq!(out, "1", "union-typed parameters are mixed");
     let out = run("<?grd $x = 2; $y = [0.5]; try { $x += $y[0]; } catch (TypeError $e) { echo 'caught'; }");
     assert_eq!(out, "caught", "compound assignment that changes the type");
     let out = run("<?grd echo PHP_INT_MAX + 0; try { echo PHP_INT_MAX + 1; } catch (ArithmeticError $e) { echo ' ', $e->getMessage(); }");

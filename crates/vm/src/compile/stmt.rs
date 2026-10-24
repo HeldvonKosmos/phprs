@@ -231,8 +231,10 @@ impl Compiler<'_> {
     /// Compiles a function-like body into a new unit and returns its id.
     pub(crate) fn compile_function_like(&mut self, spec: FnSpec<'_, '_>) -> CResult<UnitId> {
         self.push_unit(spec.display.clone(), spec.line);
+        let mixed = self.mixed_vars.get(&spec.params.span().start.offset).cloned().unwrap_or_default();
         {
             let ub = self.ub();
+            ub.mixed = mixed;
             ub.function_name = spec.name.clone();
             ub.is_method = spec.is_method;
             ub.is_closure = spec.is_closure;
