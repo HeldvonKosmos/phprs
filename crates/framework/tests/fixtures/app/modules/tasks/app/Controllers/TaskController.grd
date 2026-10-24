@@ -74,6 +74,11 @@ final class TaskController
         abort(404, 'no such task');
     }
 
+    public function filtered(): array
+    {
+        return Task::query()->filter()->sort()->get();
+    }
+
     public function db(): array
     {
         $task = Task::create(['title' => 'from http', 'done' => false]);

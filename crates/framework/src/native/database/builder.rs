@@ -9,10 +9,11 @@ use grd_vm::value::{ArrayKey, ClassId, ObjHandle, PhpArray, Val};
 use grd_vm::vm::{Call, NativeClassDef, Vm};
 use surrealdb::types::{Array, Datetime, Object, Value};
 
+use super::inflect::foreign_key;
 use super::model::{self, ModelMeta};
 use super::value::{from_surreal, to_surreal};
 use super::{query, query_one};
-use crate::native::{int_arg_opt, string_arg};
+use crate::native::{ctx, int_arg_opt, string_arg};
 
 pub const CLASS: &str = "OpenGrid\\Database\\Builder";
 const SOFT_DELETE_CLAUSE: &str = "deleted_at IS NONE";
@@ -30,6 +31,12 @@ pub struct BuilderData {
     pub limit: Option<i64>,
     pub start: i64,
     pub model: Option<ClassId>,
+    /// Dot-path sort: path → alias projected as `path AS alias` (DATABASE_LAYER §2.1).
+    pub order_projections: BTreeMap<String, String>,
+    /// Side selects and aggregates appended to the projection (`withAll`, `withCount`, `withSum`, …).
+    pub extra_projections: Vec<String>,
+    /// Prefix for binding names, so a sub-builder's bindings merge into its parent's.
+    pub prefix: String,
 }
 
 impl BuilderData {
@@ -42,9 +49,57 @@ impl BuilderData {
     }
 
     pub fn bind(&mut self, v: Value) -> String {
-        let name = format!("f{}", self.bindings.len());
+        let name = format!("{}f{}", self.prefix, self.bindings.len());
         self.bindings.insert(name.clone(), v);
         name
+    }
+
+    /// A field for ORDER BY: dot paths get a projected alias (only with the
+    /// default projection; an explicit `select` orders by the raw path).
+    fn order_field(&mut self, field: &str) -> String {
+        if field.contains('.') && self.projection.is_none() {
+            let alias = format!("__sort_{}", field.replace('.', "_"));
+            self.order_projections.insert(field.to_string(), alias.clone());
+            alias
+        } else {
+            field.to_string()
+        }
+    }
+
+    /// `(SELECT VALUE count() FROM comments WHERE task_id = $parent.id GROUP ALL)[0] ?? 0 AS comments_count`
+    pub fn with_count(&mut self, table: &str, fk: Option<&str>) -> &mut Self {
+        let fk = fk.map(str::to_string).unwrap_or_else(|| foreign_key(&self.table));
+        self.extra_projections.push(format!("((SELECT VALUE count() FROM {table} WHERE {fk} = $parent.id GROUP ALL)[0] ?? 0) AS {table}_count"));
+        self
+    }
+
+    /// `math::sum` / `math::mean` / `math::max` / `math::min` of `field` over the related rows.
+    pub fn with_aggregate(&mut self, func: &str, label: &str, table: &str, field: &str, fk: Option<&str>) -> &mut Self {
+        let fk = fk.map(str::to_string).unwrap_or_else(|| foreign_key(&self.table));
+        self.extra_projections.push(format!(
+            "((SELECT VALUE math::{func}({field}) FROM {table} WHERE {fk} = $parent.id GROUP ALL)[0] ?? 0) AS {table}_{label}_{field}"
+        ));
+        self
+    }
+
+    /// Side table: the related rows as a nested array, filtered by a sub-builder.
+    pub fn with_all(&mut self, table: &str, sub: &BuilderData, fk: Option<&str>) -> &mut Self {
+        let fk = fk.map(str::to_string).unwrap_or_else(|| foreign_key(&self.table));
+        let mut sql = format!("SELECT {} FROM {table} WHERE {fk} = $parent.id", sub.projection.as_deref().unwrap_or("*"));
+        for w in &sub.wheres {
+            sql.push_str(" AND ");
+            sql.push_str(w);
+        }
+        if !sub.orders.is_empty() {
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&sub.orders.join(", "));
+        }
+        if let Some(l) = sub.limit {
+            sql.push_str(&format!(" LIMIT {} START {}", l.max(0), sub.start.max(0)));
+        }
+        self.extra_projections.push(format!("({sql}) AS {table}"));
+        self.bindings.extend(sub.bindings.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self
     }
 
     pub fn r#where(&mut self, field: &str, value: Value, op: &str) -> &mut Self {
@@ -93,14 +148,27 @@ impl BuilderData {
     pub fn sort(&mut self, spec: &str) -> &mut Self {
         for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let (field, dir) = part.split_once(':').unwrap_or((part, "asc"));
-            self.orders.push(format!("{} COLLATE {}", field.trim(), dir.trim().to_ascii_uppercase()));
+            let f = self.order_field(field.trim());
+            self.orders.push(format!("{f} COLLATE {}", dir.trim().to_ascii_uppercase()));
         }
         self
     }
 
     pub fn order_by(&mut self, field: &str, dir: &str) -> &mut Self {
-        self.orders.push(format!("{field} {}", dir.to_ascii_uppercase()));
+        let f = self.order_field(field);
+        self.orders.push(format!("{f} {}", dir.to_ascii_uppercase()));
         self
+    }
+
+    fn projection_sql(&self) -> String {
+        let mut parts = vec![self.projection.clone().unwrap_or_else(|| "*".to_string())];
+        if self.projection.is_none() {
+            for (path, alias) in &self.order_projections {
+                parts.push(format!("{path} AS {alias}"));
+            }
+        }
+        parts.extend(self.extra_projections.iter().cloned());
+        parts.join(", ")
     }
 
     pub fn select(&mut self, projection: &str) -> &mut Self {
@@ -146,7 +214,7 @@ impl BuilderData {
 
     /// LIMIT/START before FETCH, FETCH last.
     pub fn to_sql(&self, per_page: usize, offset: usize) -> String {
-        let mut sql = self.head(self.projection.as_deref().unwrap_or("*"));
+        let mut sql = self.head(&self.projection_sql());
         self.tail(&mut sql);
         sql.push_str(&format!(" LIMIT {per_page} START {offset}"));
         self.fetch_tail(&mut sql);
@@ -158,7 +226,7 @@ impl BuilderData {
         match self.limit {
             Some(l) => self.to_sql(l.max(0) as usize, self.start.max(0) as usize),
             None => {
-                let mut sql = self.head(self.projection.as_deref().unwrap_or("*"));
+                let mut sql = self.head(&self.projection_sql());
                 self.tail(&mut sql);
                 self.fetch_tail(&mut sql);
                 sql
@@ -285,6 +353,39 @@ fn filter_allowed(vm: &mut Vm, b: &BuilderData, field: &str) -> Result<(), Throw
     if ok { Ok(()) } else { Err(Throw::value_error(format!("filter on `{field}` is not allowed for {} (declare $filterable)", vm.class_name(class)))) }
 }
 
+/// Query-string filters arrive as strings; `true`/`false` and integers are
+/// compared as such, because SurrealDB does not coerce `done = 'true'`.
+fn coerce_filter_value(v: &Val) -> Val {
+    if let Val::Str(s) = v {
+        let t = s.to_string_lossy();
+        return match t.as_str() {
+            "true" => Val::Bool(true),
+            "false" => Val::Bool(false),
+            "null" => Val::Null,
+            _ => match t.parse::<i64>() {
+                Ok(i) if !t.starts_with('+') && !(t.len() > 1 && t.starts_with('0')) => Val::Int(i),
+                _ => v.clone(),
+            },
+        };
+    }
+    v.clone()
+}
+
+/// A query parameter of the active request (`?filters[done]=1&sort=title:desc`), if any.
+fn request_param(vm: &mut Vm, name: &str) -> Option<Val> {
+    let pairs = ctx(vm).request.as_ref()?.req.query_pairs();
+    let Val::Array(all) = crate::native::request::nested_array(&pairs) else { return None };
+    all.get(&ArrayKey::from_str(name)).cloned()
+}
+
+fn aggregate(vm: &mut Vm, c: Call, func: &str, label: &str) -> Result<Val, Throw> {
+    let table = string_arg(&c, 0, "Builder::with*")?;
+    let field = string_arg(&c, 1, "Builder::with*")?;
+    let fk = if c.args.len() > 2 { Some(string_arg(&c, 2, "Builder::with*")?) } else { None };
+    this_data(vm, &c)?.with_aggregate(func, label, &table, &field, fk.as_deref());
+    Ok(Val::Object(c.this()?))
+}
+
 pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let def = NativeClassDef::new(CLASS)
         .final_class()
@@ -348,9 +449,39 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             Ok(Val::Object(c.this()?))
         })
         .method("sort", |vm, c| {
-            let spec = string_arg(&c, 0, "Builder::sort")?;
+            let spec = match c.args.first() {
+                None | Some(Val::Null) => request_param(vm, "sort").and_then(|v| v.to_php_string().ok()).map(|s| s.to_string_lossy()).unwrap_or_default(),
+                Some(_) => string_arg(&c, 0, "Builder::sort")?,
+            };
             this_data(vm, &c)?.sort(&spec);
             Ok(Val::Object(c.this()?))
+        })
+        .method("withCount", |vm, c| {
+            let table = string_arg(&c, 0, "Builder::withCount")?;
+            let fk = if c.args.len() > 1 { Some(string_arg(&c, 1, "Builder::withCount")?) } else { None };
+            this_data(vm, &c)?.with_count(&table, fk.as_deref());
+            Ok(Val::Object(c.this()?))
+        })
+        .method("withSum", |vm, c| aggregate(vm, c, "sum", "sum"))
+        .method("withAvg", |vm, c| aggregate(vm, c, "mean", "avg"))
+        .method("withMax", |vm, c| aggregate(vm, c, "max", "max"))
+        .method("withMin", |vm, c| aggregate(vm, c, "min", "min"))
+        .method("withAll", |vm, c| {
+            let this = c.this()?;
+            let table = string_arg(&c, 0, "Builder::withAll")?;
+            let fk = if c.args.len() > 2 { Some(string_arg(&c, 2, "Builder::withAll")?) } else { None };
+            // sub-builder with its own binding prefix; the closure mutates it
+            let n = this_data(vm, &c)?.extra_projections.len() + 1;
+            let sub = new_for_table(vm, &table, false, None)?;
+            data(vm, sub)?.prefix = format!("s{n}_");
+            if let Some(closure) = c.args.get(1)
+                && !closure.is_null()
+            {
+                vm.call_value(closure, vec![Val::Object(sub)])?;
+            }
+            let sub_data = data(vm, sub)?.clone();
+            data(vm, this)?.with_all(&table, &sub_data, fk.as_deref());
+            Ok(Val::Object(this))
         })
         .method("select", |vm, c| {
             let projection = string_arg(&c, 0, "Builder::select")?;
@@ -392,7 +523,11 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         })
         .method("filter", |vm, c| {
             let this = c.this()?;
-            let Val::Array(filters) = c.arg(0) else { return Ok(Val::Object(this)) };
+            let filters = match c.args.first() {
+                None | Some(Val::Null) => request_param(vm, "filters").unwrap_or(Val::Null),
+                Some(v) => v.clone(),
+            };
+            let Val::Array(filters) = filters else { return Ok(Val::Object(this)) };
             for (k, v) in filters.iter() {
                 let field = match k {
                     ArrayKey::Int(i) => i.to_string(),
@@ -409,7 +544,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
                         data(vm, this)?.where_in(&field, values);
                     }
                     other => {
-                        let value = to_surreal(vm, other)?;
+                        let value = to_surreal(vm, &coerce_filter_value(other))?;
                         data(vm, this)?.r#where(&field, value, "=");
                     }
                 }
@@ -566,5 +701,22 @@ mod tests {
         let mut b = BuilderData::new("tasks", true);
         b.only_trashed();
         assert_eq!(b.select_sql(), "SELECT * FROM tasks WHERE deleted_at IS NOT NONE");
+
+        let mut b = BuilderData::new("comments", false);
+        b.sort("task_id.title:desc,hours");
+        assert_eq!(b.select_sql(), "SELECT *, task_id.title AS __sort_task_id_title FROM comments ORDER BY __sort_task_id_title COLLATE DESC, hours COLLATE ASC");
+
+        let mut b = BuilderData::new("tasks", false);
+        let mut sub = BuilderData::new("comments", false);
+        sub.prefix = "s1_".into();
+        sub.r#where("hours", Value::Number(surrealdb::types::Number::Int(2)), ">").order_by("hours", "asc");
+        b.with_count("comments", None).with_aggregate("sum", "sum", "comments", "hours", None).with_all("comments", &sub, None);
+        assert_eq!(
+            b.select_sql(),
+            "SELECT *, ((SELECT VALUE count() FROM comments WHERE task_id = $parent.id GROUP ALL)[0] ?? 0) AS comments_count, \
+             ((SELECT VALUE math::sum(hours) FROM comments WHERE task_id = $parent.id GROUP ALL)[0] ?? 0) AS comments_sum_hours, \
+             (SELECT * FROM comments WHERE task_id = $parent.id AND hours > $s1_f0 ORDER BY hours ASC) AS comments FROM tasks"
+        );
+        assert!(b.bindings().contains_key("s1_f0"));
     }
 }

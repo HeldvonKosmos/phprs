@@ -26,7 +26,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         })
         .method("query", |vm, c| {
             let pairs = state(vm)?.req.query_pairs();
-            pick(pairs_to_array(&pairs), &c)
+            pick(nested_array(&pairs), &c)
         })
         .method("input", |vm, c| {
             let all = input_all(vm)?;
@@ -114,10 +114,8 @@ fn input_all(vm: &mut Vm) -> Result<Val, Throw> {
         let s = state(vm)?;
         (s.req.query_pairs(), s.req.body.clone(), is_json(s))
     };
-    let mut arr = PhpArray::new();
-    for (k, v) in &query {
-        arr.insert(ArrayKey::from_str(k), Val::str(v));
-    }
+    let Val::Array(base) = nested_array(&query) else { unreachable!("nested_array returns an array") };
+    let mut arr = (*base).clone();
     if json {
         if let Ok(serde_json::Value::Object(map)) = serde_json::from_slice::<serde_json::Value>(&body) {
             for (k, v) in map {
@@ -126,11 +124,73 @@ fn input_all(vm: &mut Vm) -> Result<Val, Throw> {
             }
         }
     } else if !body.is_empty() {
-        for (k, v) in parse_query(&String::from_utf8_lossy(&body)) {
-            arr.insert(ArrayKey::from_str(&k), Val::str(&v));
+        let pairs = parse_query(&String::from_utf8_lossy(&body));
+        if let Val::Array(form) = nested_array(&pairs) {
+            for (k, v) in form.iter() {
+                arr.insert(k.clone(), v.clone());
+            }
         }
     }
     let all = Val::array(arr);
     state(vm)?.input = Some(all.clone());
     Ok(all)
+}
+
+/// `filters[done]=1&tags[]=a&tags[]=b&a[b][c]=x` → nested arrays, like PHP's `$_GET`.
+pub fn nested_array(pairs: &[(String, String)]) -> Val {
+    let mut root = PhpArray::new();
+    for (key, value) in pairs {
+        let (head, rest) = match key.find('[') {
+            Some(i) => (&key[..i], &key[i..]),
+            None => (key.as_str(), ""),
+        };
+        let mut path: Vec<&str> = vec![head];
+        let mut r = rest;
+        while let Some(stripped) = r.strip_prefix('[') {
+            let Some(end) = stripped.find(']') else { break };
+            path.push(&stripped[..end]);
+            r = &stripped[end + 1..];
+        }
+        insert_path(&mut root, &path, Val::str(value));
+    }
+    Val::array(root)
+}
+
+fn insert_path(arr: &mut PhpArray, path: &[&str], value: Val) {
+    let (first, rest) = match path.split_first() {
+        Some(x) => x,
+        None => return,
+    };
+    if rest.is_empty() {
+        if first.is_empty() {
+            arr.push(value);
+        } else {
+            arr.insert(ArrayKey::from_str(first), value);
+        }
+        return;
+    }
+    let key = if first.is_empty() { ArrayKey::Int(arr.len() as i64) } else { ArrayKey::from_str(first) };
+    let slot = arr.entry_mut(key);
+    if !matches!(slot, Val::Array(_)) {
+        *slot = Val::empty_array();
+    }
+    if let Some(inner) = slot.array_mut() {
+        insert_path(inner, rest, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_query_keys() {
+        let pairs = vec![("filters[done]".to_string(), "1".to_string()), ("tags[]".to_string(), "a".to_string()), ("tags[]".to_string(), "b".to_string()), ("sort".to_string(), "x".to_string())];
+        let Val::Array(a) = nested_array(&pairs) else { panic!() };
+        let Some(Val::Array(f)) = a.get(&ArrayKey::from_str("filters")) else { panic!("filters") };
+        assert!(matches!(f.get(&ArrayKey::from_str("done")), Some(Val::Str(_))));
+        let Some(Val::Array(t)) = a.get(&ArrayKey::from_str("tags")) else { panic!("tags") };
+        assert_eq!(t.len(), 2);
+        assert!(matches!(a.get(&ArrayKey::from_str("sort")), Some(Val::Str(_))));
+    }
 }

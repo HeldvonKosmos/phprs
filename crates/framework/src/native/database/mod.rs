@@ -4,6 +4,7 @@
 
 pub mod builder;
 pub mod db;
+pub mod inflect;
 pub mod migrator;
 pub mod model;
 pub mod record_id;

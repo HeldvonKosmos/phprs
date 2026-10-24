@@ -202,6 +202,14 @@ fn save(vm: &mut Vm, h: ObjHandle) -> Result<Val, Throw> {
     Ok(Val::Bool(true))
 }
 
+fn first_row(vm: &mut Vm, rows: Value) -> Result<Val, Throw> {
+    let first = match rows {
+        Value::Array(a) => a.into_inner().into_iter().next().unwrap_or(Value::None),
+        other => other,
+    };
+    from_surreal(vm, first)
+}
+
 fn this_id(vm: &mut Vm, c: &Call) -> Result<RecordId, Throw> {
     let h = c.this()?;
     data(vm, h)?.id.clone().ok_or_else(|| Throw::error("model is not persisted"))
@@ -255,6 +263,9 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .static_method("select", |vm, c| builder_call(vm, c, b"select"))
         .static_method("filter", |vm, c| builder_call(vm, c, b"filter"))
         .static_method("withTrashed", |vm, c| builder_call(vm, c, b"withTrashed"))
+        .static_method("withCount", |vm, c| builder_call(vm, c, b"withCount"))
+        .static_method("withSum", |vm, c| builder_call(vm, c, b"withSum"))
+        .static_method("withAll", |vm, c| builder_call(vm, c, b"withAll"))
         .static_method("onlyTrashed", |vm, c| builder_call(vm, c, b"onlyTrashed"))
         .static_method("all", |vm, c| builder_call(vm, c, b"get"))
         .static_method("count", |vm, c| builder_call(vm, c, b"count"))
@@ -342,6 +353,54 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             }
             Ok(Val::Object(this))
         })
+        // graph edges: $task->relate('refers', $other, ['since' => ...]) → RELATE $from->refers->$to
+        .method("relate", |vm, c| {
+            let edge = crate::native::string_arg(&c, 0, "Model::relate")?;
+            if !edge.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+                return Err(Throw::value_error(format!("relate: edge name `{edge}` must be an identifier")));
+            }
+            let from = this_id(vm, &c)?;
+            let to = match c.arg(1) {
+                Val::Object(h) => match vm.native_payload::<ModelData>(h).and_then(|m| m.id.clone()) {
+                    Some(id) => id,
+                    None => record_id::from_val(vm, "", &Val::Object(h))?,
+                },
+                other => record_id::from_val(vm, "", &other)?,
+            };
+            let mut bindings = BTreeMap::new();
+            bindings.insert("from".to_string(), Value::RecordId(from));
+            bindings.insert("to".to_string(), Value::RecordId(to));
+            let sql = match c.args.get(2) {
+                Some(attrs @ Val::Array(_)) => {
+                    let obj = data_object(vm, attrs, None)?;
+                    bindings.insert("data".to_string(), Value::Object(obj));
+                    format!("RELATE $from->{edge}->$to CONTENT $data")
+                }
+                _ => format!("RELATE $from->{edge}->$to"),
+            };
+            let rows = query_one(vm, &sql, bindings)?;
+            Ok(first_row(vm, rows)?)
+        })
+        // $task->related('refers', Task::class) → the records behind the edge, as models
+        .method("related", |vm, c| {
+            let edge = crate::native::string_arg(&c, 0, "Model::related")?;
+            let target = crate::native::string_arg(&c, 1, "Model::related")?;
+            let class = vm.lookup_class(target.as_bytes()).ok_or_else(|| Throw::error(format!("related: class {target} not found")))?;
+            let table = meta(vm, class)?.table;
+            if !edge.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+                return Err(Throw::value_error(format!("related: edge name `{edge}` must be an identifier")));
+            }
+            let from = this_id(vm, &c)?;
+            let mut bindings = BTreeMap::new();
+            bindings.insert("from".to_string(), Value::RecordId(from));
+            let rows = query_one(vm, &format!("SELECT VALUE ->{edge}->{table}.* FROM $from"), bindings)?;
+            // one array per from-record; we asked for one record
+            let inner = match rows {
+                Value::Array(a) => a.into_inner().into_iter().next().unwrap_or(Value::None),
+                other => other,
+            };
+            hydrate(vm, Some(class), inner)
+        })
         .method("toArray", |vm, c| attributes_array(vm, c.this()?, true))
         .method("getAttributes", |vm, c| attributes_array(vm, c.this()?, false))
         .method("jsonSerialize", |vm, c| {
@@ -365,7 +424,6 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             Ok(Val::Bool(data(vm, this)?.exists))
         });
     vm.register_class(def)?;
-    let _ = hydrate;
     let _: Option<BuilderData> = None;
     Ok(())
 }

@@ -11,6 +11,7 @@ Route::get('/echoed', [TaskController::class, 'echoed']);
 Route::get('/boom', [TaskController::class, 'boom']);
 Route::get('/old', [TaskController::class, 'redirect']);
 Route::get('/db', [TaskController::class, 'db']);
+Route::get('/tasks-filter', [TaskController::class, 'filtered']);
 Route::get('/fail', [TaskController::class, 'notFound']);
 
 Route::aliasMiddleware('token', RequireToken::class);

@@ -1,0 +1,10 @@
+<?grd
+namespace Tasks\Models;
+
+use OpenGrid\Database\Model;
+
+final class Comment extends Model
+{
+    protected static string $table = 'comments';
+    protected array $fillable = ['body', 'hours', 'task_id'];
+}
