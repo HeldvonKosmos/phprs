@@ -4,8 +4,9 @@
 //! quotes only `''` escapes, in double quotes the backslash; statements are
 //! trimmed with PHP's `trim` (space, \t, \n, \r, \0, \x0B — not Unicode
 //! spaces); the classifier matches `^DEFINE\s+(TABLE|FIELD|INDEX|EVENT)`
-//! case-insensitively with ASCII `\w` names or backtick names, so `IF NOT
-//! EXISTS`/`OVERWRITE` and non-ASCII names are read the way PHP reads them.
+//! case-insensitively with ASCII `\w` names or backtick names, so
+//! non-ASCII names are read the way PHP reads them. Fixed findings (R4h):
+//! `OVERWRITE` and `IF NOT EXISTS` are modifiers, not names.
 //! Unlike the original, every skipped statement is reported as a
 //! [`Warning`]; the output is unchanged by that.
 
@@ -116,12 +117,14 @@ fn patterns() -> &'static [(Kind, Regex); 4] {
     static P: OnceLock<[(Kind, Regex); 4]> = OnceLock::new();
     P.get_or_init(|| {
         let id = r"(`[^`]+`|\w+)";
+        // R4h: the original read `IF`/`OVERWRITE` as the name
+        let modifier = r"(?:OVERWRITE\s+|IF\s+NOT\s+EXISTS\s+)?";
         let re = |s: String| Regex::new(&format!("(?i-u){s}")).expect("pattern");
         [
-            (Kind::Table, re(format!(r"^DEFINE\s+TABLE\s+{id}"))),
-            (Kind::Field, re(format!(r"^DEFINE\s+FIELD\s+{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
-            (Kind::Index, re(format!(r"^DEFINE\s+INDEX\s+{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
-            (Kind::Event, re(format!(r"^DEFINE\s+EVENT\s+{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
+            (Kind::Table, re(format!(r"^DEFINE\s+TABLE\s+{modifier}{id}"))),
+            (Kind::Field, re(format!(r"^DEFINE\s+FIELD\s+{modifier}{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
+            (Kind::Index, re(format!(r"^DEFINE\s+INDEX\s+{modifier}{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
+            (Kind::Event, re(format!(r"^DEFINE\s+EVENT\s+{modifier}{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
         ]
     })
 }
@@ -268,10 +271,14 @@ mod tests {
         assert_eq!((t.kind, t.name.as_str(), t.table.as_str()), (Kind::Table, "tasks", "tasks"));
         let f = p("DEFINE FIELD `address.city` ON TABLE `tasks` TYPE string");
         assert_eq!((f.kind, f.name.as_str(), f.table.as_str()), (Kind::Field, "address.city", "tasks"));
-        // as in the original (finding R4h): `IF NOT EXISTS` and `OVERWRITE`
-        // are read as names, a dotted name ends at the dot
-        assert_eq!(p("DEFINE TABLE IF NOT EXISTS w").name, "IF");
-        assert!(parse_statement("DEFINE FIELD OVERWRITE b ON t TYPE int", "f").is_err());
+        // R4h: modifiers are not names
+        assert_eq!(p("DEFINE TABLE IF NOT EXISTS w").name, "w");
+        assert_eq!(p("define table overwrite v SCHEMALESS").name, "v");
+        let f = p("DEFINE FIELD OVERWRITE b ON TABLE t TYPE int");
+        assert_eq!((f.name.as_str(), f.table.as_str(), f.text.as_str()), ("b", "t", "DEFINE FIELD OVERWRITE b ON TABLE t TYPE int"));
+        assert_eq!(p("DEFINE INDEX IF NOT EXISTS i ON t FIELDS a").name, "i");
+        assert_eq!(p("DEFINE TABLE IF SCHEMALESS").name, "IF", "a table may be called IF");
+        // as in the original (finding R4h, open): a dotted name ends at the dot
         assert!(parse_statement("DEFINE FIELD address.city ON t TYPE string", "f").is_err());
         let i = p("DEFINE INDEX uniq ON tasks FIELDS title UNIQUE");
         assert_eq!((i.kind, i.table.as_str()), (Kind::Index, "tasks"));

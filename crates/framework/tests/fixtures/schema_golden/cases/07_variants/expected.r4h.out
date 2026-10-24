@@ -1,0 +1,22 @@
+-- ------------------------------
+-- TABLE: t
+-- ------------------------------
+
+DEFINE TABLE t SCHEMAFULL;
+
+DEFINE FIELD IF NOT EXISTS a ON t TYPE int;
+DEFINE FIELD OVERWRITE b ON t TYPE int;
+
+
+-- ------------------------------
+-- TABLE: v
+-- ------------------------------
+
+DEFINE TABLE OVERWRITE v SCHEMALESS;
+
+
+-- ------------------------------
+-- TABLE: w
+-- ------------------------------
+
+DEFINE TABLE IF NOT EXISTS w SCHEMALESS;
