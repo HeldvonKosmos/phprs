@@ -1,0 +1,16 @@
+<?php
+        function c() {
+            throw new Exception("deep");
+        }
+        function b() {
+            c();
+            return "b-done";
+        }
+        function a() {
+            try {
+                return b();
+            } catch (Exception $e) {
+                return "a-caught-" . $e->getMessage();
+            }
+        }
+        echo a();

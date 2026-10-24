@@ -1,0 +1,10 @@
+<?php
+class R {
+    public array $h = [];
+    public function on(string $n, callable $cb): void { $this->h[$n] = $cb; }
+    public function fire(string $n, ...$a) { return ($this->h[$n])(...$a); }
+}
+$r = new R; $pre = ">";
+$r->on("x", function ($v) use ($pre) { return $pre . $v; });
+$list = ["k" => fn($v) => strtoupper($v)];
+echo $r->fire("x", "hi"), "|", $list["k"]("up"), "|", ($list["k"])("p");

@@ -1,0 +1,13 @@
+<?php
+function gen() {
+    yield 1;
+    yield 2;
+    return "done";
+}
+$g = gen();
+$g->rewind();
+$g->next();
+$g->next();
+echo $g->getReturn();
+echo "|";
+echo $g->valid() ? "yes" : "no";

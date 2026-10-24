@@ -1,0 +1,16 @@
+<?php
+echo filter_var("42", 257);
+echo "|";
+echo filter_var("3.14", 259);
+echo "|";
+echo filter_var("foo@bar.com", 274);
+echo "|";
+echo filter_var("not-email", 274) === false ? "false" : "ok";
+echo "|";
+echo filter_var("http://example.com", 273);
+echo "|";
+echo filter_var("not-url", 273) === false ? "false" : "ok";
+echo "|";
+echo filter_var("192.168.1.1", 275);
+echo "|";
+echo filter_var("not-ip", 275) === false ? "false" : "ok";

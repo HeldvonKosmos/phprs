@@ -1,0 +1,7 @@
+<?php
+        class User {
+            public $name = "Alice";
+            public $role = "admin";
+        }
+        $u = new User();
+        echo "{$u->name} is {$u->role}";

@@ -1,0 +1,6 @@
+<?php
+$x = 5;
+echo isset($x) ? "set" : "unset";
+echo "\n";
+unset($x);
+echo isset($x) ? "set" : "unset";

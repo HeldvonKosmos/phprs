@@ -1,0 +1,11 @@
+<?php
+        try {
+            try {
+                throw new Exception("inner");
+            } finally {
+                echo "finally";
+            }
+        } catch (Exception $e) {
+            echo "caught:" . $e->getMessage();
+        }
+        echo "done";

@@ -1,0 +1,6 @@
+<?php
+class Config {
+    public static $value = "initial";
+}
+Config::$value = "updated";
+echo Config::$value;

@@ -1,0 +1,20 @@
+<?php
+class Money {
+    public $amount;
+    public $currency;
+    public function __construct($amount, $currency) {
+        $this->amount = $amount;
+        $this->currency = $currency;
+    }
+    public function __serialize() {
+        return ["a" => $this->amount, "c" => $this->currency];
+    }
+    public function __unserialize($data) {
+        $this->amount = $data["a"];
+        $this->currency = $data["c"];
+    }
+}
+$m = new Money(100, "USD");
+$s = serialize($m);
+$m2 = unserialize($s);
+echo $m2->amount . " " . $m2->currency . "\n";

@@ -1,0 +1,8 @@
+<?php
+        class Greeter {
+            public function greet() {
+                return "hi";
+            }
+        }
+        $g = new Greeter();
+        echo "say {$g->greet()}";

@@ -1,0 +1,3 @@
+<?php
+        $arr = [10, 20, 30];
+        echo "second={$arr[1]}";

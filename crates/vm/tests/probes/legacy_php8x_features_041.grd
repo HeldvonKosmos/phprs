@@ -1,0 +1,5 @@
+<?php
+$d1 = new DateTime("2024-06-15 10:00:00");
+$d2 = new DateTime("2024-06-15 14:30:00");
+$diff = $d1->diff($d2);
+echo "d=" . $diff->d . " h=" . $diff->h . " i=" . $diff->i . "\n";

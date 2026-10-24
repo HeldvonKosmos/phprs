@@ -1,0 +1,1 @@
+<?php echo (int) "42", "|", (int)"12abc", "|", (int) 3.9, "|", (int) "abc", "|", (int) "  -7x", "|", (int) "1e3";

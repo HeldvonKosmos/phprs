@@ -1,0 +1,7 @@
+String 1: Hello
+String 2: World
+String 3: !
+Concatenation (2 strings): HelloWorld
+Concatenation (3 strings): HelloWorld!
+Length of 'Hello': 5
+String comparison works

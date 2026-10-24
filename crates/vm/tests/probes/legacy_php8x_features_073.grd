@@ -1,0 +1,14 @@
+<?php
+function gen_kv() {
+    yield "a" => 1;
+    yield "b" => 2;
+    yield "c" => 3;
+}
+$g = gen_kv();
+$g->rewind();
+$out = "";
+while ($g->valid()) {
+    $out .= $g->key() . "=" . $g->current() . ";";
+    $g->next();
+}
+echo $out;

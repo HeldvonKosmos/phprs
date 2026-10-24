@@ -1,0 +1,7 @@
+<?php
+$d1 = new DateTime("2024-01-01 00:00:00");
+$d2 = new DateTime("2024-03-15 12:30:45");
+$diff = $d1->diff($d2);
+echo "y=" . $diff->y . " m=" . $diff->m . " d=" . $diff->d . "\n";
+echo "h=" . $diff->h . " i=" . $diff->i . " s=" . $diff->s . "\n";
+echo "days=" . $diff->days . " invert=" . $diff->invert . "\n";

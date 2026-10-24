@@ -1,0 +1,4 @@
+<?php
+        $a = "A";
+        $b = "B";
+        echo "{$a} and {$b} and {$a}{$b}";

@@ -1,0 +1,8 @@
+<?php
+class Base {
+    public const VERSION = '1.0.0';
+}
+class Child extends Base {
+    public const VERSION = '9.9.9';
+}
+echo Child::VERSION;

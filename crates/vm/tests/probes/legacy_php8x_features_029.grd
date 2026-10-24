@@ -1,0 +1,3 @@
+<?php
+unset($undefined);
+echo "ok";

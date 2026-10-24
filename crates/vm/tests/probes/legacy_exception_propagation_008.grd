@@ -1,0 +1,9 @@
+<?php
+        function handler() {
+            throw new Exception("from callback");
+        }
+        try {
+            call_user_func("handler");
+        } catch (Exception $e) {
+            echo "cb: " . $e->getMessage();
+        }

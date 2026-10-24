@@ -1,0 +1,5 @@
+<?php
+function greet($name, $greeting = "Hello") {
+    return $greeting . " " . $name;
+}
+echo greet(greeting: "Hi", name: "World");

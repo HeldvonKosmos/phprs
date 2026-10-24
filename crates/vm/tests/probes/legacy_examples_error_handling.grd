@@ -1,0 +1,35 @@
+<?php
+// Error Handling Example (OpenGrid dialect)
+// Errors are exceptions. There are no warnings, notices or error handlers;
+// the Rust host owns the request lifecycle, so scripts throw and catch.
+
+class ValidationException extends Exception {}
+
+function parseAge(string $raw): int {
+    if (!is_numeric($raw)) {
+        throw new ValidationException("Age must be numeric, got '$raw'");
+    }
+    $age = (int) $raw;
+    if ($age < 0) {
+        throw new ValidationException("Age must not be negative");
+    }
+    return $age;
+}
+
+foreach (["42", "abc", "-3"] as $input) {
+    try {
+        echo "parsed: " . parseAge($input) . "\n";
+    } catch (ValidationException $e) {
+        echo "[validation] " . $e->getMessage() . "\n";
+    } finally {
+        echo "checked '$input'\n";
+    }
+}
+
+try {
+    throw new RuntimeException("unexpected");
+} catch (ValidationException $e) {
+    echo "not reached\n";
+} catch (Exception $e) {
+    echo "[generic] " . get_class($e) . ": " . $e->getMessage() . "\n";
+}

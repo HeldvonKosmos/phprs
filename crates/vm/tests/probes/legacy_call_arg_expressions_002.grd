@@ -1,0 +1,7 @@
+<?php
+function id($x) { return $x; }
+echo id(true && false) ? "t" : "f";
+echo "|";
+echo id(1 < 2 || 0) ? "t" : "f";
+echo "|";
+echo id(1 < 2 ? "yes" : "no");

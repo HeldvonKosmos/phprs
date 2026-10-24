@@ -1,0 +1,14 @@
+<?php
+        function risky() {
+            try {
+                throw new Exception("boom");
+            } finally {
+                echo "finally";
+            }
+        }
+        try {
+            risky();
+        } catch (Exception $e) {
+            echo "caught:" . $e->getMessage();
+        }
+        echo "done";

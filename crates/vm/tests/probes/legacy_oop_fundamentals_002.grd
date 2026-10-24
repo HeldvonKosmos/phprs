@@ -1,0 +1,10 @@
+<?php
+class A {
+    public static function f() { return 1; }
+    public function g() { return 5; }
+    public function h() { return static::f(); }
+    public function s() { return self::f(); }
+    public static function make(): static { return new static(); }
+}
+class B extends A { public static function f() { return 10; } public static function k() { return parent::f(); } }
+echo (new B)->g(), (new B)->h(), (new B)->s(), B::k(), get_class(B::make()), get_class(A::make());

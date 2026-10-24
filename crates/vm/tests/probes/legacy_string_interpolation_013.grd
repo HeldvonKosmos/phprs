@@ -1,0 +1,3 @@
+<?php
+        $a = "x";
+        echo "{$a} {literal} {y}";

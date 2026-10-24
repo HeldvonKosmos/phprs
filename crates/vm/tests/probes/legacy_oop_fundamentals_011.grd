@@ -1,0 +1,7 @@
+<?php
+namespace App\Models;
+class A {} class B extends A {}
+$b = new B;
+$r = [$b instanceof A, $b instanceof B, $b instanceof \App\Models\A, $b instanceof \stdClass, "x" instanceof A,
+      new \Exception instanceof \Throwable, (new \RuntimeException) instanceof \Exception, (fn() => 1) instanceof \Closure];
+echo implode("", array_map(fn($x) => $x ? "1" : "0", $r));

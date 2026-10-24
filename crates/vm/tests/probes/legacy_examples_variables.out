@@ -1,0 +1,10 @@
+Counter: 42
+Name: PHP-RS
+Pi: 3.14159
+Active: true
+
+Type checking:
+counter is int: yes
+name is string: yes
+pi is float: yes
+active is bool: yes

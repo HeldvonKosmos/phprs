@@ -1,0 +1,4 @@
+<?php
+        $flags = 0b1010;
+        $mask = 0b0110;
+        echo ($flags & $mask) == 0b0010 ? "yes" : "no";

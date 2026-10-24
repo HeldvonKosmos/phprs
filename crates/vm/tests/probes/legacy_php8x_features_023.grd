@@ -1,0 +1,10 @@
+<?php
+class Magic {
+    public $real = "yes";
+    public function __unset($name) {
+        echo "should-not-appear";
+    }
+}
+$obj = new Magic();
+unset($obj->real);
+echo isset($obj->real) ? "still" : "gone";

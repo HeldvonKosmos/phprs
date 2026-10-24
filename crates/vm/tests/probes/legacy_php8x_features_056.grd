@@ -1,0 +1,3 @@
+<?php
+$d = new DateTime("2024-07-15 12:00:00", new DateTimeZone("America/New_York"));
+echo $d->format("Y-m-d H:i:s O") . "\n";

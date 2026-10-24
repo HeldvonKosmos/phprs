@@ -1,0 +1,10 @@
+<?php
+class V extends Exception {}
+class W extends RuntimeException {
+    public function __construct(string $m, private string $extra = "e") { parent::__construct("[" . $m . "]", 7); }
+    public function extra(): string { return $this->extra; }
+}
+class X extends W {}
+try { throw new V("plain", 3); } catch (V $e) { echo $e->getMessage(), "/", $e->getCode(), "|"; }
+try { throw new W("w"); } catch (Exception $e) { echo $e->getMessage(), "/", $e->getCode(), "/", $e->extra(), "|"; }
+try { throw new X("x"); } catch (Throwable $e) { echo get_class($e), ":", $e->getMessage(); }

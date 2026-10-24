@@ -1,0 +1,8 @@
+<?php
+$a = 'Home';
+$b = 'index';
+if ($a == 'Home' && $b == 'index') {
+    echo "ok\n";
+} else {
+    echo "fail\n";
+}

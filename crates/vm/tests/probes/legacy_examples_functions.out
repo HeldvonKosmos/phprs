@@ -1,0 +1,6 @@
+Hello, PHP-RS!
+add(5, 3) = 8
+add(5) = 5
+multiply(4, 5) = 20
+factorial(5) = 120
+square(6) = 36

@@ -1,0 +1,8 @@
+<?php
+$obj = new class(5) {
+    public $value;
+    public function __construct($v) {
+        $this->value = $v;
+    }
+};
+echo $obj->value;

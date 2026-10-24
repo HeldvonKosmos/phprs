@@ -1,0 +1,7 @@
+<?php
+        class Point {
+            public $x = 3;
+            public $y = 4;
+        }
+        $p = new Point();
+        echo "($p->x, $p->y)";

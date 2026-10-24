@@ -527,6 +527,18 @@ impl Compiler<'_> {
                 Ok(())
             }
             Expression::Access(Access::ClassConstant(cc)) => {
+                // `Name::class` is resolved at compile time from the imports,
+                // like PHP: the class need not exist.
+                if let ClassLikeConstantSelector::Identifier(id) = &cc.constant
+                    && id.value.eq_ignore_ascii_case(b"class")
+                    && let Expression::Identifier(name) = cc.class
+                    && let ClassRef::Named(sid) = self.named_class_ref(name.value())
+                {
+                    let fq = self.module.strings[sid as usize].clone();
+                    let c = self.constant(Const::Str(fq));
+                    self.emit(Op::PushConst(c));
+                    return Ok(());
+                }
                 let cr = self.class_ref_required(cc.class)?;
                 match &cc.constant {
                     ClassLikeConstantSelector::Identifier(id) => {

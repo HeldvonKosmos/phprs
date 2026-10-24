@@ -1,0 +1,10 @@
+<?php
+        function risky() {
+            throw new Exception("boom");
+        }
+        try {
+            risky();
+            echo "not reached";
+        } catch (Exception $e) {
+            echo "caught: " . $e->getMessage();
+        }

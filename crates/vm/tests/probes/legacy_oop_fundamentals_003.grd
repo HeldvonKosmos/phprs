@@ -1,0 +1,4 @@
+<?php
+class A { const X = "a"; public static function who() { return self::X; } }
+class B extends A { const X = "b"; public static function both() { return self::X . parent::X . parent::who(); } }
+echo B::both();

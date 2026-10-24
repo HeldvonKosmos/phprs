@@ -1,0 +1,5 @@
+<?php
+$tz = new DateTimeZone("+0530");
+echo $tz->getName() . "\n";
+$d = new DateTime("2024-01-15 10:30:00", $tz);
+echo $d->format("Y-m-d H:i:s O") . "\n";

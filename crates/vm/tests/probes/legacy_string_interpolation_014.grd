@@ -1,0 +1,4 @@
+<?php
+        $user = ["name" => "Bo", "id" => 7];
+        $msg = "user {$user['name']} (#{$user['id']})";
+        echo $msg . "!";

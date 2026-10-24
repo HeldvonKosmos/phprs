@@ -1,0 +1,4 @@
+<?php
+$it = new ArrayIterator();
+echo "count: " . $it->count() . "\n";
+echo ($it->valid() ? "valid" : "invalid") . "\n";

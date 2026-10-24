@@ -1,0 +1,9 @@
+<?php
+$it = new ArrayIterator(["a" => 1, "b" => 2]);
+echo $it->offsetGet("a") . "\n";
+echo ($it->offsetExists("b") ? "yes" : "no") . "\n";
+echo ($it->offsetExists("z") ? "yes" : "no") . "\n";
+$it->offsetSet("c", 3);
+echo $it->offsetGet("c") . "\n";
+$it->offsetUnset("c");
+echo ($it->offsetExists("c") ? "yes" : "no") . "\n";

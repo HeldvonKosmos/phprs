@@ -1,0 +1,7 @@
+parsed: 42
+checked '42'
+[validation] Age must be numeric, got 'abc'
+checked 'abc'
+[validation] Age must not be negative
+checked '-3'
+[generic] RuntimeException: unexpected

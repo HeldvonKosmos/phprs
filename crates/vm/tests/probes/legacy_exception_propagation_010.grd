@@ -1,0 +1,6 @@
+<?php
+        function f($m) {
+            throw new Exception($m);
+        }
+        try { f("one"); } catch (Exception $e) { echo $e->getMessage(); }
+        try { f("two"); } catch (Exception $e) { echo "/" . $e->getMessage(); }

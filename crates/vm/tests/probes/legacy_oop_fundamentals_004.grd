@@ -1,0 +1,10 @@
+<?php
+class R {
+    public function a(): string { return "s"; }
+    public function b(): ?int { return null; }
+    public function c(): static { return $this; }
+    public function d(): array { return []; }
+    public function e(): self|null { return null; }
+    public function f(): \Foo\Bar|int { return 1; }
+}
+$r = new R; echo $r->a(), is_null($r->b()) ? "n" : "?", get_class($r->c()), count($r->d()), $r->f();

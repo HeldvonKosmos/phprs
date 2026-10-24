@@ -1,0 +1,8 @@
+<?php
+class Dynamic {
+    public function __call($name, $args) {
+        return $name . "(" . count($args) . ")";
+    }
+}
+$obj = new Dynamic();
+echo $obj->doSomething(1, 2, 3);

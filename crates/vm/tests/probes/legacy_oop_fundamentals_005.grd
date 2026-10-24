@@ -1,0 +1,8 @@
+<?php
+function d(int $x = 3, string $s = "ab", ?array $a = null, bool $b = true, float $f = -1.5) {
+    return $x . $s . ($a === null ? "N" : count($a)) . ($b ? "T" : "F") . $f;
+}
+class K { const D = 4; public function m(int $d = self::D, array $e = [1, 2]) { return $d . count($e); } }
+$c = function (int $x = 2, int $y = 3) { return $x * $y; };
+$a = fn(int $x = 7) => $x + 1;
+echo d(), "|", d(1, "z", [1], false, 2.5), "|", (new K)->m(), (new K)->m(9), "|", $c(), $c(5), $c(5, 5), "|", $a(), $a(0);

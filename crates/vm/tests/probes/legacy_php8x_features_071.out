@@ -1,0 +1,4 @@
+caught as Exception: runtime error
+caught as RuntimeException: bad value
+caught as LogicException: bad arg
+caught as RuntimeException: overflow

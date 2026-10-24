@@ -1,0 +1,11 @@
+<?php
+        class Cfg {
+            public static function get($k) {
+                throw new Exception("unknown key " . $k);
+            }
+        }
+        try {
+            Cfg::get("timeout");
+        } catch (Exception $e) {
+            echo "static: " . $e->getMessage();
+        }

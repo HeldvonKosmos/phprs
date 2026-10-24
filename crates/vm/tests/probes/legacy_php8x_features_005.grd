@@ -1,0 +1,16 @@
+<?php
+class IssetBox {
+    public function __isset($name) {
+        $result = $name == "allowed";
+        return $result;
+    }
+    public function __get($name) {
+        return "got_" . $name;
+    }
+}
+$box = new IssetBox();
+echo isset($box->allowed) ? "yes" : "no";
+echo "|";
+echo isset($box->blocked) ? "yes" : "no";
+echo "|";
+echo $box->allowed;

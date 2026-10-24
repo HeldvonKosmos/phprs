@@ -1,0 +1,11 @@
+<?php
+class Base {
+    public static function getClass() {
+        return static::class;
+    }
+}
+class Child extends Base {
+}
+echo Base::getClass();
+echo "|";
+echo Child::getClass();

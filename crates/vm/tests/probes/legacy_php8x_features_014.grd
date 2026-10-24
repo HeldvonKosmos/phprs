@@ -1,0 +1,17 @@
+<?php
+$strlen = strlen(...);
+echo $strlen("hello");
+
+class MathHelper {
+    public static function double($n) {
+        return $n * 2;
+    }
+    public function inc($n) {
+        return $n + 1;
+    }
+}
+$d = MathHelper::double(...);
+echo $d(4);
+$obj = new MathHelper();
+$inc = $obj->inc(...);
+echo $inc(9);

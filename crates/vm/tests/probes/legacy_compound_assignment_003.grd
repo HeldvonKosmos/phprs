@@ -1,0 +1,4 @@
+<?php
+        $u = null;
+        $u .= "v";
+        echo $u;

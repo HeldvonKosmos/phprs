@@ -1,0 +1,9 @@
+<?php
+        try {
+            throw new Exception("err");
+        } catch (Exception $e) {
+            echo "caught";
+        } finally {
+            echo "finally";
+        }
+        echo "done";

@@ -1,0 +1,19 @@
+Value is greater than 5
+Start of the week
+
+For loop:
+  Iteration 0
+  Iteration 1
+  Iteration 2
+  Iteration 3
+  Iteration 4
+
+While loop:
+  Count: 0
+  Count: 1
+  Count: 2
+
+Foreach loop:
+  Item: apple
+  Item: banana
+  Item: cherry

@@ -1,0 +1,10 @@
+<?php
+$a = 1;
+$b = 2;
+$c = 3;
+unset($a, $b);
+echo isset($a) ? "a:set" : "a:unset";
+echo "\n";
+echo isset($b) ? "b:set" : "b:unset";
+echo "\n";
+echo isset($c) ? "c:set" : "c:unset";

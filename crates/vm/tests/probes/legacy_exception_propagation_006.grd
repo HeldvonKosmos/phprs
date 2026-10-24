@@ -1,0 +1,13 @@
+<?php
+        function inner() {
+            try {
+                throw new Exception("first");
+            } catch (Exception $e) {
+                throw new Exception("wrapped: " . $e->getMessage());
+            }
+        }
+        try {
+            inner();
+        } catch (Exception $e) {
+            echo $e->getMessage();
+        }

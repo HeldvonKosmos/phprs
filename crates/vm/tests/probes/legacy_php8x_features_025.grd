@@ -1,0 +1,7 @@
+<?php
+class GrandBase {
+    const GREETING = "hello";
+}
+class Mid extends GrandBase {}
+class Leaf extends Mid {}
+echo Leaf::GREETING;

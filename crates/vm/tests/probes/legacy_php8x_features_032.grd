@@ -1,0 +1,7 @@
+<?php
+$arr = ["x" => 100, "y" => 200];
+$key = "x";
+unset($arr[$key]);
+echo isset($arr["x"]) ? "x:set" : "x:unset";
+echo "\n";
+echo isset($arr["y"]) ? "y:set" : "y:unset";

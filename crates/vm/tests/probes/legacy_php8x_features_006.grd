@@ -1,0 +1,7 @@
+<?php
+$obj = new class {
+    public function greet() {
+        return "hello";
+    }
+};
+echo $obj->greet();

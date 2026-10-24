@@ -1,0 +1,10 @@
+<?php
+$a = [1 < 2, 3 > 4];
+echo $a[0] ? "1" : "0";
+echo $a[1] ? "1" : "0";
+class Box {
+    public $v;
+    function __construct($v) { $this->v = $v; }
+}
+$b = new Box(5 > 3);
+echo $b->v ? "1" : "0";

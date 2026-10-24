@@ -1,0 +1,21 @@
+a + b = 13
+a - b = 7
+a * b = 30
+a / b = 3.3333333333333
+a % b = 1
+Hello PHP-RS!
+Result: 32
+strlen: 5
+OPERATORS WORK
+--- Compound assignment ---
+total: 4
+label: count-down, dim: 15
+--- Bitwise ---
+and: 8
+or: 14
+xor: 6
+not: -13
+shl: 64
+shr: 16
+flags&mask: 12
+perm: 20

@@ -1,0 +1,10 @@
+<?php
+$arr = ["x" => ["a" => 1, "b" => 2, "c" => 3]];
+unset($arr["x"]["b"]);
+echo isset($arr["x"]["a"]) ? "a:set" : "a:unset";
+echo "\n";
+echo isset($arr["x"]["b"]) ? "b:set" : "b:unset";
+echo "\n";
+echo isset($arr["x"]["c"]) ? "c:set" : "c:unset";
+echo "\n";
+echo count($arr["x"]);

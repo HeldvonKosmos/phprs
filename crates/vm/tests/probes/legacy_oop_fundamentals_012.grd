@@ -1,0 +1,7 @@
+<?php
+namespace App\Services;
+use App\Models\User;
+use App\Models\Order as O;
+class Local {}
+function helper() { return __NAMESPACE__; }
+echo User::class, "|", O::class, "|", Local::class, "|", \strlen("abc"), "|", helper(), "|", \App\Services\helper(), "|", Models\Thing::class;

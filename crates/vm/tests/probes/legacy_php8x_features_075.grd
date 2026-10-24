@@ -1,0 +1,14 @@
+<?php
+function range_gen($start, $end) {
+    for ($i = $start; $i <= $end; $i++) {
+        yield $i;
+    }
+}
+$g = range_gen(5, 8);
+$g->rewind();
+$out = "";
+while ($g->valid()) {
+    $out .= $g->current() . " ";
+    $g->next();
+}
+echo $out;

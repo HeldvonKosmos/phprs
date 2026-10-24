@@ -1,0 +1,4 @@
+<?php
+$a = (array) null; $b = (array) 7; $c = (array) ["x" => 1];
+$o = (object) ["a" => 1, "b" => 2];
+echo count($a), "|", $b[0], "|", $c["x"], "|", $o->a + $o->b, "|", count((array) $o);

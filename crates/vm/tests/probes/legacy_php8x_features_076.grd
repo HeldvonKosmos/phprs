@@ -1,0 +1,10 @@
+<?php
+echo ctype_alnum("abc123") ? "1" : "0";
+echo ctype_alpha("abc") ? "1" : "0";
+echo ctype_digit("123") ? "1" : "0";
+echo ctype_digit("12a") ? "1" : "0";
+echo ctype_lower("abc") ? "1" : "0";
+echo ctype_upper("ABC") ? "1" : "0";
+echo ctype_space(" \t\n") ? "1" : "0";
+echo ctype_xdigit("0123456789abcdef") ? "1" : "0";
+echo ctype_xdigit("xyz") ? "1" : "0";

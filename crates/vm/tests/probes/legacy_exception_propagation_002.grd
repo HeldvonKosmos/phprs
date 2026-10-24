@@ -1,0 +1,15 @@
+<?php
+        class Repo {
+            public function load($name) {
+                if ($name === "missing") {
+                    throw new RuntimeException("no such repo: " . $name);
+                }
+                return "ok";
+            }
+        }
+        $r = new Repo();
+        try {
+            echo $r->load("missing");
+        } catch (RuntimeException $e) {
+            echo "handled: " . $e->getMessage();
+        }

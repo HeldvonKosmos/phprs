@@ -1,0 +1,8 @@
+<?php
+class Magic {
+    public function __unset($name) {
+        echo "__unset:{$name}";
+    }
+}
+$obj = new Magic();
+unset($obj->virtual);

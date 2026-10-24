@@ -1,0 +1,16 @@
+<?php
+        class Api {
+            public function fetch() {
+                throw new Exception("503");
+                return $this;
+            }
+            public function parse() {
+                return "parsed";
+            }
+        }
+        $api = new Api();
+        try {
+            echo $api->fetch()->parse();
+        } catch (Exception $e) {
+            echo "api failed: " . $e->getMessage();
+        }

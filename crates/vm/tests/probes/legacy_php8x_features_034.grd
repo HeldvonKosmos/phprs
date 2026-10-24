@@ -1,0 +1,6 @@
+<?php
+$arr = ["p" => ["h" => ["k1" => 1, "k2" => 2]]];
+unset($arr["p"]["h"]["k1"]);
+echo isset($arr["p"]["h"]["k1"]) ? "k1:set" : "k1:unset";
+echo "\n";
+echo isset($arr["p"]["h"]["k2"]) ? "k2:set" : "k2:unset";

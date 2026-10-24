@@ -1,0 +1,4 @@
+<?php
+        $arr = ["x" => "1", "y" => "2"];
+        $k = "y";
+        echo "picked {$arr[$k]}";

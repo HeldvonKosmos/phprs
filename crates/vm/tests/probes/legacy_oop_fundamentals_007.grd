@@ -1,0 +1,10 @@
+<?php
+$k = 10;
+$m = function ($v) use ($k) { return $v * $k; };
+$k = 99;
+$arrow = fn($v) => $v + $k;
+function outer() { $q = 2; return function ($v) use ($q) { return $v * $q; }; }
+$o = outer();
+class T { private int $f = 5; public function go(): int { return array_sum(array_map(fn($x) => $x * $this->f, [1, 2])); } }
+$nested = fn($a) => fn($b) => $a + $b;
+echo $m(3), "|", $arrow(1), "|", $o(4), "|", (new T)->go(), "|", $nested(1)(2), "|", ($m instanceof Closure ? "C" : "-"), (is_callable($m) ? "c" : "-"), "|", call_user_func($arrow, 1);

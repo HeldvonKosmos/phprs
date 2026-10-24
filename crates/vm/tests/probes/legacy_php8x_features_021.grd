@@ -1,0 +1,9 @@
+<?php
+class Foo {
+    public $bar = 42;
+}
+$obj = new Foo();
+echo isset($obj->bar) ? "before:set" : "before:unset";
+echo "\n";
+unset($obj->bar);
+echo isset($obj->bar) ? "after:set" : "after:unset";

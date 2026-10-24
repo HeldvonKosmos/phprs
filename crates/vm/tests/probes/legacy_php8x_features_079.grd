@@ -1,0 +1,10 @@
+<?php
+echo array_key_first([10, 20, 30]);
+echo "|";
+echo array_key_last([10, 20, 30]);
+echo "|";
+echo array_is_list([10, 20, 30]) ? "yes" : "no";
+echo "|";
+echo array_is_list(["a" => 1, "b" => 2]) ? "yes" : "no";
+echo "|";
+echo array_is_list([1 => "a", 0 => "b"]) ? "yes" : "no";

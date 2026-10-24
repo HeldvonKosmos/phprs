@@ -1,0 +1,5 @@
+comparisons: bool(true)
+bool(false)
+logical: and-ok
+ternary-arg: long
+array: flags-ok

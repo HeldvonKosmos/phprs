@@ -1,0 +1,6 @@
+<?php
+        class C { public $p = 10; }
+        $c = new C();
+        $c->p += 5;
+        $c->p .= "!";
+        echo $c->p;

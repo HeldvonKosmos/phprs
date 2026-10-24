@@ -1,0 +1,4 @@
+<?php
+echo html_entity_decode("<hello>");
+echo "|";
+echo html_entity_decode("&");

@@ -1,0 +1,5 @@
+<?php
+class Config {
+    public final const VERSION = '2.0.0';
+}
+echo Config::VERSION;
