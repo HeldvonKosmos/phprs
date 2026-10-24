@@ -32,12 +32,25 @@ fn is_empty(v: &Val) -> bool {
     }
 }
 
-fn size(v: &Val) -> Option<f64> {
+/// Laravel's `getSize`: with a numeric rule (`numeric`, `integer`,
+/// `decimal`) a numeric value is its own size; an array its count; anything
+/// else the length of its string form (`null` → 0).
+fn size(v: &Val, numeric_rule: bool) -> Option<f64> {
+    if numeric_rule && is_numeric(v) {
+        return match v {
+            Val::Int(i) => Some(*i as f64),
+            Val::Float(f) => Some(*f),
+            Val::Str(s) => s.to_string_lossy().trim().parse().ok(),
+            _ => None,
+        };
+    }
     match v {
-        Val::Int(i) => Some(*i as f64),
-        Val::Float(f) => Some(*f),
+        Val::Null => Some(0.0),
         Val::Str(s) => Some(s.char_len() as f64),
         Val::Array(a) => Some(a.len() as f64),
+        Val::Int(i) => Some(i.to_string().chars().count() as f64),
+        Val::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        Val::Float(_) => v.to_php_string().ok().map(|s| s.char_len() as f64),
         _ => None,
     }
 }
@@ -109,8 +122,15 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
         }
         return msgs;
     }
+    // Laravel's presentOrRuleIsImplicit: a missing field or a blank string is
+    // checked only by implicit rules (`required`, `present`, `filled`)
+    let blank = !present || matches!(&value, Val::Str(s) if s.as_bytes().iter().all(u8::is_ascii_whitespace));
+    let numeric_rule = rules.iter().any(|r| matches!(r.split(':').next(), Some("numeric" | "integer" | "int" | "decimal")));
     for rule in rules {
         let (name_r, arg) = rule.split_once(':').map(|(a, b)| (a, Some(b))).unwrap_or((rule.as_str(), None));
+        if blank && !matches!(name_r, "required" | "present" | "filled") {
+            continue;
+        }
         let args: Vec<&str> = arg.map(|a| a.split(',').map(str::trim).collect()).unwrap_or_default();
         let fail = |m: String| m;
         let ok = match name_r {
@@ -138,13 +158,13 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String]) -> Vec<String> {
             "alpha" => !str_of(&value).is_empty() && str_of(&value).chars().all(|c| c.is_alphabetic()),
             "alpha_num" => !str_of(&value).is_empty() && str_of(&value).chars().all(|c| c.is_alphanumeric()),
             "alpha_dash" => !str_of(&value).is_empty() && str_of(&value).chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'),
-            "min" => args.first().and_then(|a| a.parse::<f64>().ok()).zip(size(&value)).is_some_and(|(m, s)| s >= m),
-            "max" => args.first().and_then(|a| a.parse::<f64>().ok()).zip(size(&value)).is_some_and(|(m, s)| s <= m),
-            "size" => args.first().and_then(|a| a.parse::<f64>().ok()).zip(size(&value)).is_some_and(|(m, s)| s == m),
+            "min" => args.first().and_then(|a| a.parse::<f64>().ok()).zip(size(&value, numeric_rule)).is_some_and(|(m, s)| s >= m),
+            "max" => args.first().and_then(|a| a.parse::<f64>().ok()).zip(size(&value, numeric_rule)).is_some_and(|(m, s)| s <= m),
+            "size" => args.first().and_then(|a| a.parse::<f64>().ok()).zip(size(&value, numeric_rule)).is_some_and(|(m, s)| s == m),
             "between" => {
                 let lo = args.first().and_then(|a| a.parse::<f64>().ok());
                 let hi = args.get(1).and_then(|a| a.parse::<f64>().ok());
-                match (lo, hi, size(&value)) {
+                match (lo, hi, size(&value, numeric_rule)) {
                     (Some(lo), Some(hi), Some(s)) => s >= lo && s <= hi,
                     _ => false,
                 }
@@ -278,6 +298,17 @@ mod tests {
             a.insert(ArrayKey::from_str(k), v.clone());
         }
         Val::array(a)
+    }
+
+    #[test]
+    fn missing_field_reports_only_required() {
+        // Laravel: non-implicit rules skip a missing field or a blank string
+        let rules = arr(&[("title", Val::str("required|string|max:3")), ("note", Val::str("string|max:2"))]);
+        let Err(errors) = validate(&arr(&[("note", Val::str("  "))]), &rules).unwrap() else { panic!("expected errors") };
+        assert_eq!(errors.0, vec![("title".to_string(), vec!["The title field is required.".to_string()])]);
+        // a present null is checked by the other rules too
+        let Err(errors) = validate(&arr(&[("title", Val::Null)]), &rules).unwrap() else { panic!("expected errors") };
+        assert_eq!(errors.0[0].1, vec!["The title field is required.".to_string(), "The title field must be a string.".to_string()]);
     }
 
     #[test]
