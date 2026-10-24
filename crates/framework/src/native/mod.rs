@@ -2,6 +2,7 @@
 //! class or helper family; all state lives in the `WorkerCtx` host.
 
 pub mod config;
+pub mod database;
 pub mod log;
 pub mod request;
 pub mod response;
@@ -19,6 +20,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     response::register(vm)?;
     log::register(vm)?;
     config::register(vm)?;
+    database::register(vm)?;
     Ok(())
 }
 

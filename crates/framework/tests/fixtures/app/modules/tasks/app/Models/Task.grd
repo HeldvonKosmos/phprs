@@ -1,0 +1,13 @@
+<?grd
+namespace Tasks\Models;
+
+use OpenGrid\Database\Model;
+
+final class Task extends Model
+{
+    protected static string $table = 'tasks';
+    protected bool $softDeletes = true;
+    protected array $fillable = ['title', 'done', 'priority', 'due_at'];
+    protected array $dates = ['due_at'];
+    protected array $hidden = ['secret'];
+}

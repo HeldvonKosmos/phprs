@@ -1,0 +1,570 @@
+//! `OpenGrid\Database\Builder`: port of the platform's `Query\Builder`
+//! (DATABASE_LAYER.md §2.1). `to_sql` renders
+//! `SELECT … FROM … WHERE … GROUP BY … ORDER BY … LIMIT n START m FETCH …`.
+
+use std::collections::BTreeMap;
+
+use grd_vm::error::Throw;
+use grd_vm::value::{ArrayKey, ClassId, ObjHandle, PhpArray, Val};
+use grd_vm::vm::{Call, NativeClassDef, Vm};
+use surrealdb::types::{Array, Datetime, Object, Value};
+
+use super::model::{self, ModelMeta};
+use super::value::{from_surreal, to_surreal};
+use super::{query, query_one};
+use crate::native::{int_arg_opt, string_arg};
+
+pub const CLASS: &str = "OpenGrid\\Database\\Builder";
+const SOFT_DELETE_CLAUSE: &str = "deleted_at IS NONE";
+
+#[derive(Clone, Debug, Default)]
+pub struct BuilderData {
+    pub table: String,
+    pub wheres: Vec<String>,
+    pub bindings: BTreeMap<String, Value>,
+    pub orders: Vec<String>,
+    pub fetch: Vec<String>,
+    pub projection: Option<String>,
+    pub groups: Vec<String>,
+    pub soft_deletes: bool,
+    pub limit: Option<i64>,
+    pub start: i64,
+    pub model: Option<ClassId>,
+}
+
+impl BuilderData {
+    pub fn new(table: &str, soft_deletes: bool) -> Self {
+        let mut b = BuilderData { table: table.to_string(), soft_deletes, ..Default::default() };
+        if soft_deletes {
+            b.wheres.push(SOFT_DELETE_CLAUSE.into());
+        }
+        b
+    }
+
+    pub fn bind(&mut self, v: Value) -> String {
+        let name = format!("f{}", self.bindings.len());
+        self.bindings.insert(name.clone(), v);
+        name
+    }
+
+    pub fn r#where(&mut self, field: &str, value: Value, op: &str) -> &mut Self {
+        let n = self.bind(value);
+        self.wheres.push(format!("{field} {op} ${n}"));
+        self
+    }
+
+    pub fn where_raw(&mut self, clause: &str, bindings: BTreeMap<String, Value>) -> &mut Self {
+        self.wheres.push(clause.to_string());
+        self.bindings.extend(bindings);
+        self
+    }
+
+    pub fn where_in(&mut self, field: &str, values: Vec<Value>) -> &mut Self {
+        let mut arr = Array::new();
+        arr.extend(values);
+        let n = self.bind(Value::Array(arr));
+        self.wheres.push(format!("{field} INSIDE ${n}"));
+        self
+    }
+
+    pub fn where_like(&mut self, field: &str, value: &str) -> &mut Self {
+        let n = self.bind(Value::String(value.to_lowercase()));
+        self.wheres.push(format!("string::contains(string::lowercase(<string>{field}), ${n})"));
+        self
+    }
+
+    pub fn where_none(&mut self, field: &str, not: bool) -> &mut Self {
+        self.wheres.push(format!("{field} IS {}NONE", if not { "NOT " } else { "" }));
+        self
+    }
+
+    pub fn with_trashed(&mut self) -> &mut Self {
+        self.wheres.retain(|w| w != SOFT_DELETE_CLAUSE);
+        self
+    }
+
+    pub fn only_trashed(&mut self) -> &mut Self {
+        self.with_trashed();
+        self.wheres.insert(0, "deleted_at IS NOT NONE".into());
+        self
+    }
+
+    /// `"field:desc,other"` → `ORDER BY field COLLATE DESC, other COLLATE ASC`.
+    pub fn sort(&mut self, spec: &str) -> &mut Self {
+        for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (field, dir) = part.split_once(':').unwrap_or((part, "asc"));
+            self.orders.push(format!("{} COLLATE {}", field.trim(), dir.trim().to_ascii_uppercase()));
+        }
+        self
+    }
+
+    pub fn order_by(&mut self, field: &str, dir: &str) -> &mut Self {
+        self.orders.push(format!("{field} {}", dir.to_ascii_uppercase()));
+        self
+    }
+
+    pub fn select(&mut self, projection: &str) -> &mut Self {
+        self.projection = Some(projection.to_string());
+        self
+    }
+
+    pub fn group_by(&mut self, fields: &[&str]) -> &mut Self {
+        self.groups.extend(fields.iter().map(|f| f.to_string()));
+        self
+    }
+
+    pub fn fetch(&mut self, field: &str) -> &mut Self {
+        self.fetch.push(field.to_string());
+        self
+    }
+
+    fn head(&self, projection: &str) -> String {
+        let mut sql = format!("SELECT {projection} FROM {}", self.table);
+        if !self.wheres.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&self.wheres.join(" AND "));
+        }
+        sql
+    }
+
+    fn tail(&self, sql: &mut String) {
+        if !self.groups.is_empty() {
+            sql.push_str(" GROUP BY ");
+            sql.push_str(&self.groups.join(", "));
+        }
+        if !self.orders.is_empty() {
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&self.orders.join(", "));
+        }
+    }
+
+    fn fetch_tail(&self, sql: &mut String) {
+        for f in &self.fetch {
+            sql.push_str(&format!(" FETCH {f}"));
+        }
+    }
+
+    /// LIMIT/START before FETCH, FETCH last.
+    pub fn to_sql(&self, per_page: usize, offset: usize) -> String {
+        let mut sql = self.head(self.projection.as_deref().unwrap_or("*"));
+        self.tail(&mut sql);
+        sql.push_str(&format!(" LIMIT {per_page} START {offset}"));
+        self.fetch_tail(&mut sql);
+        sql
+    }
+
+    /// The query as configured (LIMIT/START only when `limit` was set).
+    pub fn select_sql(&self) -> String {
+        match self.limit {
+            Some(l) => self.to_sql(l.max(0) as usize, self.start.max(0) as usize),
+            None => {
+                let mut sql = self.head(self.projection.as_deref().unwrap_or("*"));
+                self.tail(&mut sql);
+                self.fetch_tail(&mut sql);
+                sql
+            }
+        }
+    }
+
+    pub fn count_sql(&self) -> String {
+        let mut sql = self.head("count() AS total");
+        sql.push_str(" GROUP ALL");
+        sql
+    }
+
+    fn where_sql(&self) -> String {
+        if self.wheres.is_empty() { String::new() } else { format!(" WHERE {}", self.wheres.join(" AND ")) }
+    }
+
+    pub fn update_sql(&self) -> String {
+        format!("UPDATE {} MERGE $data{}", self.table, self.where_sql())
+    }
+
+    pub fn delete_sql(&self) -> String {
+        format!("DELETE FROM {}{} RETURN BEFORE", self.table, self.where_sql())
+    }
+
+    pub fn bindings(&self) -> &BTreeMap<String, Value> {
+        &self.bindings
+    }
+}
+
+pub fn data<'a>(vm: &'a mut Vm, h: ObjHandle) -> Result<&'a mut BuilderData, Throw> {
+    vm.native_payload_mut::<BuilderData>(h).ok_or_else(|| Throw::error("Builder payload missing"))
+}
+
+fn this_data<'a>(vm: &'a mut Vm, c: &Call) -> Result<&'a mut BuilderData, Throw> {
+    let h = c.this()?;
+    data(vm, h)
+}
+
+/// A builder object for `table` (no model).
+pub fn new_for_table(vm: &mut Vm, table: &str, soft_deletes: bool, model: Option<ClassId>) -> Result<ObjHandle, Throw> {
+    let class = vm.lookup_class(CLASS.as_bytes()).ok_or_else(|| Throw::error("Builder class missing"))?;
+    let h = vm.instantiate(class, Vec::new())?;
+    let mut b = BuilderData::new(table, soft_deletes);
+    b.model = model;
+    *data(vm, h)? = b;
+    Ok(h)
+}
+
+/// Rows → model objects (model-bound) or assoc arrays.
+pub fn hydrate(vm: &mut Vm, model: Option<ClassId>, rows: Value) -> Result<Val, Throw> {
+    let items = match rows {
+        Value::Array(a) => a.into_inner(),
+        Value::None | Value::Null => Vec::new(),
+        other => vec![other],
+    };
+    let mut out = PhpArray::with_capacity(items.len());
+    for item in items {
+        let v = match (model, item) {
+            (Some(class), Value::Object(o)) => model::from_record(vm, class, o)?,
+            (_, other) => from_surreal(vm, other)?,
+        };
+        out.push(v);
+    }
+    Ok(Val::array(out))
+}
+
+fn first_of(v: Val) -> Val {
+    match v {
+        Val::Array(a) => a.values().next().cloned().unwrap_or(Val::Null),
+        other => other,
+    }
+}
+
+fn count_from(v: &Value) -> i64 {
+    // `SELECT count() AS total … GROUP ALL` → [{ total: n }] or []
+    if let Value::Array(a) = v
+        && let Some(Value::Object(o)) = a.first()
+        && let Some(Value::Number(n)) = o.get("total")
+    {
+        return match n {
+            surrealdb::types::Number::Int(i) => *i,
+            surrealdb::types::Number::Float(f) => *f as i64,
+            surrealdb::types::Number::Decimal(d) => d.to_string().parse().unwrap_or(0),
+        };
+    }
+    0
+}
+
+fn arg_values(vm: &mut Vm, v: &Val) -> Result<Vec<Value>, Throw> {
+    match v {
+        Val::Array(a) => a.values().map(|x| to_surreal(vm, x)).collect(),
+        other => Ok(vec![to_surreal(vm, other)?]),
+    }
+}
+
+/// `['title' => 'x']` → `$data` object; dates in `$dates` cast from strings.
+pub fn data_object(vm: &mut Vm, values: &Val, meta: Option<&ModelMeta>) -> Result<Object, Throw> {
+    let Val::Array(arr) = values else { return Err(Throw::type_error("expected an array of values")) };
+    let mut obj = Object::new();
+    for (k, v) in arr.iter() {
+        let key = match k {
+            ArrayKey::Int(i) => i.to_string(),
+            ArrayKey::Str(s) => s.to_string_lossy(),
+        };
+        let is_date = meta.is_some_and(|m| m.dates.iter().any(|d| *d == key));
+        let value = match (is_date, v) {
+            (true, Val::Str(s)) => super::value::parse_datetime(&s.to_string_lossy()).map(Value::Datetime).unwrap_or(Value::String(s.to_string_lossy())),
+            _ => to_surreal(vm, v)?,
+        };
+        obj.insert(key, value);
+    }
+    Ok(obj)
+}
+
+fn filter_allowed(vm: &mut Vm, b: &BuilderData, field: &str) -> Result<(), Throw> {
+    let Some(class) = b.model else { return Ok(()) };
+    let meta = model::meta(vm, class)?;
+    let ok = if !meta.filterable.is_empty() {
+        meta.filterable.iter().any(|f| f == field)
+    } else {
+        field == "id" || meta.fillable.iter().any(|f| f == field) || field.contains('.')
+    };
+    if ok { Ok(()) } else { Err(Throw::value_error(format!("filter on `{field}` is not allowed for {} (declare $filterable)", vm.class_name(class)))) }
+}
+
+pub fn register(vm: &mut Vm) -> Result<(), Throw> {
+    let def = NativeClassDef::new(CLASS)
+        .final_class()
+        .payload(|| Box::new(BuilderData::default()))
+        .method("where", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::where")?;
+            let value = to_surreal(vm, &c.arg(1))?;
+            let op = if c.args.len() > 2 { string_arg(&c, 2, "Builder::where")? } else { "=".into() };
+            this_data(vm, &c)?.r#where(&field, value, &op);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereIn", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::whereIn")?;
+            let values = arg_values(vm, &c.arg(1))?;
+            this_data(vm, &c)?.where_in(&field, values);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereLike", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::whereLike")?;
+            let value = string_arg(&c, 1, "Builder::whereLike")?;
+            this_data(vm, &c)?.where_like(&field, &value);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereRaw", |vm, c| {
+            let clause = string_arg(&c, 0, "Builder::whereRaw")?;
+            let mut bindings = BTreeMap::new();
+            if let Val::Array(a) = c.arg(1) {
+                for (k, v) in a.iter() {
+                    let key = match k {
+                        ArrayKey::Int(i) => i.to_string(),
+                        ArrayKey::Str(s) => s.to_string_lossy(),
+                    };
+                    bindings.insert(key, to_surreal(vm, v)?);
+                }
+            }
+            this_data(vm, &c)?.where_raw(&clause, bindings);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereNull", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::whereNull")?;
+            this_data(vm, &c)?.where_none(&field, false);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereNotNull", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::whereNotNull")?;
+            this_data(vm, &c)?.where_none(&field, true);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("withTrashed", |vm, c| {
+            this_data(vm, &c)?.with_trashed();
+            Ok(Val::Object(c.this()?))
+        })
+        .method("onlyTrashed", |vm, c| {
+            this_data(vm, &c)?.only_trashed();
+            Ok(Val::Object(c.this()?))
+        })
+        .method("orderBy", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::orderBy")?;
+            let dir = if c.args.len() > 1 { string_arg(&c, 1, "Builder::orderBy")? } else { "asc".into() };
+            this_data(vm, &c)?.order_by(&field, &dir);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("sort", |vm, c| {
+            let spec = string_arg(&c, 0, "Builder::sort")?;
+            this_data(vm, &c)?.sort(&spec);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("select", |vm, c| {
+            let projection = string_arg(&c, 0, "Builder::select")?;
+            this_data(vm, &c)?.select(&projection);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("groupBy", |vm, c| {
+            let fields: Vec<String> = (0..c.args.len()).map(|i| string_arg(&c, i, "Builder::groupBy")).collect::<Result<_, _>>()?;
+            let refs: Vec<&str> = fields.iter().map(String::as_str).collect();
+            this_data(vm, &c)?.group_by(&refs);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("fetch", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::fetch")?;
+            this_data(vm, &c)?.fetch(&field);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("limit", |vm, c| {
+            let n = c.arg(0).to_int()?;
+            this_data(vm, &c)?.limit = Some(n);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("start", |vm, c| {
+            let n = c.arg(0).to_int()?;
+            this_data(vm, &c)?.start = n;
+            Ok(Val::Object(c.this()?))
+        })
+        .method("offset", |vm, c| {
+            let n = c.arg(0).to_int()?;
+            this_data(vm, &c)?.start = n;
+            Ok(Val::Object(c.this()?))
+        })
+        .method("when", |vm, c| {
+            let this = c.this()?;
+            if c.arg(0).to_bool() {
+                vm.call_value(&c.arg(1), vec![Val::Object(this)])?;
+            }
+            Ok(Val::Object(this))
+        })
+        .method("filter", |vm, c| {
+            let this = c.this()?;
+            let Val::Array(filters) = c.arg(0) else { return Ok(Val::Object(this)) };
+            for (k, v) in filters.iter() {
+                let field = match k {
+                    ArrayKey::Int(i) => i.to_string(),
+                    ArrayKey::Str(s) => s.to_string_lossy(),
+                };
+                let b = data(vm, this)?.clone();
+                filter_allowed(vm, &b, &field)?;
+                match v {
+                    Val::Null => {
+                        data(vm, this)?.where_none(&field, false);
+                    }
+                    Val::Array(_) => {
+                        let values = arg_values(vm, v)?;
+                        data(vm, this)?.where_in(&field, values);
+                    }
+                    other => {
+                        let value = to_surreal(vm, other)?;
+                        data(vm, this)?.r#where(&field, value, "=");
+                    }
+                }
+            }
+            Ok(Val::Object(this))
+        })
+        .method("toSql", |vm, c| Ok(Val::str(&this_data(vm, &c)?.select_sql())))
+        .method("countSql", |vm, c| Ok(Val::str(&this_data(vm, &c)?.count_sql())))
+        .method("getBindings", |vm, c| {
+            let bindings = this_data(vm, &c)?.bindings.clone();
+            let mut a = PhpArray::new();
+            for (k, v) in bindings {
+                let val = from_surreal(vm, v)?;
+                a.insert(ArrayKey::from_str(&k), val);
+            }
+            Ok(Val::array(a))
+        })
+        .method("getModel", |vm, c| {
+            let model = this_data(vm, &c)?.model;
+            Ok(model.map(|m| Val::str(&vm.class_name(m))).unwrap_or(Val::Null))
+        })
+        // terminals
+        .method("get", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            let rows = query_one(vm, &b.select_sql(), b.bindings.clone())?;
+            hydrate(vm, b.model, rows)
+        })
+        .method("first", |vm, c| {
+            let mut b = this_data(vm, &c)?.clone();
+            b.limit = Some(1);
+            let rows = query_one(vm, &b.select_sql(), b.bindings.clone())?;
+            Ok(first_of(hydrate(vm, b.model, rows)?))
+        })
+        .method("count", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            let v = query_one(vm, &b.count_sql(), b.bindings.clone())?;
+            Ok(Val::Int(count_from(&v)))
+        })
+        .method("exists", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            let v = query_one(vm, &b.count_sql(), b.bindings.clone())?;
+            Ok(Val::Bool(count_from(&v) > 0))
+        })
+        .method("paginate", |vm, c| {
+            let per_page = int_arg_opt(&c, 0, 15)?.max(1);
+            let page = int_arg_opt(&c, 1, 1)?.max(1);
+            let b = this_data(vm, &c)?.clone();
+            let total = count_from(&query_one(vm, &b.count_sql(), b.bindings.clone())?);
+            let offset = (page - 1) * per_page;
+            let rows = query_one(vm, &b.to_sql(per_page as usize, offset as usize), b.bindings.clone())?;
+            let data = hydrate(vm, b.model, rows)?;
+            let mut out = PhpArray::new();
+            out.insert(ArrayKey::from_str("data"), data);
+            out.insert(ArrayKey::from_str("total"), Val::Int(total));
+            out.insert(ArrayKey::from_str("per_page"), Val::Int(per_page));
+            out.insert(ArrayKey::from_str("current_page"), Val::Int(page));
+            out.insert(ArrayKey::from_str("last_page"), Val::Int(((total + per_page - 1) / per_page).max(1)));
+            Ok(Val::array(out))
+        })
+        .method("update", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            let meta = match b.model {
+                Some(class) => Some(model::meta(vm, class)?),
+                None => None,
+            };
+            let mut obj = data_object(vm, &c.arg(0), meta.as_ref())?;
+            if meta.as_ref().is_none_or(|m| m.timestamps) {
+                obj.insert("updated_at", Value::Datetime(Datetime::now()));
+            }
+            let mut bindings = b.bindings.clone();
+            bindings.insert("data".into(), Value::Object(obj));
+            let rows = query_one(vm, &b.update_sql(), bindings)?;
+            Ok(Val::Int(match rows {
+                Value::Array(a) => a.len() as i64,
+                _ => 0,
+            }))
+        })
+        .method("insert", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            let meta = match b.model {
+                Some(class) => Some(model::meta(vm, class)?),
+                None => None,
+            };
+            let mut obj = data_object(vm, &c.arg(0), meta.as_ref())?;
+            if meta.as_ref().is_none_or(|m| m.timestamps) {
+                let now = Value::Datetime(Datetime::now());
+                obj.insert("created_at", now.clone());
+                obj.insert("updated_at", now);
+            }
+            let mut bindings = BTreeMap::new();
+            bindings.insert("data".to_string(), Value::Object(obj));
+            let rows = query_one(vm, &format!("CREATE {} CONTENT $data", b.table), bindings)?;
+            Ok(first_of(hydrate(vm, b.model, rows)?))
+        })
+        .method("delete", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            if b.soft_deletes {
+                let mut obj = Object::new();
+                obj.insert("deleted_at", Value::Datetime(Datetime::now()));
+                let mut bindings = b.bindings.clone();
+                bindings.insert("data".into(), Value::Object(obj));
+                let rows = query_one(vm, &b.update_sql(), bindings)?;
+                return Ok(Val::Int(match rows {
+                    Value::Array(a) => a.len() as i64,
+                    _ => 0,
+                }));
+            }
+            let rows = query_one(vm, &b.delete_sql(), b.bindings.clone())?;
+            Ok(Val::Int(match rows {
+                Value::Array(a) => a.len() as i64,
+                _ => 0,
+            }))
+        })
+        .method("forceDelete", |vm, c| {
+            let mut b = this_data(vm, &c)?.clone();
+            b.with_trashed();
+            let rows = query_one(vm, &b.delete_sql(), b.bindings.clone())?;
+            Ok(Val::Int(match rows {
+                Value::Array(a) => a.len() as i64,
+                _ => 0,
+            }))
+        });
+    vm.register_class(def)?;
+    let _ = query; // used by siblings
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_like_the_php_builder() {
+        let mut b = BuilderData::new("tasks", true);
+        b.r#where("done", Value::Bool(false), "=").order_by("id", "desc");
+        assert_eq!(b.to_sql(10, 0), "SELECT * FROM tasks WHERE deleted_at IS NONE AND done = $f0 ORDER BY id DESC LIMIT 10 START 0");
+        assert_eq!(b.count_sql(), "SELECT count() AS total FROM tasks WHERE deleted_at IS NONE AND done = $f0 GROUP ALL");
+        assert_eq!(b.bindings().len(), 1);
+
+        let mut b = BuilderData::new("tasks", false);
+        b.sort("title:desc, id").where_like("title", "Alp").fetch("client").select("id, title").limit = Some(5);
+        assert_eq!(
+            b.select_sql(),
+            "SELECT id, title FROM tasks WHERE string::contains(string::lowercase(<string>title), $f0) ORDER BY title COLLATE DESC, id COLLATE ASC LIMIT 5 START 0 FETCH client"
+        );
+        assert_eq!(b.bindings()["f0"], Value::String("alp".into()));
+
+        let mut b = BuilderData::new("tasks", true);
+        b.with_trashed().where_in("id", vec![Value::Number(surrealdb::types::Number::Int(1))]).group_by(&["client"]);
+        assert_eq!(b.select_sql(), "SELECT * FROM tasks WHERE id INSIDE $f0 GROUP BY client");
+        assert_eq!(b.update_sql(), "UPDATE tasks MERGE $data WHERE id INSIDE $f0");
+        assert_eq!(b.delete_sql(), "DELETE FROM tasks WHERE id INSIDE $f0 RETURN BEFORE");
+
+        let mut b = BuilderData::new("tasks", true);
+        b.only_trashed();
+        assert_eq!(b.select_sql(), "SELECT * FROM tasks WHERE deleted_at IS NOT NONE");
+    }
+}

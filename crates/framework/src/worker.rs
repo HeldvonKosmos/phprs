@@ -6,8 +6,13 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-use grd_vm::value::{ObjHandle, Val};
+use std::collections::HashMap;
+
+use grd_vm::value::{ClassId, ObjHandle, Val};
 use grd_vm::vm::Vm;
+
+use crate::native::database::model::ModelMeta;
+use crate::native::database::surreal::{Db, DbConfig};
 
 use crate::http::HttpRequest;
 use crate::routes::RouteTable;
@@ -20,6 +25,12 @@ pub struct WorkerCtx {
     pub request: Option<RequestState>,
     /// The last log lines (newest last), for tests and the error page.
     pub logs: Vec<(String, String)>,
+    /// Database connection shared by all workers (`None`: not configured).
+    pub db: Option<Arc<Db>>,
+    /// Open client transaction of `DB::transaction(...)` on this worker.
+    pub txn: Option<surrealdb::method::Transaction<surrealdb::engine::any::Any>>,
+    /// Model metadata read once per class from the dialect declarations.
+    pub model_meta: HashMap<ClassId, ModelMeta>,
 }
 
 pub struct RequestState {
@@ -34,11 +45,12 @@ pub struct PoolOptions {
     pub root: PathBuf,
     pub workers: usize,
     pub settings: serde_json::Value,
+    pub database: Option<DbConfig>,
 }
 
 impl PoolOptions {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        PoolOptions { root: root.into(), workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2), settings: serde_json::Value::Null }
+        PoolOptions { root: root.into(), workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2), settings: serde_json::Value::Null, database: None }
     }
     pub fn workers(mut self, n: usize) -> Self {
         self.workers = n.max(1);
@@ -46,6 +58,10 @@ impl PoolOptions {
     }
     pub fn settings(mut self, s: serde_json::Value) -> Self {
         self.settings = s;
+        self
+    }
+    pub fn database(mut self, cfg: DbConfig) -> Self {
+        self.database = Some(cfg);
         self
     }
 }
@@ -65,10 +81,10 @@ pub enum PoolError {
 }
 
 /// Build a worker VM: prelude, native classes, host context, project.
-pub fn build_vm(options: &PoolOptions) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
+pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
     let mut vm = Vm::with_prelude().map_err(|t| format!("prelude: {}", t.message))?;
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
-    vm.set_host(Box::new(WorkerCtx { routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new() }));
+    vm.set_host(Box::new(WorkerCtx { routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new() }));
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
     Ok((vm, summary))
@@ -81,14 +97,21 @@ impl Pool {
         let (tx, rx) = mpsc::channel::<Job>();
         let rx = Arc::new(Mutex::new(rx));
         let (ready_tx, ready_rx) = mpsc::channel::<Result<usize, String>>();
+        // One connection for all workers: the SDK client multiplexes, and an
+        // in-memory database must be the same for every worker.
+        let db = match &options.database {
+            Some(cfg) => Some(Arc::new(Db::connect(cfg.clone())?)),
+            None => None,
+        };
         for id in 0..options.workers {
             let rx = Arc::clone(&rx);
             let ready = ready_tx.clone();
             let opts = options.clone();
+            let db = db.clone();
             std::thread::Builder::new()
                 .name(format!("grd-worker-{id}"))
                 .stack_size(64 * 1024 * 1024)
-                .spawn(move || worker_main(id, opts, rx, ready))
+                .spawn(move || worker_main(id, opts, db, rx, ready))
                 .map_err(|e| format!("spawn worker: {e}"))?;
         }
         drop(ready_tx);
@@ -135,8 +158,8 @@ impl Pool {
     }
 }
 
-fn worker_main(id: usize, options: PoolOptions, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>) {
-    let mut vm = match build_vm(&options) {
+fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>) {
+    let mut vm = match build_vm(&options, db.clone()) {
         Ok((vm, summary)) => {
             tracing::info!(target: "grd", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
             let _ = ready.send(Ok(id));
@@ -160,7 +183,7 @@ fn worker_main(id: usize, options: PoolOptions, rx: Arc<Mutex<mpsc::Receiver<Job
             // RUNTIME_ARCHITECTURE §11: the worker catches the panic; the
             // VM state is suspect afterwards, so rebuild it.
             tracing::error!(target: "grd", worker = id, "panic in worker; rebuilding VM");
-            match build_vm(&options) {
+            match build_vm(&options, db.clone()) {
                 Ok((fresh, _)) => vm = fresh,
                 Err(e) => {
                     tracing::error!(target: "grd", worker = id, error = %e, "cannot rebuild VM; worker exits");

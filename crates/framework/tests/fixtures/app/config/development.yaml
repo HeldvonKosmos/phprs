@@ -20,3 +20,7 @@ settings:
   opengrid:
     root: .
     workers: 2
+    database:
+      url: mem://
+      namespace: opengrid
+      database: fixture

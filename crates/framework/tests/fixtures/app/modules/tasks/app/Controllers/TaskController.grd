@@ -4,6 +4,7 @@ namespace Tasks\Controllers;
 use OpenGrid\Http\Response;
 use OpenGrid\Support\Config;
 use OpenGrid\Support\Log;
+use Tasks\Models\Task;
 
 final class TaskController
 {
@@ -55,5 +56,11 @@ final class TaskController
     public function redirect(): Response
     {
         return Response::redirect('/tasks');
+    }
+
+    public function db(): array
+    {
+        $task = Task::create(['title' => 'from http', 'done' => false]);
+        return ['id' => (string) $task->id, 'count' => Task::count(), 'first' => Task::query()->sort('title')->first()?->title];
     }
 }

@@ -9,3 +9,4 @@ Route::get('/hello', [TaskController::class, 'hello']);
 Route::get('/echoed', [TaskController::class, 'echoed']);
 Route::get('/boom', [TaskController::class, 'boom']);
 Route::get('/old', [TaskController::class, 'redirect']);
+Route::get('/db', [TaskController::class, 'db']);

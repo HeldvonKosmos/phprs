@@ -1,0 +1,371 @@
+//! `OpenGrid\Database\Model`: the native base class (DATABASE_LAYER.md §2.2).
+//! Metadata comes from the dialect subclass's declarations, once per class.
+
+use std::collections::BTreeMap;
+
+use grd_vm::error::Throw;
+use grd_vm::value::{ArrayKey, ClassId, ObjHandle, PhpArray, Val};
+use grd_vm::vm::{Call, NativeClassDef, ObjectHandlers, Vm};
+use indexmap::IndexMap;
+use surrealdb::types::{Datetime, Object, RecordId, Value};
+
+use super::builder::{self, BuilderData, data_object, hydrate};
+use super::record_id;
+use super::value::from_surreal;
+use super::query_one;
+use crate::native::ctx;
+
+pub const CLASS: &str = "OpenGrid\\Database\\Model";
+
+#[derive(Default)]
+pub struct ModelData {
+    pub attributes: IndexMap<String, Val>,
+    pub dirty: Vec<String>,
+    pub exists: bool,
+    pub id: Option<RecordId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModelMeta {
+    pub table: String,
+    pub fillable: Vec<String>,
+    pub hidden: Vec<String>,
+    pub dates: Vec<String>,
+    pub filterable: Vec<String>,
+    pub soft_deletes: bool,
+    pub timestamps: bool,
+}
+
+fn string_list(v: Option<Val>) -> Vec<String> {
+    match v {
+        Some(Val::Array(a)) => a.values().filter_map(|x| x.to_php_string().ok()).map(|s| s.to_string_lossy()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Declarations of the subclass, cached per class in the worker.
+pub fn meta(vm: &mut Vm, class: ClassId) -> Result<ModelMeta, Throw> {
+    if let Some(m) = ctx(vm).model_meta.get(&class) {
+        return Ok(m.clone());
+    }
+    let table = match vm.static_default(class, "table") {
+        Some(Val::Str(s)) => s.to_string_lossy(),
+        _ => return Err(Throw::error(format!("{} declares no `protected static string $table`", vm.class_name(class)))),
+    };
+    let m = ModelMeta {
+        table,
+        fillable: string_list(vm.instance_default(class, "fillable")),
+        hidden: string_list(vm.instance_default(class, "hidden")),
+        dates: string_list(vm.instance_default(class, "dates")),
+        filterable: string_list(vm.instance_default(class, "filterable")),
+        soft_deletes: vm.instance_default(class, "softDeletes").is_some_and(|v| v.to_bool()),
+        timestamps: vm.instance_default(class, "timestamps").is_none_or(|v| v.to_bool()),
+    };
+    ctx(vm).model_meta.insert(class, m.clone());
+    Ok(m)
+}
+
+pub fn data<'a>(vm: &'a mut Vm, h: ObjHandle) -> Result<&'a mut ModelData, Throw> {
+    vm.native_payload_mut::<ModelData>(h).ok_or_else(|| Throw::error("Model payload missing"))
+}
+
+pub fn new_builder(vm: &mut Vm, class: ClassId) -> Result<ObjHandle, Throw> {
+    let m = meta(vm, class)?;
+    builder::new_for_table(vm, &m.table, m.soft_deletes, Some(class))
+}
+
+/// A model instance from a record object.
+pub fn from_record(vm: &mut Vm, class: ClassId, record: Object) -> Result<Val, Throw> {
+    let h = vm.instantiate(class, Vec::new())?;
+    load_record(vm, h, record)?;
+    Ok(Val::Object(h))
+}
+
+fn load_record(vm: &mut Vm, h: ObjHandle, record: Object) -> Result<(), Throw> {
+    let mut id = None;
+    let mut attrs: Vec<(String, Val)> = Vec::new();
+    for (k, v) in record.into_inner() {
+        if k == "id"
+            && let Value::RecordId(r) = &v
+        {
+            id = Some(r.clone());
+        }
+        let val = from_surreal(vm, v)?;
+        attrs.push((k, val));
+    }
+    let d = data(vm, h)?;
+    d.attributes.clear();
+    for (k, v) in attrs {
+        d.attributes.insert(k, v);
+    }
+    d.id = id;
+    d.exists = true;
+    d.dirty.clear();
+    Ok(())
+}
+
+fn fill(vm: &mut Vm, h: ObjHandle, values: &Val) -> Result<(), Throw> {
+    let Val::Array(attrs) = values else { return Ok(()) };
+    let class = vm.class_of(h);
+    let fillable = meta(vm, class)?.fillable;
+    let d = data(vm, h)?;
+    for (k, v) in attrs.iter() {
+        let key = match k {
+            ArrayKey::Int(i) => i.to_string(),
+            ArrayKey::Str(s) => s.to_string_lossy(),
+        };
+        if fillable.is_empty() || fillable.contains(&key) {
+            d.attributes.insert(key.clone(), v.clone());
+            if !d.dirty.contains(&key) {
+                d.dirty.push(key);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn call_hook(vm: &mut Vm, h: ObjHandle, name: &str) -> Result<(), Throw> {
+    let class = vm.class_of(h);
+    if vm.has_method(class, name) {
+        vm.call_method_sync(h, name.as_bytes(), Vec::new())?;
+    }
+    Ok(())
+}
+
+fn attributes_array(vm: &mut Vm, h: ObjHandle, hide: bool) -> Result<Val, Throw> {
+    let class = vm.class_of(h);
+    let hidden = if hide { meta(vm, class)?.hidden } else { Vec::new() };
+    let d = data(vm, h)?;
+    let mut a = PhpArray::new();
+    for (k, v) in &d.attributes {
+        if !hidden.contains(k) {
+            a.insert(ArrayKey::from_str(k), v.clone());
+        }
+    }
+    Ok(Val::array(a))
+}
+
+fn save(vm: &mut Vm, h: ObjHandle) -> Result<Val, Throw> {
+    let class = vm.class_of(h);
+    let m = meta(vm, class)?;
+    let (exists, dirty, id, attrs) = {
+        let d = data(vm, h)?;
+        let mut attrs = PhpArray::new();
+        for (k, v) in &d.attributes {
+            if k != "id" && (!d.exists || d.dirty.contains(k)) {
+                attrs.insert(ArrayKey::from_str(k), v.clone());
+            }
+        }
+        (d.exists, d.dirty.clone(), d.id.clone(), Val::array(attrs))
+    };
+    if exists && dirty.is_empty() {
+        return Ok(Val::Bool(true));
+    }
+    let mut obj = data_object(vm, &attrs, Some(&m))?;
+    let now = Value::Datetime(Datetime::now());
+    if m.timestamps {
+        if !exists {
+            obj.insert("created_at", now.clone());
+        }
+        obj.insert("updated_at", now);
+    }
+    let mut bindings = BTreeMap::new();
+    bindings.insert("data".to_string(), Value::Object(obj));
+    let rows = if !exists {
+        call_hook(vm, h, "creating")?;
+        let explicit = data(vm, h)?.attributes.get("id").cloned();
+        match explicit {
+            Some(idv) if !idv.is_null() => {
+                let rid = record_id::from_val(vm, &m.table, &idv)?;
+                bindings.insert("rid".into(), Value::RecordId(rid));
+                query_one(vm, "CREATE $rid CONTENT $data", bindings)?
+            }
+            _ => query_one(vm, &format!("CREATE {} CONTENT $data", m.table), bindings)?,
+        }
+    } else {
+        call_hook(vm, h, "updating")?;
+        let rid = id.ok_or_else(|| Throw::error("model has no id; cannot update"))?;
+        bindings.insert("rid".into(), Value::RecordId(rid));
+        query_one(vm, "UPDATE $rid MERGE $data", bindings)?
+    };
+    let record = match rows {
+        Value::Array(a) => a.into_inner().into_iter().next(),
+        Value::Object(o) => Some(Value::Object(o)),
+        _ => None,
+    };
+    match record {
+        Some(Value::Object(o)) => load_record(vm, h, o)?,
+        _ => return Err(Throw::error("save: the database returned no record")),
+    }
+    call_hook(vm, h, if exists { "updated" } else { "created" })?;
+    call_hook(vm, h, "saved")?;
+    Ok(Val::Bool(true))
+}
+
+fn this_id(vm: &mut Vm, c: &Call) -> Result<RecordId, Throw> {
+    let h = c.this()?;
+    data(vm, h)?.id.clone().ok_or_else(|| Throw::error("model is not persisted"))
+}
+
+fn builder_call(vm: &mut Vm, c: Call, method: &[u8]) -> Result<Val, Throw> {
+    let b = new_builder(vm, c.class)?;
+    vm.call_method_sync(b, method, c.args)
+}
+
+pub fn register(vm: &mut Vm) -> Result<(), Throw> {
+    let def = NativeClassDef::new(CLASS)
+        .abstract_class()
+        .implements(&["JsonSerializable"])
+        .payload(|| Box::new(ModelData::default()))
+        .handlers(ObjectHandlers {
+            get: Some(|vm, h, name| Ok(vm.native_payload::<ModelData>(h).and_then(|m| m.attributes.get(&String::from_utf8_lossy(name).into_owned()).cloned()))),
+            set: Some(|vm, h, name, v| {
+                let key = String::from_utf8_lossy(name).into_owned();
+                let m = data(vm, h)?;
+                m.attributes.insert(key.clone(), v);
+                if !m.dirty.contains(&key) {
+                    m.dirty.push(key);
+                }
+                Ok(true)
+            }),
+            isset: Some(|vm, h, name| {
+                Ok(Some(vm.native_payload::<ModelData>(h).is_some_and(|m| m.attributes.get(&String::from_utf8_lossy(name).into_owned()).is_some_and(|v| !v.is_null()))))
+            }),
+            unset: Some(|vm, h, name| {
+                let key = String::from_utf8_lossy(name).into_owned();
+                let m = data(vm, h)?;
+                m.attributes.shift_remove(&key);
+                Ok(true)
+            }),
+            compare: None,
+        })
+        .method("__construct", |vm, c| {
+            let this = c.this()?;
+            fill(vm, this, &c.arg(0))?;
+            Ok(Val::Null)
+        })
+        // static entry points → Builder bound to the called class
+        .static_method("query", |vm, c| Ok(Val::Object(new_builder(vm, c.class)?)))
+        .static_method("where", |vm, c| builder_call(vm, c, b"where"))
+        .static_method("whereIn", |vm, c| builder_call(vm, c, b"whereIn"))
+        .static_method("whereLike", |vm, c| builder_call(vm, c, b"whereLike"))
+        .static_method("whereNull", |vm, c| builder_call(vm, c, b"whereNull"))
+        .static_method("orderBy", |vm, c| builder_call(vm, c, b"orderBy"))
+        .static_method("sort", |vm, c| builder_call(vm, c, b"sort"))
+        .static_method("select", |vm, c| builder_call(vm, c, b"select"))
+        .static_method("filter", |vm, c| builder_call(vm, c, b"filter"))
+        .static_method("withTrashed", |vm, c| builder_call(vm, c, b"withTrashed"))
+        .static_method("onlyTrashed", |vm, c| builder_call(vm, c, b"onlyTrashed"))
+        .static_method("all", |vm, c| builder_call(vm, c, b"get"))
+        .static_method("count", |vm, c| builder_call(vm, c, b"count"))
+        .static_method("first", |vm, c| builder_call(vm, c, b"first"))
+        .static_method("paginate", |vm, c| builder_call(vm, c, b"paginate"))
+        .static_method("find", |vm, c| {
+            let m = meta(vm, c.class)?;
+            let rid = record_id::from_val(vm, &m.table, &c.arg(0))?;
+            let b = new_builder(vm, c.class)?;
+            builder::data(vm, b)?.r#where("id", Value::RecordId(rid), "=");
+            vm.call_method_sync(b, b"first", Vec::new())
+        })
+        .static_method("findOrFail", |vm, c| {
+            let m = meta(vm, c.class)?;
+            let rid = record_id::from_val(vm, &m.table, &c.arg(0))?;
+            let b = new_builder(vm, c.class)?;
+            builder::data(vm, b)?.r#where("id", Value::RecordId(rid.clone()), "=");
+            let found = vm.call_method_sync(b, b"first", Vec::new())?;
+            if found.is_null() {
+                return Err(Throw::new("OpenGrid\\Database\\ModelNotFoundException", format!("{} {} not found", vm.class_name(c.class), surrealdb::types::ToSql::to_sql(&rid))));
+            }
+            Ok(found)
+        })
+        .static_method("create", |vm, c| {
+            let h = vm.instantiate(c.class, vec![c.arg(0)])?;
+            save(vm, h)?;
+            Ok(Val::Object(h))
+        })
+        // instance
+        .method("fill", |vm, c| {
+            let this = c.this()?;
+            fill(vm, this, &c.arg(0))?;
+            Ok(Val::Object(this))
+        })
+        .method("save", |vm, c| save(vm, c.this()?))
+        .method("update", |vm, c| {
+            let this = c.this()?;
+            fill(vm, this, &c.arg(0))?;
+            save(vm, this)
+        })
+        .method("delete", |vm, c| {
+            let this = c.this()?;
+            let class = vm.class_of(this);
+            let m = meta(vm, class)?;
+            let rid = this_id(vm, &c)?;
+            call_hook(vm, this, "deleting")?;
+            let mut bindings = BTreeMap::new();
+            bindings.insert("rid".to_string(), Value::RecordId(rid));
+            if m.soft_deletes {
+                let mut obj = Object::new();
+                obj.insert("deleted_at", Value::Datetime(Datetime::now()));
+                bindings.insert("data".into(), Value::Object(obj));
+                let rows = query_one(vm, "UPDATE $rid MERGE $data", bindings)?;
+                if let Value::Array(a) = rows
+                    && let Some(Value::Object(o)) = a.into_inner().into_iter().next()
+                {
+                    load_record(vm, this, o)?;
+                }
+            } else {
+                query_one(vm, "DELETE $rid", bindings)?;
+                data(vm, this)?.exists = false;
+            }
+            call_hook(vm, this, "deleted")?;
+            Ok(Val::Bool(true))
+        })
+        .method("forceDelete", |vm, c| {
+            let this = c.this()?;
+            let rid = this_id(vm, &c)?;
+            let mut bindings = BTreeMap::new();
+            bindings.insert("rid".to_string(), Value::RecordId(rid));
+            query_one(vm, "DELETE $rid", bindings)?;
+            data(vm, this)?.exists = false;
+            Ok(Val::Bool(true))
+        })
+        .method("refresh", |vm, c| {
+            let this = c.this()?;
+            let rid = this_id(vm, &c)?;
+            let mut bindings = BTreeMap::new();
+            bindings.insert("rid".to_string(), Value::RecordId(rid));
+            let rows = query_one(vm, "SELECT * FROM $rid", bindings)?;
+            if let Value::Array(a) = rows
+                && let Some(Value::Object(o)) = a.into_inner().into_iter().next()
+            {
+                load_record(vm, this, o)?;
+            }
+            Ok(Val::Object(this))
+        })
+        .method("toArray", |vm, c| attributes_array(vm, c.this()?, true))
+        .method("getAttributes", |vm, c| attributes_array(vm, c.this()?, false))
+        .method("jsonSerialize", |vm, c| {
+            // honours a dialect override of toArray()
+            vm.call_method_sync(c.this()?, b"toArray", Vec::new())
+        })
+        .method("getTable", |vm, c| {
+            let class = vm.class_of(c.this()?);
+            Ok(Val::str(&meta(vm, class)?.table))
+        })
+        .method("getKey", |vm, c| {
+            let this = c.this()?;
+            Ok(data(vm, this)?.attributes.get("id").cloned().unwrap_or(Val::Null))
+        })
+        .method("isDirty", |vm, c| {
+            let this = c.this()?;
+            Ok(Val::Bool(!data(vm, this)?.dirty.is_empty()))
+        })
+        .method("exists", |vm, c| {
+            let this = c.this()?;
+            Ok(Val::Bool(data(vm, this)?.exists))
+        });
+    vm.register_class(def)?;
+    let _ = hydrate;
+    let _: Option<BuilderData> = None;
+    Ok(())
+}

@@ -39,6 +39,9 @@ pub fn pool_options(settings: Option<&serde_json::Value>) -> PoolOptions {
     if let Some(n) = og.and_then(|o| o.get("workers")).and_then(|w| w.as_u64()) {
         opts = opts.workers(n as usize);
     }
+    if let Some(cfg) = crate::native::database::surreal::DbConfig::from_settings(settings) {
+        opts = opts.database(cfg);
+    }
     opts
 }
 
@@ -82,7 +85,12 @@ impl Hooks for OpenGridApp {
     async fn after_context(ctx: AppContext) -> Result<AppContext> {
         let opts = pool_options(ctx.config.settings.as_ref());
         tracing::info!(target: "grd", root = %opts.root.display(), workers = opts.workers, "starting VM pool");
-        let pool = Pool::start(opts).map_err(loco_rs::Error::Message)?;
+        // Pool::start blocks (workers load the project, the database connects
+        // with block_on), so it must not run on a Tokio thread.
+        let pool = tokio::task::spawn_blocking(move || Pool::start(opts))
+            .await
+            .map_err(|e| loco_rs::Error::Message(format!("pool start: {e}")))?
+            .map_err(loco_rs::Error::Message)?;
         ctx.shared_store.insert(PoolHandle(Arc::new(pool)));
         Ok(ctx)
     }
