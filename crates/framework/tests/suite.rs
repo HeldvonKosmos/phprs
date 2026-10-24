@@ -29,3 +29,5 @@ mod schema_ops;
 mod session;
 #[path = "suite/types.rs"]
 mod types;
+#[path = "suite/test_app.rs"]
+mod test_app;
