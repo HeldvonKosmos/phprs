@@ -232,7 +232,15 @@ impl UnitBuilder {
     pub fn mark_line(&mut self, line: u32) {
         if line != self.last_line {
             self.last_line = line;
-            self.emit(Op::Line(line));
+            let at = self.unit.ops.len() as u32;
+            // two marks at the same op: the later one wins
+            if let Some(last) = self.unit.lines.last_mut()
+                && last.0 == at
+            {
+                last.1 = line;
+            } else {
+                self.unit.lines.push((at, line));
+            }
         }
     }
 }

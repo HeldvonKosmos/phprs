@@ -49,8 +49,8 @@ impl Vm {
                 // through to `exec`, which keeps all semantics and errors
                 #[cfg(not(feature = "opstats"))]
                 match op {
-                    Op::Line(n) => {
-                        self.frames[fidx].line = *n;
+                    Op::Line(_) => {
+                        // old serialized modules only; lines come from the line table
                         ip += 1;
                         continue;
                     }
@@ -202,6 +202,61 @@ impl Vm {
                             continue;
                         }
                     }
+                    Op::FetchDim | Op::FetchDimQuiet => {
+                        let n = self.stack.len();
+                        if let Val::Array(a) = &self.stack[n - 2] {
+                            let key = match &self.stack[n - 1] {
+                                Val::Int(i) => Some(ArrayKey::Int(*i)),
+                                Val::Str(s) => Some(ArrayKey::from_string(s)),
+                                _ => None,
+                            };
+                            if let Some(k) = key
+                                && let Some(v) = a.get(&k)
+                            {
+                                let v = v.clone();
+                                self.stack.truncate(n - 2);
+                                self.stack.push(v);
+                                ip += 1;
+                                continue;
+                            }
+                        }
+                    }
+                    Op::StorePath(path) if path.mode == WriteMode::Assign => {
+                        // `$a[$k] = v` and `$a[] = v` on a local array
+                        if let PathBase::Slot(s) = path.base {
+                            let at = slot_base + s as usize;
+                            let n = self.stack.len();
+                            match path.segs.as_slice() {
+                                [PathSeg::Dim] if matches!(self.slot_stack[at], Some(Val::Array(_))) => {
+                                    let key = match &self.stack[n - 2] {
+                                        Val::Int(i) => Some(ArrayKey::Int(*i)),
+                                        Val::Str(s) => Some(ArrayKey::from_string(s)),
+                                        _ => None,
+                                    };
+                                    if let Some(k) = key {
+                                        let value = self.stack.pop().expect("value");
+                                        self.stack.pop();
+                                        if let Some(Val::Array(a)) = &mut self.slot_stack[at] {
+                                            Rc::make_mut(a).insert(k, value.clone());
+                                        }
+                                        self.stack.push(value);
+                                        ip += 1;
+                                        continue;
+                                    }
+                                }
+                                [PathSeg::Append] if matches!(self.slot_stack[at], Some(Val::Array(_))) => {
+                                    let value = self.stack.pop().expect("value");
+                                    if let Some(Val::Array(a)) = &mut self.slot_stack[at] {
+                                        Rc::make_mut(a).push(value.clone());
+                                    }
+                                    self.stack.push(value);
+                                    ip += 1;
+                                    continue;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     _ => {}
                 }
                 self.frames[fidx].ip = ip + 1;
@@ -272,7 +327,7 @@ impl Vm {
         let ip = self.frames[fidx].ip - 1;
         match op {
             Op::Nop => {}
-            Op::Line(n) => self.frames[fidx].line = *n,
+            Op::Line(_) => {}
             Op::Pop => {
                 self.pop();
             }
@@ -690,6 +745,67 @@ impl Vm {
                     }
                     self.push(r?);
                     return Ok(Flow::Next);
+                }
+                // user function, positional arguments: bind them from the stack
+                // straight into the new frame's slots (PERF1)
+                if let FuncRef::User { module: tm, unit: tu } = self.function_table[id.0 as usize]
+                    && aspec.is_simple()
+                {
+                    let tmod = self.modules[tm as usize].clone();
+                    let tunit = &tmod.units[tu as usize];
+                    let n = aspec.count();
+                    if !tunit.is_generator && n <= tunit.params.len() && !tunit.params.iter().any(|p| p.variadic) {
+                        let base = self.slot_stack.len();
+                        self.slot_stack.resize(base + tunit.num_slots as usize, None);
+                        let at = self.stack.len() - n;
+                        for i in 0..n {
+                            let v = std::mem::take(&mut self.stack[at + i]);
+                            let p = &tunit.params[i];
+                            match self.coerce_param(&tmod, tunit, p, v, None) {
+                                Ok(v) => self.slot_stack[base + p.slot as usize] = Some(v),
+                                Err(e) => {
+                                    self.slot_stack.truncate(base);
+                                    self.stack.truncate(at);
+                                    return Err(e);
+                                }
+                            }
+                        }
+                        self.stack.truncate(at);
+                        if tunit.params[n..].iter().any(|p| !p.has_default) {
+                            self.slot_stack.truncate(base);
+                            return Err(Throw::argument_count(format!(
+                                "Too few arguments to function {}(), {} passed and at least {} expected",
+                                tunit.name, n, tunit.required_params
+                            )));
+                        }
+                        let ic = self.ic_base[tm as usize] + tu as usize;
+                        {
+                            let prof = &mut self.profiles[ic];
+                            prof.calls = prof.calls.saturating_add(1);
+                            if prof.calls >= super::HOT_CALLS {
+                                prof.hot = true;
+                            }
+                        }
+                        let frame = super::Frame {
+                            module: tmod.clone(),
+                            module_idx: tm,
+                            unit: tu,
+                            ip: 0,
+                            slot_base: base,
+                            num_slots: tunit.num_slots,
+                            this: None,
+                            class: None,
+                            static_class: None,
+                            stack_base: self.stack.len(),
+                            arg_present: if n >= 64 { u64::MAX } else { (1u64 << n) - 1 },
+                            pending: Pending::None,
+                            generator: None,
+                            ic,
+                            return_override: None,
+                        };
+                        self.frames.push(frame);
+                        return Ok(Flow::Switch);
+                    }
                 }
                 let (args, named) = self.pop_args(midx, aspec)?;
                 let f = self.function_table[id.0 as usize].clone();

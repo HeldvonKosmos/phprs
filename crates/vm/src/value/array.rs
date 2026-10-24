@@ -26,6 +26,15 @@ impl ArrayKey {
             ArrayKey::Str(PhpString::from(b))
         }
     }
+    /// Like `from_bytes`, but a non-integer key shares the string instead of
+    /// copying its bytes (PERF1: no allocation per `$a['name']`).
+    pub fn from_string(s: &PhpString) -> ArrayKey {
+        if let Some(i) = canonical_int(s.as_bytes()) {
+            ArrayKey::Int(i)
+        } else {
+            ArrayKey::Str(s.clone())
+        }
+    }
     pub fn from_str(s: &str) -> ArrayKey {
         ArrayKey::from_bytes(s.as_bytes())
     }

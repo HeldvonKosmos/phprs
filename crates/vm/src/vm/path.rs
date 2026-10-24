@@ -17,7 +17,7 @@ impl Vm {
     pub(crate) fn to_array_key(&self, v: &Val) -> Result<ArrayKey, Throw> {
         Ok(match v {
             Val::Int(i) => ArrayKey::Int(*i),
-            Val::Str(s) => ArrayKey::from_bytes(s.as_bytes()),
+            Val::Str(s) => ArrayKey::from_string(s),
             Val::Bool(b) => ArrayKey::Int(*b as i64),
             Val::Float(f) => ArrayKey::Int(*f as i64),
             Val::Null => ArrayKey::Str(PhpString::new()),

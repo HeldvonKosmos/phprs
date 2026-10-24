@@ -150,7 +150,7 @@ impl Vm {
         Ok(present)
     }
 
-    fn coerce_param(&mut self, module: &Rc<Module>, unit: &CodeUnit, p: &Param, v: Val, class_ctx: Option<ClassId>) -> Result<Val, Throw> {
+    pub(crate) fn coerce_param(&mut self, module: &Rc<Module>, unit: &CodeUnit, p: &Param, v: Val, class_ctx: Option<ClassId>) -> Result<Val, Throw> {
         match &p.ty {
             None => Ok(v),
             Some(t) => match self.check_type(&v, t, module, class_ctx) {
@@ -307,7 +307,6 @@ impl Vm {
             arg_present: present,
             pending: Pending::None,
             generator: None,
-            line: unit.line,
             ic,
             return_override: target.return_override,
         };

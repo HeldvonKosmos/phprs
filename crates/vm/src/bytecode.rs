@@ -350,9 +350,19 @@ pub struct CodeUnit {
     pub is_generator: bool,
     pub uses_this: bool,
     pub line: u32,
+    /// Line table (PERF1, replaces `Op::Line`): `(op index, line)` where a new
+    /// source line starts, in index order.
+    #[serde(default)]
+    pub lines: Vec<(u32, u32)>,
 }
 
 impl CodeUnit {
+    /// Source line of the op at `ip` (the unit's own line before the first entry).
+    pub fn line_at(&self, ip: usize) -> u32 {
+        let i = self.lines.partition_point(|(at, _)| (*at as usize) <= ip);
+        if i == 0 { self.line } else { self.lines[i - 1].1 }
+    }
+
     pub fn new(name: String, line: u32) -> Self {
         CodeUnit {
             name,
@@ -367,6 +377,7 @@ impl CodeUnit {
             is_generator: false,
             uses_this: false,
             line,
+            lines: Vec::new(),
         }
     }
 }

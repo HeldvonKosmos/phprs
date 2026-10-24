@@ -102,11 +102,17 @@ pub struct Frame {
     pub arg_present: u64,
     pub(crate) pending: Pending,
     pub generator: Option<ObjHandle>,
-    pub line: u32,
     /// Index of this unit's inline-cache table in `Vm::ics`.
     pub ic: usize,
     /// Value pushed on return instead of the return value (`new`).
     pub return_override: Option<Val>,
+}
+
+impl Frame {
+    /// Source line of the op this frame executes (or called from).
+    pub fn line(&self) -> u32 {
+        self.module.units[self.unit as usize].line_at(self.ip.saturating_sub(1))
+    }
 }
 
 /// Payload of `Closure` objects.
@@ -356,8 +362,10 @@ impl Vm {
         self.frames.last_mut().expect("no frame")
     }
 
+    /// Line of the op the current frame is executing (its `ip` already points
+    /// past it while the op runs).
     pub(crate) fn current_line(&self) -> u32 {
-        self.frames.last().map(|f| f.line).unwrap_or(0)
+        self.frames.last().map(Frame::line).unwrap_or(0)
     }
 
     pub(crate) fn current_file(&self) -> String {

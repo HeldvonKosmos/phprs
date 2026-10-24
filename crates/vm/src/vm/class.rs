@@ -523,7 +523,7 @@ impl Vm {
             let caller = &self.frames[k - 1];
             let mut e = PhpArray::new();
             e.insert(ArrayKey::from_str("file"), Val::from(caller.module.file.clone()));
-            e.insert(ArrayKey::from_str("line"), Val::Int(caller.line as i64));
+            e.insert(ArrayKey::from_str("line"), Val::Int(caller.line() as i64));
             let unit_name = callee.module.units[callee.unit as usize].name.clone();
             let function = unit_name.rsplit("::").next().unwrap_or(&unit_name).to_string();
             if let Some(c) = callee.class {
