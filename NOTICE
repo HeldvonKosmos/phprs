@@ -1,0 +1,12 @@
+OpenGrid
+========
+
+This repository began as a fork of phprs (https://github.com/yingkitw/phprs,
+Apache License 2.0, see LICENSE). The original interpreter served as a
+quarry for builtin behaviour and for test material; its last state in this
+tree is tagged `legacy-core-last` (and the unmodified upstream as
+`upstream-baseline`). The current interpreter (crates/vm, "grd-vm") and the
+framework (crates/framework) are new code written for the OpenGrid dialect.
+
+Test scripts harvested from the phprs test suite live under
+crates/vm/tests/probes/legacy_* with PHP 8.4 output as the reference.

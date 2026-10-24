@@ -1,10 +1,9 @@
-# OpenGrid workspace. The new VM is crates/vm (grd-vm); legacy/core is the
-# frozen phprs interpreter kept for its tests and as reference.
+# OpenGrid workspace: crates/vm (grd-vm, the dialect VM), crates/framework
+# (Loco hooks, worker pool, natives), crates/pkg (module manager). The old
+# phprs core was removed on 2026-10-24; see NOTICE and tag legacy-core-last.
 [workspace]
 resolver = "2"
 members = [
-    "legacy/core",
-    "bin/phprs",
     "crates/vm",
     "crates/framework",
     "crates/pkg",
