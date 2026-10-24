@@ -339,6 +339,12 @@ impl Vm {
         self.frames.last().expect("no frame")
     }
 
+    /// Scope class for visibility checks; without a running frame (calls from
+    /// Rust between requests) the scope is global: only public members.
+    pub(crate) fn scope_class(&self) -> Option<ClassId> {
+        self.frames.last().and_then(|f| f.class)
+    }
+
     #[allow(dead_code)]
     pub(crate) fn frame_mut(&mut self) -> &mut Frame {
         self.frames.last_mut().expect("no frame")

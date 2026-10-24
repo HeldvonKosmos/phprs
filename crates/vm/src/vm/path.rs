@@ -136,7 +136,7 @@ impl Vm {
             Loc::Slot(s) => self.slot_stack[self.frames.last().expect("frame").slot_base + *s as usize].take().unwrap_or(Val::Null),
             Loc::Obj(h, name) => {
                 let class = self.objects.get(*h).class;
-                let scope = self.frame().class;
+                let scope = self.scope_class();
                 match self.lookup_prop(class, name, scope) {
                     super::class::PropLookup::Slot(idx) => self.objects.get_mut(*h).slots[idx].take().unwrap_or(Val::Null),
                     super::class::PropLookup::Undeclared => {
@@ -171,7 +171,7 @@ impl Vm {
             Loc::Slot(s) => self.slot_stack[self.frames.last().expect("frame").slot_base + *s as usize] = Some(v),
             Loc::Obj(h, name) => {
                 let class = self.objects.get(*h).class;
-                let scope = self.frame().class;
+                let scope = self.scope_class();
                 match self.lookup_prop(class, name, scope) {
                     super::class::PropLookup::Slot(idx) => self.objects.get_mut(*h).slots[idx] = Some(v),
                     _ => {
@@ -280,7 +280,7 @@ impl Vm {
     /// Direct property write with visibility, readonly and `__set`.
     pub(crate) fn write_prop(&mut self, h: ObjHandle, name: &[u8], mode: WriteMode, value: Val) -> Result<Val, Throw> {
         let class = self.objects.get(h).class;
-        let scope = self.frame().class;
+        let scope = self.scope_class();
         match self.lookup_prop(class, name, scope) {
             super::class::PropLookup::Slot(idx) => {
                 let (readonly, declaring, ty, info_module) = {
@@ -367,7 +367,7 @@ impl Vm {
     /// Property read with visibility and `__get`.
     pub(crate) fn read_prop(&mut self, h: ObjHandle, name: &[u8], quiet: bool) -> Result<Val, Throw> {
         let class = self.objects.get(h).class;
-        let scope = self.frame().class;
+        let scope = self.scope_class();
         match self.lookup_prop(class, name, scope) {
             super::class::PropLookup::Slot(idx) => match &self.objects.get(h).slots[idx] {
                 Some(v) => Ok(v.clone()),
@@ -510,7 +510,7 @@ impl Vm {
                 let obj = self.read_through(base, head, &keys[..n_head], module)?;
                 let Val::Object(h) = obj else { return Ok(()) };
                 let class = self.objects.get(h).class;
-                let scope = self.frame().class;
+                let scope = self.scope_class();
                 match self.lookup_prop(class, &name, scope) {
                     super::class::PropLookup::Slot(idx) => self.objects.get_mut(h).slots[idx] = None,
                     _ => {

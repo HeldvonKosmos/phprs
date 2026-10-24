@@ -62,12 +62,12 @@ impl Vm {
                 let name = self.str_of(module, *id).to_vec();
                 self.lookup_class(&name).ok_or_else(|| Throw::error(format!("Class \"{}\" not found", String::from_utf8_lossy(&name))))
             }
-            ClassRef::SelfRef => self.frame().class.ok_or_else(|| Throw::error("Cannot use \"self\" when no class scope is active")),
+            ClassRef::SelfRef => self.scope_class().ok_or_else(|| Throw::error("Cannot use \"self\" when no class scope is active")),
             ClassRef::Parent => {
-                let c = self.frame().class.ok_or_else(|| Throw::error("Cannot use \"parent\" when no class scope is active"))?;
+                let c = self.scope_class().ok_or_else(|| Throw::error("Cannot use \"parent\" when no class scope is active"))?;
                 self.class(c).parent.ok_or_else(|| Throw::error("Cannot use \"parent\" when current class scope has no parent"))
             }
-            ClassRef::Static => self.frame().static_class.or(self.frame().class).ok_or_else(|| Throw::error("Cannot use \"static\" when no class scope is active")),
+            ClassRef::Static => self.frame().static_class.or(self.scope_class()).ok_or_else(|| Throw::error("Cannot use \"static\" when no class scope is active")),
             ClassRef::Dynamic => {
                 let v = self.pop();
                 self.class_of_value(&v)
