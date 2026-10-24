@@ -212,7 +212,8 @@ fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-/// `HttpException` → its status; `ValidationException` → 422 with errors.
+/// `HttpException` → its status; `ValidationException` → 422 with errors;
+/// `ModelNotFoundException` → 404.
 fn http_exception_response(vm: &mut Vm, h: grd_vm::value::ObjHandle) -> Option<HttpResponse> {
     let class = vm.class_of(h);
     let message = |vm: &mut Vm| vm.call_method_sync(h, b"getMessage", Vec::new()).ok().and_then(|m| m.to_php_string().ok()).map(|s| s.to_string_lossy()).unwrap_or_default();
@@ -223,6 +224,17 @@ fn http_exception_response(vm: &mut Vm, h: grd_vm::value::ObjHandle) -> Option<H
         let errors = grd_vm::json::to_json(vm, &errors, false).ok()?;
         let body = format!("{{\"message\":{},\"errors\":{}}}", serde_json::Value::String(message(vm)), String::from_utf8_lossy(&errors));
         return Some(HttpResponse::json(422, body.into_bytes()));
+    }
+    if let Some(mn) = vm.lookup_class(b"OpenGrid\\Database\\ModelNotFoundException")
+        && vm.instance_of(class, mn)
+    {
+        let msg = message(vm);
+        let html = wants_html(vm);
+        return Some(if html {
+            render_error(vm, ErrorInfo { status: 404, class: "ModelNotFoundException".into(), message: msg, ..Default::default() }, true)
+        } else {
+            error_json(404, "ModelNotFoundException", msg, None)
+        });
     }
     if let Some(he) = vm.lookup_class(b"OpenGrid\\Http\\HttpException")
         && vm.instance_of(class, he)
