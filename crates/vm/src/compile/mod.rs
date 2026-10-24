@@ -11,6 +11,7 @@ mod names;
 mod stmt;
 mod class;
 mod capture;
+pub mod typecheck;
 
 use std::collections::HashMap;
 
@@ -75,6 +76,48 @@ pub fn compile_source(file_name: &str, source: &[u8]) -> CResult<Module> {
     let mut c = Compiler::new(file_name, source);
     c.compile_program(program)?;
     Ok(c.module)
+}
+
+/// Result of `check_source` (report mode, DX1).
+#[derive(Debug, Default)]
+pub struct CheckReport {
+    /// First syntax error, if the file does not parse (then nothing else is counted).
+    pub syntax_error: Option<String>,
+    /// Every dialect error found, at most one per statement.
+    pub errors: Vec<CompileError>,
+    /// GRD021 measurement (not enforced).
+    pub grd021: typecheck::Grd021Counts,
+    /// The compiler panicked on this file after an earlier error (counted, not fatal).
+    pub panicked: bool,
+}
+
+/// Check a file without stopping at the first dialect error: collects all
+/// errors (one per statement) and the GRD021 counts. Nothing is enforced.
+pub fn check_source(file_name: &str, source: &[u8]) -> CheckReport {
+    let arena = LocalArena::new();
+    let file = File::ephemeral(std::borrow::Cow::Owned(file_name.as_bytes().to_vec()), std::borrow::Cow::Owned(normalize_open_tag(source)));
+    let program = parse_file(&arena, &file);
+    let mut report = CheckReport::default();
+    if let Some(err) = program.errors.first() {
+        report.syntax_error = Some(format!("{err}"));
+        return report;
+    }
+    report.grd021 = typecheck::count_grd021(program, source);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut c = Compiler::new(file_name, source);
+        c.report = Some(Vec::new());
+        let r = c.compile_program(program);
+        let mut errors = c.report.take().unwrap_or_default();
+        if let Err(e) = r {
+            errors.push(e);
+        }
+        errors
+    }));
+    match result {
+        Ok(errors) => report.errors = errors,
+        Err(_) => report.panicked = true,
+    }
+    report
 }
 
 /// `<?grd` is the dialect's opening tag (DIALECT §2); `<?php` stays accepted.
@@ -253,6 +296,9 @@ pub struct Compiler<'src> {
     pub(crate) class_stack: Vec<ClassCtx>,
     pub(crate) units: Vec<UnitBuilder>,
     anon_class_counter: u32,
+    /// Report mode (`grd check --report`, DX1): errors of a statement are
+    /// collected here and compilation continues with the next statement.
+    pub(crate) report: Option<Vec<CompileError>>,
 }
 
 impl<'src> Compiler<'src> {
@@ -267,6 +313,7 @@ impl<'src> Compiler<'src> {
             class_stack: Vec::new(),
             units: Vec::new(),
             anon_class_counter: 0,
+            report: None,
         }
     }
 

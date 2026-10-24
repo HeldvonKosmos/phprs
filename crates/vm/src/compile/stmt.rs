@@ -32,7 +32,12 @@ impl Compiler<'_> {
         stmts: impl Iterator<Item = &'a Statement<'arena>>,
     ) -> CResult<()> {
         for s in stmts {
-            self.compile_statement(s)?;
+            match self.compile_statement(s) {
+                Ok(()) => {}
+                // report mode: note the error, go on with the next statement
+                Err(e) if self.report.is_some() => self.report.as_mut().expect("report").push(e),
+                Err(e) => return Err(e),
+            }
         }
         Ok(())
     }
