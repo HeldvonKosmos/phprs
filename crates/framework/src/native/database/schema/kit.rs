@@ -107,6 +107,13 @@ pub async fn rollout_plan(db: &Surreal<Any>, root: &Path, name: &str) -> Result<
     let f2 = f.clone();
     guarded("rollout plan", async move { run_plan(&f2, opts).await }).await?;
     let id = manifests(root).into_iter().find(|m| !before.contains(m)).ok_or_else(|| KitError("rollout plan: no change against the last snapshot, nothing planned".into()))?;
+    // SurrealKit writes an empty manifest (source == target, no steps) when
+    // nothing changed; a rollout that does nothing is not kept
+    if unchanged(root, &id) {
+        let (f3, id2) = (f.clone(), id.clone());
+        guarded("rollout discard", async move { surrealkit::rollout::run_discard(&f3, &id2, false) }).await?;
+        return Err(KitError("rollout plan: the schema has not changed since the last rollout, nothing planned".into()));
+    }
     let report = super::preflight::check(db, root, &id).await?;
     if !report.passed() {
         let (f3, id2) = (f.clone(), id.clone());
@@ -151,6 +158,13 @@ pub async fn rollout_status(db: &Surreal<Any>, root: &Path) -> Result<String, Ki
     .await
 }
 
+/// Planned rollouts the database has not run yet, in order (an interrupted
+/// or rolled-back one first).
+pub async fn pending(db: &Surreal<Any>, root: &Path) -> Result<Vec<String>, KitError> {
+    let (db, f) = (db.clone(), folder_str(root));
+    guarded("rollout pending", async move { Ok(Rollouts::load(f)?.pending(&db).await?.pending) }).await
+}
+
 /// Ids of the planned rollouts (manifest file names without `.toml`), sorted.
 pub fn manifests(root: &Path) -> Vec<String> {
     let mut ids: Vec<String> = std::fs::read_dir(folder(root).join("rollouts"))
@@ -158,6 +172,15 @@ pub fn manifests(root: &Path) -> Vec<String> {
         .unwrap_or_default();
     ids.sort();
     ids
+}
+
+/// Manifest whose source and target schema hash are equal (no change).
+fn unchanged(root: &Path, id: &str) -> bool {
+    let p = folder(root).join("rollouts").join(format!("{id}.toml"));
+    let Ok(text) = std::fs::read_to_string(p) else { return false };
+    let Ok(m) = toml::from_str::<toml::Value>(&text) else { return false };
+    let h = |k: &str| m.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    h("source_schema_hash").is_some() && h("source_schema_hash") == h("target_schema_hash")
 }
 
 fn folder_str(root: &Path) -> String {

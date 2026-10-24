@@ -75,3 +75,6 @@ flamegraph.svg
 AGENTS.md
 MEMORY.md
 
+
+# written by migrate_push / schema sync in tests (generated)
+crates/framework/tests/fixtures/app/database/schema/temporary.surql

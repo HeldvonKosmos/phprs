@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use opengrid_framework::dispatch::handle;
-use opengrid_framework::native::database::migrator;
+use opengrid_framework::native::database::schema::kit::SyncOptions;
+use opengrid_framework::native::database::schema::ops;
 use opengrid_framework::native::database::surreal::DbConfig;
 use opengrid_framework::{HttpRequest, Pool, PoolOptions};
 
@@ -15,7 +16,8 @@ fn root() -> PathBuf {
 
 fn pool(db: &str) -> Arc<Pool> {
     let pool = Arc::new(Pool::start(PoolOptions::new(root()).workers(1).database(DbConfig::mem("test", db))).expect("pool starts"));
-    pool.run_sync(|vm| migrator::migrate(vm, &root()).map_err(|t| t.message)).unwrap().expect("migrate");
+    let db = pool.db().expect("database");
+    db.block_on(ops::push(db.client(), &root(), SyncOptions::default())).expect("schema push");
     pool
 }
 

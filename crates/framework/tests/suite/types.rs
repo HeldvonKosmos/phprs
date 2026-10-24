@@ -5,7 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use opengrid_framework::native::database::migrator;
+use opengrid_framework::native::database::schema::kit::SyncOptions;
+use opengrid_framework::native::database::schema::ops;
 use opengrid_framework::native::database::surreal::DbConfig;
 use opengrid_framework::{Pool, PoolOptions};
 
@@ -15,7 +16,8 @@ fn root() -> PathBuf {
 
 fn pool(cfg: DbConfig) -> Arc<Pool> {
     let pool = Arc::new(Pool::start(PoolOptions::new(root()).workers(1).database(cfg)).expect("pool starts"));
-    pool.run_sync(|vm| migrator::migrate(vm, &root()).map_err(|t| t.message)).unwrap().expect("migrate");
+    let db = pool.db().expect("database");
+    db.block_on(ops::push(db.client(), &root(), SyncOptions::default())).expect("schema push");
     pool
 }
 
@@ -139,7 +141,7 @@ fn round_trip_real_server() {
     };
     let pool = pool(cfg);
     check(&run(&pool, ROUND_TRIP));
-    run(&pool, "<?grd\nuse OpenGrid\\Database\\DB;\nDB::statement('REMOVE TABLE IF EXISTS measurements'); DB::statement('REMOVE TABLE IF EXISTS tasks'); DB::statement('REMOVE TABLE IF EXISTS comments'); DB::statement('REMOVE TABLE IF EXISTS _opengrid_migrations');");
+    run(&pool, "<?grd\nuse OpenGrid\\Database\\DB;\nDB::statement('REMOVE TABLE IF EXISTS measurements'); DB::statement('REMOVE TABLE IF EXISTS tasks'); DB::statement('REMOVE TABLE IF EXISTS comments');");
 }
 
 /// B2a: a loaded model keeps the raw SDK fields and converts a field only when

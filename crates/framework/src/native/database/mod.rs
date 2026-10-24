@@ -5,7 +5,6 @@
 pub mod builder;
 pub mod db;
 pub mod inflect;
-pub mod migrator;
 pub mod model;
 pub mod record_id;
 pub mod schema;
@@ -28,7 +27,6 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     model::register(vm)?;
     db::register(vm)?;
     schema::register(vm)?;
-    migrator::register(vm)?;
     Ok(())
 }
 

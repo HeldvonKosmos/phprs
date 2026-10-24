@@ -1,5 +1,9 @@
-//! `OpenGrid\Database\Schema` and `Blueprint` (DATABASE_LAYER.md §2 "schema.rs"):
-//! `Schema::create('tasks', fn(Blueprint $t) => ...)` → `DEFINE TABLE/FIELD/INDEX … IF NOT EXISTS`.
+//! Declarative schema (DECISIONS "Schema-Verwaltung deklarativ", R4): the
+//! `.surql` sources of a project are merged (`build_surql`) and applied with
+//! the embedded SurrealKit (`ops`, `kit`). There is no imperative path: the
+//! dialect's `Schema` class only *generates* statements (`Schema::sql`, for
+//! writing `blueprint.surql`) and reads the current state (`hasTable`,
+//! `hasColumn`, `columns`); it never changes the database.
 
 use grd_vm::error::Throw;
 use grd_vm::value::{ArrayKey, ObjHandle, PhpArray, Val};
@@ -11,6 +15,7 @@ pub mod dbinfo;
 pub mod generator;
 pub mod kit;
 pub mod merge;
+pub mod ops;
 pub mod parser;
 pub mod preflight;
 pub mod sources;
@@ -27,7 +32,6 @@ pub fn build_surql(root: &std::path::Path, framework: Option<&str>) -> std::io::
     Ok((text, schema.warnings))
 }
 
-use super::query;
 use super::value::to_surreal;
 use crate::native::string_arg;
 
@@ -168,12 +172,6 @@ fn build(vm: &mut Vm, table: &str, closure: &Val, create: bool) -> Result<Vec<St
     Ok(bp(vm, h)?.statements(create))
 }
 
-fn execute(vm: &mut Vm, statements: &[String]) -> Result<(), Throw> {
-    for s in statements {
-        query(vm, s, Default::default())?;
-    }
-    Ok(())
-}
 
 fn info_keys(vm: &mut Vm, sql: &str, section: &str) -> Result<Vec<String>, Throw> {
     let v = super::query_one(vm, sql, Default::default())?;
@@ -321,34 +319,12 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
 
     let schema = NativeClassDef::new(SCHEMA)
         .final_class()
-        .static_method("create", |vm, c| {
-            let table = string_arg(&c, 0, "Schema::create")?;
-            let statements = build(vm, &table, &c.arg(1), true)?;
-            execute(vm, &statements)?;
-            Ok(Val::Null)
-        })
         .method("__construct", |_, _| Err(Throw::error("Schema is static")))
-        .static_method("table", |vm, c| {
-            let table = string_arg(&c, 0, "Schema::table")?;
-            let statements = build(vm, &table, &c.arg(1), false)?;
-            execute(vm, &statements)?;
-            Ok(Val::Null)
-        })
         .static_method("sql", |vm, c| {
             let table = string_arg(&c, 0, "Schema::sql")?;
             let create = c.args.get(2).is_none_or(|v| v.to_bool());
             let statements = build(vm, &table, &c.arg(1), create)?;
             Ok(Val::array(PhpArray::from_values(statements.iter().map(|s| Val::str(s)))))
-        })
-        .static_method("drop", |vm, c| {
-            let table = string_arg(&c, 0, "Schema::drop")?;
-            query(vm, &format!("REMOVE TABLE IF EXISTS {table}"), Default::default())?;
-            Ok(Val::Null)
-        })
-        .static_method("dropIfExists", |vm, c| {
-            let table = string_arg(&c, 0, "Schema::dropIfExists")?;
-            query(vm, &format!("REMOVE TABLE IF EXISTS {table}"), Default::default())?;
-            Ok(Val::Null)
         })
         .static_method("hasTable", |vm, c| {
             let table = string_arg(&c, 0, "Schema::hasTable")?;

@@ -119,6 +119,11 @@ pub async fn check(db: &Surreal<Any>, root: &Path, id: &str) -> Result<Report, K
         }
     }
 
+    // no frozen schema and no inline DDL: the rollout applies no schema, so
+    // nothing can be removed or redefined except by steps (checked above)
+    if target.trim().is_empty() {
+        return Ok(report);
+    }
     let scratch = surrealdb::engine::any::connect("mem://").await.map_err(|e| err(format!("preflight: scratch database: {e}")))?;
     scratch.use_ns("preflight").use_db("preflight").await.map_err(|e| err(format!("preflight: scratch database: {e}")))?;
     scratch

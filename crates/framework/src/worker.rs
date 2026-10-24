@@ -114,6 +114,8 @@ pub struct Pool {
     /// Bumped on reload; a worker whose VM is older rebuilds it before its next job.
     generation: Arc<AtomicU64>,
     sessions: Arc<SessionStore>,
+    /// The pool's one database connection (shared by all workers).
+    db: Option<Arc<Db>>,
 }
 
 #[derive(Debug)]
@@ -179,7 +181,7 @@ impl Pool {
         if options.watch {
             start_watcher(options.root.clone(), Arc::clone(&generation));
         }
-        Ok(Pool { tx, workers: options.workers, options, generation, sessions })
+        Ok(Pool { tx, workers: options.workers, options, generation, sessions, db })
     }
 
     /// Ask every worker to rebuild its VM before its next job (hot reload).
@@ -201,6 +203,11 @@ impl Pool {
 
     pub fn options(&self) -> &PoolOptions {
         &self.options
+    }
+
+    /// The database connection, for schema operations outside a worker.
+    pub fn db(&self) -> Option<Arc<Db>> {
+        self.db.clone()
     }
 
     fn submit(&self, job: Job) {

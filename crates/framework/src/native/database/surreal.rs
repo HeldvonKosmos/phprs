@@ -25,19 +25,77 @@ impl DbConfig {
         DbConfig { url: "mem://".into(), namespace: namespace.into(), database: database.into(), username: None, password: None }
     }
 
-    /// `settings.opengrid.database.{url,namespace,database,username,password}`;
-    /// `OPENGRID_DB_URL` overrides the url.
+    /// Connection from environment and settings (R4e). Order:
+    /// 1. `OPENGRID_DB_URL` (with the rest from the settings);
+    /// 2. the platform variables `SURREAL_DB_HOST`, `_PORT`, `_NAMESPACE`,
+    ///    `_DATABASE`, `_USERNAME`, `_PASSWORD` — server mode; defaults
+    ///    localhost, 8000, main, main, root, root, so an existing platform
+    ///    `.env` works unchanged; only `SURREAL_DB_HOST` switches it on;
+    /// 3. `settings.opengrid.database.{url,namespace,database,username,password}`
+    ///    (embedded `mem://` / `surrealkv://…` or a server URL).
     pub fn from_settings(settings: Option<&serde_json::Value>) -> Option<DbConfig> {
-        let d = settings?.get("opengrid")?.get("database")?;
-        let s = |k: &str| d.get(k).and_then(|v| v.as_str()).map(str::to_string);
-        let url = std::env::var("OPENGRID_DB_URL").ok().or_else(|| s("url"))?;
+        Self::from_sources(|k| std::env::var(k).ok(), settings)
+    }
+
+    pub fn from_sources(env: impl Fn(&str) -> Option<String>, settings: Option<&serde_json::Value>) -> Option<DbConfig> {
+        let d = settings.and_then(|s| s.get("opengrid")).and_then(|o| o.get("database"));
+        let s = |k: &str| d.and_then(|d| d.get(k)).and_then(|v| v.as_str()).map(str::to_string);
+        if let Some(url) = env("OPENGRID_DB_URL") {
+            return Some(DbConfig {
+                url,
+                namespace: s("namespace").unwrap_or_else(|| "opengrid".into()),
+                database: s("database").unwrap_or_else(|| "opengrid".into()),
+                username: s("username"),
+                password: s("password"),
+            });
+        }
+        if let Some(host) = env("SURREAL_DB_HOST") {
+            let v = |k: &str, default: &str| env(k).filter(|x| !x.is_empty()).unwrap_or_else(|| default.to_string());
+            let host = if host.is_empty() { "localhost".to_string() } else { host };
+            let url = if host.contains("://") { host } else { format!("ws://{host}:{}", v("SURREAL_DB_PORT", "8000")) };
+            return Some(DbConfig {
+                url,
+                namespace: v("SURREAL_DB_NAMESPACE", "main"),
+                database: v("SURREAL_DB_DATABASE", "main"),
+                username: Some(v("SURREAL_DB_USERNAME", "root")),
+                password: Some(v("SURREAL_DB_PASSWORD", "root")),
+            });
+        }
         Some(DbConfig {
-            url,
+            url: s("url")?,
             namespace: s("namespace").unwrap_or_else(|| "opengrid".into()),
             database: s("database").unwrap_or_else(|| "opengrid".into()),
             username: s("username"),
             password: s("password"),
         })
+    }
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::DbConfig;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn platform_variables_select_server_mode() {
+        let c = DbConfig::from_sources(env(&[("SURREAL_DB_HOST", "db.internal")]), None).unwrap();
+        assert_eq!((c.url.as_str(), c.namespace.as_str(), c.database.as_str()), ("ws://db.internal:8000", "main", "main"));
+        assert_eq!((c.username.as_deref(), c.password.as_deref()), (Some("root"), Some("root")));
+        let c = DbConfig::from_sources(env(&[("SURREAL_DB_HOST", "h"), ("SURREAL_DB_PORT", "30801"), ("SURREAL_DB_NAMESPACE", "n"), ("SURREAL_DB_DATABASE", "d"), ("SURREAL_DB_USERNAME", "u"), ("SURREAL_DB_PASSWORD", "p")]), None).unwrap();
+        assert_eq!((c.url.as_str(), c.namespace.as_str(), c.database.as_str(), c.username.as_deref(), c.password.as_deref()), ("ws://h:30801", "n", "d", Some("u"), Some("p")));
+    }
+
+    #[test]
+    fn settings_and_override() {
+        let settings = serde_json::json!({"opengrid": {"database": {"url": "surrealkv://data/db", "namespace": "app"}}});
+        let c = DbConfig::from_sources(env(&[]), Some(&settings)).unwrap();
+        assert_eq!((c.url.as_str(), c.namespace.as_str(), c.database.as_str()), ("surrealkv://data/db", "app", "opengrid"));
+        let c = DbConfig::from_sources(env(&[("OPENGRID_DB_URL", "mem://"), ("SURREAL_DB_HOST", "ignored")]), Some(&settings)).unwrap();
+        assert_eq!(c.url, "mem://");
+        assert!(DbConfig::from_sources(env(&[]), None).is_none());
     }
 }
 

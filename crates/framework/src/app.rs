@@ -20,12 +20,17 @@ use loco_rs::Result;
 
 use crate::dispatch;
 use crate::http::{HttpResponse, from_axum, into_axum};
+use crate::native::database::schema::kit::{self, SyncOptions};
+use crate::native::database::schema::ops as schema_ops;
 use crate::worker::{Pool, PoolOptions};
 
 #[derive(Clone)]
 pub struct PoolHandle(pub Arc<Pool>);
 
 pub struct OpenGridApp;
+
+/// The process's VM pool, started by the first `after_context`.
+static PROCESS_POOL: tokio::sync::Mutex<Option<Arc<Pool>>> = tokio::sync::Mutex::const_new(None);
 
 /// `settings.opengrid.root` / `OPENGRID_ROOT` (default `.`),
 /// `settings.opengrid.workers` (default: cores), `debug` and `watch`
@@ -92,13 +97,27 @@ impl Hooks for OpenGridApp {
         let dev = matches!(ctx.environment, Environment::Development);
         let opts = pool_options(ctx.config.settings.as_ref(), dev);
         tracing::info!(target: "grd", root = %opts.root.display(), workers = opts.workers, debug = opts.debug, watch = opts.watch, "starting VM pool");
-        // Pool::start blocks (workers load the project, the database connects
-        // with block_on), so it must not run on a Tokio thread.
-        let pool = tokio::task::spawn_blocking(move || Pool::start(opts))
-            .await
-            .map_err(|e| loco_rs::Error::Message(format!("pool start: {e}")))?
-            .map_err(loco_rs::Error::Message)?;
-        ctx.shared_store.insert(PoolHandle(Arc::new(pool)));
+        // One pool (and one database connection) per process: Loco's CLI
+        // builds the app context twice on `start` (once for the logger, once
+        // in create_app), and an embedded surrealkv database can be opened
+        // only once per process (DECISIONS: surrealkv keeps its lock).
+        let mut slot = PROCESS_POOL.lock().await;
+        let pool = match slot.as_ref() {
+            Some(p) => Arc::clone(p),
+            None => {
+                // Pool::start blocks (workers load the project, the database
+                // connects with block_on), so it must not run on a Tokio thread.
+                let p = tokio::task::spawn_blocking(move || Pool::start(opts))
+                    .await
+                    .map_err(|e| loco_rs::Error::Message(format!("pool start: {e}")))?
+                    .map_err(loco_rs::Error::Message)?;
+                let p = Arc::new(p);
+                *slot = Some(Arc::clone(&p));
+                p
+            }
+        };
+        drop(slot);
+        ctx.shared_store.insert(PoolHandle(pool));
         Ok(ctx)
     }
 
@@ -110,67 +129,106 @@ impl Hooks for OpenGridApp {
         Ok(())
     }
 
+    /// Production start (runs only when the server or workers start, not for
+    /// `opengrid task …`): run the planned rollouts after their preflight
+    /// check. Any failure is returned, so the process exits with an error and
+    /// the deployment (Nomad canary) fails; development and test never touch
+    /// the schema on start (DECISIONS "R4d: Schema beim Start nur in Produktion").
+    async fn before_run(ctx: &AppContext) -> Result<()> {
+        if !matches!(ctx.environment, Environment::Production) {
+            return Ok(());
+        }
+        let Some(PoolHandle(pool)) = ctx.shared_store.get::<PoolHandle>() else { return Ok(()) };
+        let Some(db) = pool.db() else { return Ok(()) };
+        let root = pool.options().root.clone();
+        let report = tokio::task::spawn_blocking(move || db.block_on(async { schema_ops::apply_planned(db.client(), &root).await }))
+            .await
+            .map_err(|e| loco_rs::Error::Message(format!("schema start: {e}")))?
+            .map_err(|e| loco_rs::Error::Message(format!("schema start failed, server stops: {e}")))?;
+        tracing::info!(target: "grd", applied = ?report.applied, "schema: planned rollouts applied");
+        Ok(())
+    }
+
     fn register_tasks(tasks: &mut Tasks) {
-        tasks.register(MigrateTask { action: MigrateAction::Run });
-        tasks.register(MigrateTask { action: MigrateAction::Status });
-        tasks.register(MigrateTask { action: MigrateAction::Rollback });
+        for action in [SchemaAction::Push, SchemaAction::Pull, SchemaAction::Fresh, SchemaAction::Rollout] {
+            tasks.register(SchemaTask { action });
+        }
     }
 }
 
 #[derive(Clone, Copy)]
-enum MigrateAction {
-    Run,
-    Status,
-    Rollback,
+enum SchemaAction {
+    Push,
+    Pull,
+    Fresh,
+    Rollout,
 }
 
-/// `opengrid task migrate`, `opengrid task migrate_status`,
-/// `opengrid task migrate_rollback steps:2`.
-struct MigrateTask {
-    action: MigrateAction,
+/// Schema tasks (R4d; development tools, no preflight):
+/// `opengrid task migrate_push`, `migrate_pull`, `migrate_fresh force:true [keep_db:true]`,
+/// `opengrid task rollout cmd:baseline|plan|start|complete|rollback|status [name:…] [id:…]`.
+struct SchemaTask {
+    action: SchemaAction,
+}
+
+fn flag(vars: &Vars, key: &str) -> bool {
+    vars.cli_arg(key).is_ok_and(|v| matches!(v, "true" | "yes" | "1"))
 }
 
 #[async_trait]
-impl Task for MigrateTask {
+impl Task for SchemaTask {
     fn task(&self) -> TaskInfo {
         let (name, detail) = match self.action {
-            MigrateAction::Run => ("migrate", "run pending .grd migrations"),
-            MigrateAction::Status => ("migrate_status", "list ran and pending migrations"),
-            MigrateAction::Rollback => ("migrate_rollback", "roll back the last batch(es): steps:N"),
+            SchemaAction::Push => ("migrate_push", "merge the modules' .surql schema and sync the database (development)"),
+            SchemaAction::Pull => ("migrate_pull", "print the database's current schema in .surql form"),
+            SchemaAction::Fresh => ("migrate_fresh", "empty the database and push the schema again: force:true [keep_db:true]"),
+            SchemaAction::Rollout => ("rollout", "SurrealKit rollouts: cmd:baseline|plan|start|complete|rollback|status [name:…] [id:…]"),
         };
         TaskInfo { name: name.into(), detail: detail.into() }
     }
 
     async fn run(&self, ctx: &AppContext, vars: &Vars) -> Result<()> {
+        let msg = loco_rs::Error::Message;
         let Some(PoolHandle(pool)) = ctx.shared_store.get::<PoolHandle>() else {
-            return Err(loco_rs::Error::Message("VM pool not started".into()));
+            return Err(msg("VM pool not started".into()));
         };
+        let Some(db) = pool.db() else { return Err(msg("no database configured (settings.opengrid.database or SURREAL_DB_HOST)".into())) };
         let root = pool.options().root.clone();
+        let database = db.config.database.clone();
         let action = self.action;
-        let steps = vars.cli_arg("steps").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
-        let report = pool
-            .run(move |vm| {
-                use crate::native::database::migrator;
-                let r = match action {
-                    MigrateAction::Run => migrator::migrate(vm, &root),
-                    MigrateAction::Status => migrator::status(vm, &root),
-                    MigrateAction::Rollback => migrator::rollback(vm, &root, steps),
-                };
-                vm.reset_request();
-                r.map_err(|t| format!("{}: {}", t.class, t.message))
+        let (force, keep_db) = (flag(vars, "force"), flag(vars, "keep_db"));
+        let cmd = vars.cli_arg("cmd").ok().map(str::to_string).unwrap_or_default();
+        let name = vars.cli_arg("name").ok().map(str::to_string);
+        let id = vars.cli_arg("id").ok().map(str::to_string);
+        if matches!(action, SchemaAction::Fresh) && !force {
+            return Err(msg("migrate_fresh deletes all data; run it with force:true".into()));
+        }
+        let out = tokio::task::spawn_blocking(move || {
+            db.block_on(async {
+                let c = db.client();
+                match action {
+                    SchemaAction::Push => schema_ops::push(c, &root, SyncOptions::default()).await.map(|(_, w)| format!("schema in sync ({} skipped statements)", w.len())),
+                    SchemaAction::Pull => schema_ops::pull(c).await,
+                    SchemaAction::Fresh => schema_ops::fresh(c, &root, &database, keep_db).await.map(|_| "database emptied, schema pushed".to_string()),
+                    SchemaAction::Rollout => match cmd.as_str() {
+                        "baseline" => kit::rollout_baseline(c, &root).await.map(|_| "baseline recorded".to_string()),
+                        "plan" => {
+                            let n = name.ok_or_else(|| kit::KitError("rollout cmd:plan needs name:<name>".into()))?;
+                            schema_ops::plan(c, &root, &n).await.map(|(id, r)| format!("planned {id}\n{}", r.summary()))
+                        }
+                        "start" => kit::rollout_start(c, &root, id.as_deref()).await.map(|_| "rollout started".to_string()),
+                        "complete" => kit::rollout_complete(c, &root, id.as_deref()).await.map(|_| "rollout completed".to_string()),
+                        "rollback" => kit::rollout_rollback(c, &root, id.as_deref()).await.map(|_| "rollout rolled back".to_string()),
+                        "status" => kit::rollout_status(c, &root).await,
+                        other => Err(kit::KitError(format!("unknown rollout cmd `{other}` (baseline, plan, start, complete, rollback, status)"))),
+                    },
+                }
             })
-            .await
-            .map_err(|_| loco_rs::Error::Message("worker failed".into()))?
-            .map_err(loco_rs::Error::Message)?;
-        for (name, batch) in &report.ran {
-            println!("ran      {name} (batch {batch})");
-        }
-        for name in &report.pending {
-            println!("pending  {name}");
-        }
-        for name in &report.executed {
-            println!("executed {name}");
-        }
+        })
+        .await
+        .map_err(|e| msg(format!("task: {e}")))?
+        .map_err(|e| msg(e.0))?;
+        println!("{out}");
         Ok(())
     }
 }

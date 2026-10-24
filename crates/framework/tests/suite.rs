@@ -9,8 +9,6 @@ mod errors;
 mod http;
 #[path = "suite/middleware.rs"]
 mod middleware;
-#[path = "suite/migrations.rs"]
-mod migrations;
 #[path = "suite/relations.rs"]
 mod relations;
 #[path = "suite/reload.rs"]
@@ -19,6 +17,8 @@ mod reload;
 mod schema_files;
 #[path = "suite/schema_kit.rs"]
 mod schema_kit;
+#[path = "suite/schema_ops.rs"]
+mod schema_ops;
 #[path = "suite/session.rs"]
 mod session;
 #[path = "suite/types.rs"]

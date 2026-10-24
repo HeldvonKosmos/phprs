@@ -63,12 +63,11 @@ impl SessionConfig {
 pub struct SessionStore {
     pub config: SessionConfig,
     memory: Mutex<HashMap<String, (String, Instant)>>,
-    table_ready: std::sync::atomic::AtomicBool,
 }
 
 impl SessionStore {
     pub fn new(config: SessionConfig) -> Self {
-        SessionStore { config, memory: Mutex::new(HashMap::new()), table_ready: std::sync::atomic::AtomicBool::new(false) }
+        SessionStore { config, memory: Mutex::new(HashMap::new()) }
     }
 
     fn load(&self, vm: &mut Vm, id: &str) -> Result<Option<String>, Throw> {
@@ -80,7 +79,6 @@ impl SessionStore {
                 Ok(m.get(id).map(|(p, _)| p.clone()))
             }
             SessionDriver::Database => {
-                self.ensure_table(vm)?;
                 let mut vars = BTreeMap::new();
                 vars.insert("rid".to_string(), Value::RecordId(RecordId::new(TABLE, RecordIdKey::String(id.to_string()))));
                 let rows = crate::native::database::query_one(vm, "SELECT payload, expires_at FROM $rid", vars)?;
@@ -107,7 +105,6 @@ impl SessionStore {
                 Ok(())
             }
             SessionDriver::Database => {
-                self.ensure_table(vm)?;
                 let mut obj = Object::new();
                 obj.insert("payload", Value::String(payload));
                 let expires = chrono::Utc::now() + chrono::Duration::from_std(self.config.lifetime).unwrap_or(chrono::Duration::hours(2));
@@ -135,15 +132,6 @@ impl SessionStore {
                 Ok(())
             }
         }
-    }
-
-    fn ensure_table(&self, vm: &mut Vm) -> Result<(), Throw> {
-        use std::sync::atomic::Ordering;
-        if !self.table_ready.load(Ordering::SeqCst) {
-            crate::native::database::query(vm, &format!("DEFINE TABLE IF NOT EXISTS {TABLE} SCHEMALESS"), Default::default())?;
-            self.table_ready.store(true, Ordering::SeqCst);
-        }
-        Ok(())
     }
 
     pub fn count(&self) -> usize {
