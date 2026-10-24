@@ -82,7 +82,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
                 }
                 Err(t) => {
                     if let Err(e) = db.cancel(txn) {
-                        tracing::warn!(target: "grd", error = %e, "transaction cancel failed");
+                        tracing::warn!(target: "opengrid", error = %e, "transaction cancel failed");
                     }
                     Err(t)
                 }

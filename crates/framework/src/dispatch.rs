@@ -11,7 +11,7 @@ use crate::worker::{RequestState, WorkerCtx};
 pub fn handle(vm: &mut Vm, req: HttpRequest) -> HttpResponse {
     let mut resp = handle_inner(vm, req).unwrap_or_else(|r| r);
     if let Err(t) = crate::session::finish(vm, &mut resp) {
-        tracing::error!(target: "grd", "session save failed: {}", t.message);
+        tracing::error!(target: "opengrid", "session save failed: {}", t.message);
     }
     if let Some(ctx) = vm.host::<WorkerCtx>() {
         ctx.request = None;
@@ -34,7 +34,7 @@ fn handle_inner(vm: &mut Vm, req: HttpRequest) -> Result<HttpResponse, HttpRespo
         let info = ErrorInfo { status: 404, class: "NotFound".into(), message: format!("no route for {} {}", req.method, req.path), ..Default::default() };
         return Err(render_error(vm, info, html));
     };
-    tracing::debug!(target: "grd", method = %req.method, path = %req.path, class = %entry.handler.class, action = %entry.handler.method, "dispatch");
+    tracing::debug!(target: "opengrid", method = %req.method, path = %req.path, class = %entry.handler.class, action = %entry.handler.method, "dispatch");
     let middleware = ctx(vm).routes.resolve_middleware(&entry.middleware);
     ctx(vm).request = Some(RequestState { req, handler: entry.handler.clone(), params, object: None, input: None, session: None });
     let result = if middleware.is_empty() {
@@ -108,7 +108,7 @@ fn throw_response(vm: &mut Vm, t: Throw) -> HttpResponse {
     };
     match vm.describe_throw(t) {
         RunError::Uncaught { class, message, line } => {
-            tracing::error!(target: "grd", class = %class, line, "uncaught: {message}");
+            tracing::error!(target: "opengrid", class = %class, line, "uncaught: {message}");
             render_error(vm, ErrorInfo { status: 500, class, message, file, line: Some(line), trace }, html)
         }
         RunError::Compile(e) => render_error(vm, ErrorInfo { status: 500, class: "CompileError".into(), message: e.to_string(), ..Default::default() }, html),

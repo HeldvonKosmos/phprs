@@ -24,13 +24,39 @@ use crate::native::database::schema::kit::{self, SyncOptions};
 use crate::native::database::schema::ops as schema_ops;
 use crate::worker::{Pool, PoolOptions};
 
+/// The process's VM pool, started on first use (DB1): Loco builds the app
+/// context once before the logger exists and once more in `create_app`;
+/// starting the pool lazily — in `before_run` for the server, in `run` for a
+/// task — means it starts once, after logging is set up, and an embedded
+/// database is opened only once per process.
 #[derive(Clone)]
-pub struct PoolHandle(pub Arc<Pool>);
+pub struct PoolHandle(pub Arc<LazyPool>);
+
+pub struct LazyPool {
+    options: PoolOptions,
+    pool: tokio::sync::OnceCell<Arc<Pool>>,
+}
+
+impl LazyPool {
+    pub async fn get(&self) -> Result<Arc<Pool>> {
+        self.pool
+            .get_or_try_init(|| async {
+                let opts = self.options.clone();
+                tracing::info!(target: "opengrid", root = %opts.root.display(), workers = opts.workers, debug = opts.debug, watch = opts.watch, "starting VM pool");
+                // Pool::start blocks (workers load the project, the database
+                // connects with block_on), so it must not run on a Tokio thread.
+                let p = tokio::task::spawn_blocking(move || Pool::start(opts))
+                    .await
+                    .map_err(|e| loco_rs::Error::Message(format!("pool start: {e}")))?
+                    .map_err(loco_rs::Error::Message)?;
+                Ok::<_, loco_rs::Error>(Arc::new(p))
+            })
+            .await
+            .cloned()
+    }
+}
 
 pub struct OpenGridApp;
-
-/// The process's VM pool, started by the first `after_context`.
-static PROCESS_POOL: tokio::sync::Mutex<Option<Arc<Pool>>> = tokio::sync::Mutex::const_new(None);
 
 /// `settings.opengrid.root` / `OPENGRID_ROOT` (default `.`),
 /// `settings.opengrid.workers` (default: cores), `debug` and `watch`
@@ -41,13 +67,21 @@ pub fn pool_options(settings: Option<&serde_json::Value>, dev: bool) -> PoolOpti
         .ok()
         .or_else(|| og.and_then(|o| o.get("root")).and_then(|r| r.as_str()).map(str::to_string))
         .unwrap_or_else(|| ".".to_string());
-    let mut opts = PoolOptions::new(root).settings(settings.cloned().unwrap_or(serde_json::Value::Null));
+    // absolute, so an embedded database path does not depend on the working directory
+    let root = std::env::current_dir().map(|d| d.join(&root)).unwrap_or_else(|_| root.into());
+    let root = root.canonicalize().unwrap_or(root);
+    let mut opts = PoolOptions::new(root.clone()).settings(settings.cloned().unwrap_or(serde_json::Value::Null));
     if let Some(n) = og.and_then(|o| o.get("workers")).and_then(|w| w.as_u64()) {
         opts = opts.workers(n as usize);
     }
-    if let Some(cfg) = crate::native::database::surreal::DbConfig::from_settings(settings) {
-        opts = opts.database(cfg);
-    }
+    // DB1: the embedded surrealkv database in `.opengrid/db` unless configured
+    // (settings.opengrid.database, OPENGRID_DB_URL, SURREAL_DB_*)
+    use crate::native::database::surreal::{DEFAULT_LOCK_WAIT, DbConfig};
+    let mut cfg = DbConfig::from_settings(settings).unwrap_or_else(|| DbConfig::embedded_default(&root)).resolve(&root);
+    let wait = og.and_then(|o| o.get("database")).and_then(|d| d.get("lock_wait")).and_then(|v| v.as_u64()).map(std::time::Duration::from_secs).unwrap_or(DEFAULT_LOCK_WAIT);
+    // a CLI task does not wait for a running server; it reports the lock at once
+    cfg.lock_wait = if crate::is_task_mode() { std::time::Duration::ZERO } else { wait };
+    opts = opts.database(cfg);
     let flag = |k: &str| og.and_then(|o| o.get(k)).and_then(|v| v.as_bool());
     opts = opts.debug(flag("debug").unwrap_or(dev)).watch(flag("watch").unwrap_or(dev));
     opts = opts.session(crate::session::SessionConfig::from_settings(settings));
@@ -76,7 +110,10 @@ pub fn router(pool: Arc<Pool>) -> Router {
 
 async fn catch_all(State(ctx): State<AppContext>, req: axum::extract::Request) -> Response {
     match ctx.shared_store.get::<PoolHandle>() {
-        Some(PoolHandle(pool)) => handle_axum(pool, req).await,
+        Some(PoolHandle(lazy)) => match lazy.get().await {
+            Ok(pool) => handle_axum(pool, req).await,
+            Err(e) => into_axum(HttpResponse::json(503, format!("{{\"error\":\"PoolUnavailable\",\"message\":{:?}}}", e.to_string()).into_bytes())),
+        },
         None => into_axum(HttpResponse::json(500, br#"{"error":"NoPool","message":"VM pool not started"}"#.to_vec())),
     }
 }
@@ -96,28 +133,7 @@ impl Hooks for OpenGridApp {
         crate::native::database::schema::kit::forward_logs();
         let dev = matches!(ctx.environment, Environment::Development);
         let opts = pool_options(ctx.config.settings.as_ref(), dev);
-        tracing::info!(target: "grd", root = %opts.root.display(), workers = opts.workers, debug = opts.debug, watch = opts.watch, "starting VM pool");
-        // One pool (and one database connection) per process: Loco's CLI
-        // builds the app context twice on `start` (once for the logger, once
-        // in create_app), and an embedded surrealkv database can be opened
-        // only once per process (DECISIONS: surrealkv keeps its lock).
-        let mut slot = PROCESS_POOL.lock().await;
-        let pool = match slot.as_ref() {
-            Some(p) => Arc::clone(p),
-            None => {
-                // Pool::start blocks (workers load the project, the database
-                // connects with block_on), so it must not run on a Tokio thread.
-                let p = tokio::task::spawn_blocking(move || Pool::start(opts))
-                    .await
-                    .map_err(|e| loco_rs::Error::Message(format!("pool start: {e}")))?
-                    .map_err(loco_rs::Error::Message)?;
-                let p = Arc::new(p);
-                *slot = Some(Arc::clone(&p));
-                p
-            }
-        };
-        drop(slot);
-        ctx.shared_store.insert(PoolHandle(pool));
+        ctx.shared_store.insert(PoolHandle(Arc::new(LazyPool { options: opts, pool: tokio::sync::OnceCell::new() })));
         Ok(ctx)
     }
 
@@ -135,10 +151,12 @@ impl Hooks for OpenGridApp {
     /// the deployment (Nomad canary) fails; development and test never touch
     /// the schema on start (DECISIONS "R4d: Schema beim Start nur in Produktion").
     async fn before_run(ctx: &AppContext) -> Result<()> {
+        let Some(PoolHandle(lazy)) = ctx.shared_store.get::<PoolHandle>() else { return Ok(()) };
+        // start the pool (and open the database) now, with logging in place
+        let pool = lazy.get().await?;
         if !matches!(ctx.environment, Environment::Production) {
             return Ok(());
         }
-        let Some(PoolHandle(pool)) = ctx.shared_store.get::<PoolHandle>() else { return Ok(()) };
         let Some(db) = pool.db() else { return Ok(()) };
         let root = pool.options().root.clone();
         let report = tokio::task::spawn_blocking(move || db.block_on(async { schema_ops::apply_planned(db.client(), &root).await }))
@@ -189,9 +207,10 @@ impl Task for SchemaTask {
 
     async fn run(&self, ctx: &AppContext, vars: &Vars) -> Result<()> {
         let msg = loco_rs::Error::Message;
-        let Some(PoolHandle(pool)) = ctx.shared_store.get::<PoolHandle>() else {
-            return Err(msg("VM pool not started".into()));
+        let Some(PoolHandle(lazy)) = ctx.shared_store.get::<PoolHandle>() else {
+            return Err(msg("VM pool not configured".into()));
         };
+        let pool = lazy.get().await?;
         let Some(db) = pool.db() else { return Err(msg("no database configured (settings.opengrid.database or SURREAL_DB_HOST)".into())) };
         let root = pool.options().root.clone();
         let database = db.config.database.clone();

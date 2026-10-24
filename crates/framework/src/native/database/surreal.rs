@@ -2,7 +2,8 @@
 //! `block_on` from the worker threads (RUNTIME_ARCHITECTURE §9).
 
 use std::collections::BTreeMap;
-use std::time::Instant;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use surrealdb::Surreal;
 use surrealdb::engine::any::{Any, connect};
@@ -10,19 +11,56 @@ use surrealdb::method::Transaction;
 use surrealdb::opt::auth::Root;
 use surrealdb::types::{Object, Value};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DbConfig {
-    /// `mem://`, `rocksdb://path`, `ws://host:port`, `http://host:port`
+    /// `mem://`, `surrealkv://path` (embedded, persistent), `ws://host:port`,
+    /// `http://host:port` (server). RocksDB and TiKV are not built in
+    /// (DECISIONS DB1: surrealkv covers the embedded case).
     pub url: String,
     pub namespace: String,
     pub database: String,
     pub username: Option<String>,
     pub password: Option<String>,
+    /// How long `Db::connect` waits for an embedded database that another
+    /// process still holds (the old version during a deployment). Zero: fail
+    /// at once (CLI tasks, tests).
+    pub lock_wait: Duration,
 }
+
+/// Embedded database of a project when nothing is configured (DB1).
+pub const DEFAULT_DB_DIR: &str = ".opengrid/db";
+/// Default `lock_wait` of the server start.
+pub const DEFAULT_LOCK_WAIT: Duration = Duration::from_secs(30);
 
 impl DbConfig {
     pub fn mem(namespace: &str, database: &str) -> Self {
-        DbConfig { url: "mem://".into(), namespace: namespace.into(), database: database.into(), username: None, password: None }
+        DbConfig { url: "mem://".into(), namespace: namespace.into(), database: database.into(), ..Default::default() }
+    }
+
+    /// `surrealkv://<root>/.opengrid/db`, namespace and database `opengrid`.
+    pub fn embedded_default(root: &Path) -> Self {
+        DbConfig { url: format!("surrealkv://{}", root.join(DEFAULT_DB_DIR).display()), namespace: "opengrid".into(), database: "opengrid".into(), ..Default::default() }
+    }
+
+    /// Embedded path of a `surrealkv://` URL, if any.
+    pub fn embedded_path(&self) -> Option<&str> {
+        self.url.strip_prefix("surrealkv://")
+    }
+
+    pub fn is_embedded(&self) -> bool {
+        self.url.starts_with("surrealkv://") || self.url.starts_with("mem://")
+    }
+
+    /// Resolve a relative `surrealkv://` path against the project root, so
+    /// the database does not move with the working directory.
+    pub fn resolve(mut self, root: &Path) -> Self {
+        if let Some(p) = self.embedded_path()
+            && !p.is_empty()
+            && !Path::new(p).is_absolute()
+        {
+            self.url = format!("surrealkv://{}", root.join(p).display());
+        }
+        self
     }
 
     /// Connection from environment and settings (R4e). Order:
@@ -47,6 +85,7 @@ impl DbConfig {
                 database: s("database").unwrap_or_else(|| "opengrid".into()),
                 username: s("username"),
                 password: s("password"),
+                ..Default::default()
             });
         }
         if let Some(host) = env("SURREAL_DB_HOST") {
@@ -59,6 +98,7 @@ impl DbConfig {
                 database: v("SURREAL_DB_DATABASE", "main"),
                 username: Some(v("SURREAL_DB_USERNAME", "root")),
                 password: Some(v("SURREAL_DB_PASSWORD", "root")),
+                ..Default::default()
             });
         }
         Some(DbConfig {
@@ -67,6 +107,7 @@ impl DbConfig {
             database: s("database").unwrap_or_else(|| "opengrid".into()),
             username: s("username"),
             password: s("password"),
+            ..Default::default()
         })
     }
 }
@@ -97,6 +138,18 @@ mod config_tests {
         assert_eq!(c.url, "mem://");
         assert!(DbConfig::from_sources(env(&[]), None).is_none());
     }
+
+    #[test]
+    fn embedded_paths() {
+        let root = std::path::Path::new("/srv/app");
+        assert_eq!(DbConfig::embedded_default(root).url, "surrealkv:///srv/app/.opengrid/db");
+        let rel = DbConfig { url: "surrealkv://data/db".into(), ..Default::default() }.resolve(root);
+        assert_eq!(rel.url, "surrealkv:///srv/app/data/db");
+        let abs = DbConfig { url: "surrealkv:///var/db".into(), ..Default::default() }.resolve(root);
+        assert_eq!(abs.url, "surrealkv:///var/db");
+        assert_eq!(DbConfig::mem("a", "b").resolve(root).url, "mem://");
+        assert!(DbConfig::embedded_default(root).is_embedded() && !DbConfig { url: "ws://h:1".into(), ..Default::default() }.is_embedded());
+    }
 }
 
 pub struct Db {
@@ -107,6 +160,11 @@ pub struct Db {
 
 impl Db {
     /// Connect (blocking). Must not be called on a Tokio thread.
+    ///
+    /// An embedded `surrealkv://` database is held by one process at a time
+    /// (its file lock lasts until that process exits). If another process
+    /// holds it, retry until `config.lock_wait` has passed — that is the
+    /// hand-over during a deployment — then fail with a clear message.
     pub fn connect(config: DbConfig) -> Result<Db, String> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -114,19 +172,72 @@ impl Db {
             .enable_all()
             .build()
             .map_err(|e| format!("database runtime: {e}"))?;
-        let cfg = config.clone();
-        let client = rt
-            .block_on(async move {
+        if let Some(p) = config.embedded_path()
+            && let Some(parent) = Path::new(p).parent()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| format!("database directory {}: {e}", parent.display()))?;
+        }
+        let started = Instant::now();
+        let mut announced = false;
+        let client = loop {
+            let cfg = config.clone();
+            let attempt = rt.block_on(async move {
                 let c = connect(cfg.url.as_str()).await?;
                 if let (Some(u), Some(p)) = (&cfg.username, &cfg.password) {
                     c.signin(Root { username: u.clone(), password: p.clone() }).await?;
                 }
                 c.use_ns(cfg.namespace.as_str()).use_db(cfg.database.as_str()).await?;
                 Ok::<_, surrealdb::Error>(c)
-            })
-            .map_err(|e| format!("database connect {}: {e}", config.url))?;
-        tracing::info!(target: "grd", url = %config.url, ns = %config.namespace, db = %config.database, "database connected");
-        Ok(Db { rt, client, config })
+            });
+            match attempt {
+                Ok(c) => break c,
+                Err(e) if is_locked(&e.to_string()) => {
+                    if started.elapsed() >= config.lock_wait {
+                        return Err(format!(
+                            "database {} is in use by another process (is the server still running?); waited {}s",
+                            config.embedded_path().unwrap_or(&config.url),
+                            config.lock_wait.as_secs()
+                        ));
+                    }
+                    if !announced {
+                        tracing::info!(target: "opengrid", path = config.embedded_path().unwrap_or(&config.url), wait_secs = config.lock_wait.as_secs(), "database is held by another process, waiting for it to be released");
+                        announced = true;
+                    }
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(e) => return Err(format!("database connect {}: {e}", config.url)),
+            }
+        };
+        let db = Db { rt, client, config };
+        db.log_startup();
+        Ok(db)
+    }
+
+    /// Mode, engine, location and versions; in server mode a warning when the
+    /// server's major version differs from the built-in engine's.
+    fn log_startup(&self) {
+        let engine = self.rt.block_on(async {
+            let e = connect("mem://").await.ok()?;
+            e.version().await.ok().map(|v| v.to_string())
+        });
+        let connected = self.rt.block_on(async { self.client.version().await.ok().map(|v| v.to_string()) });
+        let mode = if self.config.is_embedded() { "embedded" } else { "server" };
+        let location = self.config.embedded_path().unwrap_or(&self.config.url).to_string();
+        tracing::info!(
+            target: "opengrid",
+            mode,
+            location = %location,
+            ns = %self.config.namespace,
+            db = %self.config.database,
+            version = connected.as_deref().unwrap_or("?"),
+            "database connected"
+        );
+        if mode == "server"
+            && let (Some(server), Some(engine)) = (&connected, &engine)
+            && major(server) != major(engine)
+        {
+            tracing::warn!(target: "opengrid", server = %server, sdk = %engine, "SurrealDB server major version differs from the built-in SDK");
+        }
     }
 
     pub fn client(&self) -> &Surreal<Any> {
@@ -161,8 +272,8 @@ impl Db {
         });
         let ms = started.elapsed().as_secs_f64() * 1000.0;
         match &result {
-            Ok(_) => tracing::debug!(target: "grd", sql, ms, "surreal.query"),
-            Err(e) => tracing::warn!(target: "grd", sql, ms, error = %e, "surreal.query failed"),
+            Ok(_) => tracing::debug!(target: "opengrid", sql, ms, "surreal.query"),
+            Err(e) => tracing::warn!(target: "opengrid", sql, ms, error = %e, "surreal.query failed"),
         }
         result
     }
@@ -179,4 +290,13 @@ impl Db {
     pub fn cancel(&self, txn: Transaction<Any>) -> Result<(), String> {
         self.rt.block_on(async move { txn.cancel().await }).map(|_| ()).map_err(|e| e.to_string())
     }
+}
+
+fn is_locked(message: &str) -> bool {
+    message.contains("already locked")
+}
+
+/// Major version of `surrealdb-3.3.4`, `3.3.4` or `v3.3.4`.
+fn major(v: &str) -> Option<u64> {
+    v.trim_start_matches(|c: char| !c.is_ascii_digit()).split('.').next()?.parse().ok()
 }

@@ -238,7 +238,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
     let mut my_generation = generation.load(Ordering::SeqCst);
     let mut vm = match build_vm(&options, db.clone(), sessions.clone()) {
         Ok((vm, summary)) => {
-            tracing::info!(target: "grd", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
+            tracing::info!(target: "opengrid", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
             let _ = ready.send(Ok(id));
             vm
         }
@@ -261,11 +261,11 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
             my_generation = current;
             match build_vm(&options, db.clone(), sessions.clone()) {
                 Ok((fresh, summary)) => {
-                    tracing::info!(target: "grd", worker = id, classes = summary.class_files, routes = summary.route_files, "reloaded");
+                    tracing::info!(target: "opengrid", worker = id, classes = summary.class_files, routes = summary.route_files, "reloaded");
                     vm = fresh;
                 }
                 Err(e) => {
-                    tracing::error!(target: "grd", worker = id, "reload failed: {e}");
+                    tracing::error!(target: "opengrid", worker = id, "reload failed: {e}");
                     if let Some(c) = vm.host::<WorkerCtx>() {
                         c.stale_error = Some(e);
                     }
@@ -275,11 +275,11 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
         if catch_unwind(AssertUnwindSafe(|| job(&mut vm))).is_err() {
             // RUNTIME_ARCHITECTURE §11: the worker catches the panic; the
             // VM state is suspect afterwards, so rebuild it.
-            tracing::error!(target: "grd", worker = id, "panic in worker; rebuilding VM");
+            tracing::error!(target: "opengrid", worker = id, "panic in worker; rebuilding VM");
             match build_vm(&options, db.clone(), sessions.clone()) {
                 Ok((fresh, _)) => vm = fresh,
                 Err(e) => {
-                    tracing::error!(target: "grd", worker = id, error = %e, "cannot rebuild VM; worker exits");
+                    tracing::error!(target: "opengrid", worker = id, error = %e, "cannot rebuild VM; worker exits");
                     return;
                 }
             }
@@ -301,7 +301,7 @@ fn start_watcher(root: PathBuf, generation: Arc<AtomicU64>) {
         }) {
             Ok(w) => w,
             Err(e) => {
-                tracing::error!(target: "grd", "file watcher unavailable: {e}");
+                tracing::error!(target: "opengrid", "file watcher unavailable: {e}");
                 return;
             }
         };
@@ -310,10 +310,10 @@ fn start_watcher(root: PathBuf, generation: Arc<AtomicU64>) {
             if p.is_dir()
                 && let Err(e) = watcher.watch(&p, notify::RecursiveMode::Recursive)
             {
-                tracing::warn!(target: "grd", path = %p.display(), "cannot watch: {e}");
+                tracing::warn!(target: "opengrid", path = %p.display(), "cannot watch: {e}");
             }
         }
-        tracing::info!(target: "grd", root = %root.display(), "watching .grd files");
+        tracing::info!(target: "opengrid", root = %root.display(), "watching .grd files");
         while let Ok(ev) = rx.recv() {
             let mut relevant = is_grd_event(&ev);
             let deadline = Instant::now() + Duration::from_millis(150);
@@ -322,11 +322,11 @@ fn start_watcher(root: PathBuf, generation: Arc<AtomicU64>) {
             }
             if relevant {
                 generation.fetch_add(1, Ordering::SeqCst);
-                tracing::info!(target: "grd", "source changed; workers reload before their next request");
+                tracing::info!(target: "opengrid", "source changed; workers reload before their next request");
             }
         }
     });
     if let Err(e) = spawned {
-        tracing::error!(target: "grd", "cannot start watcher thread: {e}");
+        tracing::error!(target: "opengrid", "cannot start watcher thread: {e}");
     }
 }

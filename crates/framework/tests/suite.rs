@@ -3,6 +3,8 @@
 
 #[path = "suite/database.rs"]
 mod database;
+#[path = "suite/db_embedded.rs"]
+mod db_embedded;
 #[path = "suite/errors.rs"]
 mod errors;
 #[path = "suite/http.rs"]

@@ -27,10 +27,10 @@ fn emit(vm: &mut Vm, c: Call, level: &str) -> Result<Val, Throw> {
         Some(v) => String::from_utf8_lossy(&grd_vm::json::to_json(vm, v, false)?).into_owned(),
     };
     match level {
-        "debug" => tracing::debug!(target: "grd", context = %context, "{msg}"),
-        "info" => tracing::info!(target: "grd", context = %context, "{msg}"),
-        "warning" => tracing::warn!(target: "grd", context = %context, "{msg}"),
-        _ => tracing::error!(target: "grd", context = %context, "{msg}"),
+        "debug" => tracing::debug!(target: "opengrid", context = %context, "{msg}"),
+        "info" => tracing::info!(target: "opengrid", context = %context, "{msg}"),
+        "warning" => tracing::warn!(target: "opengrid", context = %context, "{msg}"),
+        _ => tracing::error!(target: "opengrid", context = %context, "{msg}"),
     }
     let logs = &mut ctx(vm).logs;
     logs.push((level.to_string(), if context.is_empty() { msg } else { format!("{msg} {context}") }));

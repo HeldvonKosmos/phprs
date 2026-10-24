@@ -30,7 +30,7 @@ fn err(m: impl Into<String>) -> KitError {
 pub async fn push(db: &Surreal<Any>, root: &Path, opts: SyncOptions) -> Result<(String, Vec<Warning>), KitError> {
     let (text, warnings) = super::build_surql(root, Some(FRAMEWORK_SURQL)).map_err(|e| err(format!("read schema sources: {e}")))?;
     for w in &warnings {
-        tracing::warn!(target: "grd", source = %w.source, "{}", w.message);
+        tracing::warn!(target: "opengrid", source = %w.source, "{}", w.message);
     }
     kit::sync(db, root, &text, opts).await?;
     Ok((text, warnings))
@@ -42,7 +42,7 @@ pub async fn push(db: &Surreal<Any>, root: &Path, opts: SyncOptions) -> Result<(
 pub async fn plan(db: &Surreal<Any>, root: &Path, name: &str) -> Result<(String, super::preflight::Report), KitError> {
     let (text, warnings) = super::build_surql(root, Some(FRAMEWORK_SURQL)).map_err(|e| err(format!("read schema sources: {e}")))?;
     for w in &warnings {
-        tracing::warn!(target: "grd", source = %w.source, "{}", w.message);
+        tracing::warn!(target: "opengrid", source = %w.source, "{}", w.message);
     }
     kit::write_temporary(root, &text)?;
     kit::rollout_plan(db, root, name).await
@@ -128,7 +128,7 @@ pub async fn apply_planned(db: &Surreal<Any>, root: &Path) -> Result<StartupRepo
             };
             return Err(err(format!("rollout {id} failed ({undo}); applied before it: {:?}\n{e}", report.applied)));
         }
-        tracing::info!(target: "grd", rollout = %id, "rollout applied");
+        tracing::info!(target: "opengrid", rollout = %id, "rollout applied");
         report.applied.push(id);
     }
     Ok(report)

@@ -235,7 +235,7 @@ fn intern(text: &str) -> &'static str {
 fn warn_on_env() {
     for var in ["SURREALKIT_SHARED_DB", "SURREALKIT_OWNER"] {
         if let Ok(v) = std::env::var(var) {
-            tracing::warn!(target: "grd", var, value = %v, "SurrealKit reads this environment variable; it changes prune behaviour");
+            tracing::warn!(target: "opengrid", var, value = %v, "SurrealKit reads this environment variable; it changes prune behaviour");
         }
     }
 }

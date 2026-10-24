@@ -138,6 +138,7 @@ fn round_trip_real_server() {
         database: std::env::var("OPENGRID_TEST_DB_DB").unwrap_or_else(|_| format!("types_{}", std::process::id())),
         username: std::env::var("OPENGRID_TEST_DB_USER").ok(),
         password: std::env::var("OPENGRID_TEST_DB_PASS").ok(),
+        ..Default::default()
     };
     let pool = pool(cfg);
     check(&run(&pool, ROUND_TRIP));
