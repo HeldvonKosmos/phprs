@@ -32,3 +32,12 @@ incremental = true
 
 [profile.test.package."*"]
 debug = false
+
+# Messungen (Benchmarks, Vergleich mit PHP): Release-Optimierung, aber schneller
+# zu bauen als `release` (Thin-LTO, 16 Codegen-Einheiten). Nicht für Auslieferung.
+[profile.profiling]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+strip = false
+debug = "line-tables-only"
