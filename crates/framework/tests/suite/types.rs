@@ -141,3 +141,66 @@ fn round_trip_real_server() {
     check(&run(&pool, ROUND_TRIP));
     run(&pool, "<?grd\nuse OpenGrid\\Database\\DB;\nDB::statement('REMOVE TABLE IF EXISTS measurements'); DB::statement('REMOVE TABLE IF EXISTS tasks'); DB::statement('REMOVE TABLE IF EXISTS comments'); DB::statement('REMOVE TABLE IF EXISTS _opengrid_migrations');");
 }
+
+/// B2a: a loaded model keeps the raw SDK fields and converts a field only when
+/// it is read; `toArray()` converts the rest; writing a field drops its raw
+/// value; `clone` keeps the whole payload.
+#[test]
+fn lazy_rows() {
+    use grd_vm::value::{ObjHandle, Val};
+    use grd_vm::vm::Vm;
+    use opengrid_framework::native::database::model::ModelData;
+
+    let pool = pool(DbConfig::mem("test", "lazy"));
+    let seed = run(&pool, r#"<?grd
+use OpenGrid\Database\{Bytes, Decimal, Duration, Geometry, Uuid};
+use Tasks\Models\{Measurement, Task};
+$t = Task::create(['title' => 'lazy']);
+Measurement::create(['label' => 'm', 'amount' => Decimal::make('1.5'), 'took' => Duration::make('1s'), 'tag' => Uuid::v7(),
+    'blob' => Bytes::make('x'), 'where' => Geometry::point(1, 2), 'at' => new DateTimeImmutable('2026-01-01'), 'task_id' => $t->id, 'count' => 2]);
+$m = Measurement::query()->first();
+$c = clone $m;
+echo get_class($c->amount), ' ', $c->amount, ' ', $c->label, ' ', $c->id == $m->id ? 'same-id' : 'other-id';
+"#);
+    assert_eq!(seed, "OpenGrid\\Database\\Decimal 1.5 m same-id", "clone keeps the payload");
+
+    fn state(vm: &Vm, h: ObjHandle) -> (usize, Vec<String>) {
+        let d = vm.native_payload::<ModelData>(h).expect("model payload");
+        (d.pending.len(), d.attributes.iter().filter(|(_, v)| !v.is_null()).map(|(k, _)| k.clone()).collect())
+    }
+    let lines = pool
+        .run_sync(|vm| {
+            let mut out = Vec::new();
+            let first = |vm: &mut Vm| match vm.run_file("q.grd", b"<?grd\nreturn Tasks\\Models\\Measurement::query()->first();") {
+                Ok(Val::Object(h)) => h,
+                other => panic!("model expected: {other:?}"),
+            };
+            let h = first(vm);
+            let (p0, c0) = state(vm, h);
+            out.push(format!("loaded: pending>0={} converted={c0:?}", p0 > 0));
+            let v = vm.get_property(h, "amount").expect("read amount");
+            assert!(matches!(v, Val::Object(_)), "amount is a Decimal object");
+            let (p1, c1) = state(vm, h);
+            out.push(format!("read amount: pending-1={} converted={c1:?}", p1 + 1 == p0));
+            vm.call_method_sync(h, b"toArray", Vec::new()).expect("toArray");
+            let (p2, _) = state(vm, h);
+            out.push(format!("toArray: pending={p2}"));
+
+            let h = first(vm);
+            vm.set_property(h, "label", Val::str("new")).expect("write label");
+            let d = vm.native_payload::<ModelData>(h).expect("payload");
+            out.push(format!("write label: raw-dropped={} dirty={:?}", !d.pending.contains_key("label"), d.dirty));
+            vm.reset_request();
+            out
+        })
+        .expect("worker answers");
+    assert_eq!(
+        lines,
+        vec![
+            "loaded: pending>0=true converted=[]".to_string(),
+            "read amount: pending-1=true converted=[\"amount\"]".to_string(),
+            "toArray: pending=0".to_string(),
+            "write label: raw-dropped=true dirty=[\"label\"]".to_string(),
+        ]
+    );
+}

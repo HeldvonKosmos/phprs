@@ -17,7 +17,7 @@ use crate::native::ctx;
 
 pub const CLASS: &str = "OpenGrid\\Database\\Model";
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ModelData {
     /// Converted attributes (set by code, or materialised from `pending` on access).
     pub attributes: IndexMap<String, Val>,
@@ -145,6 +145,7 @@ fn fill(vm: &mut Vm, h: ObjHandle, values: &Val) -> Result<(), Throw> {
             ArrayKey::Str(s) => s.to_string_lossy(),
         };
         if fillable.is_empty() || fillable.contains(&key) {
+            d.pending.remove(&key);
             d.attributes.insert(key.clone(), v.clone());
             if !d.dirty.contains(&key) {
                 d.dirty.push(key);
@@ -261,6 +262,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             set: Some(|vm, h, name, v| {
                 let key = String::from_utf8_lossy(name).into_owned();
                 let m = data(vm, h)?;
+                m.pending.remove(&key);
                 m.attributes.insert(key.clone(), v);
                 if !m.dirty.contains(&key) {
                     m.dirty.push(key);
@@ -280,7 +282,8 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             }),
             compare: None,
             arith: None,
-            clone: None,
+            // `clone $model` copies attributes, pending raw fields, dirty state and id
+            clone: Some(|p| p.downcast_ref::<ModelData>().map(|d| Box::new(d.clone()) as Box<dyn std::any::Any>)),
         })
         .method("__construct", |vm, c| {
             let this = c.this()?;
