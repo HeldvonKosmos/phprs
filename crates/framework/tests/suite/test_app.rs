@@ -48,6 +48,13 @@ fn test_app_crud() {
     let r = send(&pool, HttpRequest::get("/"));
     assert_eq!(r.body_str(), r#"{"app":"TestApp","status":"ok"}"#);
 
+    // OPS1: GET /health
+    let h = opengrid_framework::app::health_response(&pool);
+    assert_eq!(h.status, 200, "{}", h.body_str());
+    let hj = json(&h);
+    assert_eq!((hj["status"].as_str(), hj["app"].as_str(), hj["database"]["mode"].as_str()), (Some("ok"), Some("TestApp"), Some("embedded")));
+    assert!(hj["database"]["version"].as_str().is_some_and(|v| v.starts_with('3')), "{hj}");
+
     let r = send(&pool, HttpRequest::post("/notes", "application/json", br#"{"title":"Erste","priority":2}"#));
     assert_eq!(r.status, 201, "{}", r.body_str());
     assert_eq!(r.header("x-module"), Some("notes"));

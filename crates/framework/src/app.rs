@@ -100,12 +100,50 @@ pub async fn handle_axum(pool: Arc<Pool>, req: axum::extract::Request) -> Respon
     }
 }
 
+/// `GET /health` (OPS1): 200 with the app name and the database's mode and
+/// version once the workers and the database answer; 503 otherwise. Blocking
+/// (the database client has its own runtime): call it off the async threads.
+pub fn health_response(pool: &Pool) -> HttpResponse {
+    let app = pool.options().settings["app"]["name"].as_str().unwrap_or("").to_string();
+    let database = match pool.db() {
+        Some(db) => {
+            let (mode, version) = db.status();
+            if version.is_none() {
+                return HttpResponse::json(503, serde_json::json!({ "status": "unavailable", "app": app, "database": { "mode": mode } }).to_string().into_bytes());
+            }
+            serde_json::json!({ "mode": mode, "version": version })
+        }
+        None => serde_json::json!({ "mode": "none" }),
+    };
+    HttpResponse::json(200, serde_json::json!({ "status": "ok", "app": app, "database": database }).to_string().into_bytes())
+}
+
+async fn health_axum(pool: Arc<Pool>) -> Response {
+    match tokio::task::spawn_blocking(move || health_response(&pool)).await {
+        Ok(resp) => into_axum(resp),
+        Err(_) => into_axum(HttpResponse::json(503, br#"{"status":"unavailable"}"#.to_vec())),
+    }
+}
+
 /// A plain Axum router with the catch-all, for tests and embedding.
 pub fn router(pool: Arc<Pool>) -> Router {
     async fn h(State(pool): State<Arc<Pool>>, req: axum::extract::Request) -> Response {
         handle_axum(pool, req).await
     }
-    Router::new().route("/", any(h)).route("/{*path}", any(h)).with_state(pool)
+    async fn health(State(pool): State<Arc<Pool>>) -> Response {
+        health_axum(pool).await
+    }
+    Router::new().route("/health", axum::routing::get(health)).route("/", any(h)).route("/{*path}", any(h)).with_state(pool)
+}
+
+async fn health(State(ctx): State<AppContext>) -> Response {
+    match ctx.shared_store.get::<PoolHandle>() {
+        Some(PoolHandle(lazy)) => match lazy.get().await {
+            Ok(pool) => health_axum(pool).await,
+            Err(e) => into_axum(HttpResponse::json(503, serde_json::json!({ "status": "unavailable", "message": e.to_string() }).to_string().into_bytes())),
+        },
+        None => into_axum(HttpResponse::json(503, br#"{"status":"unavailable"}"#.to_vec())),
+    }
 }
 
 async fn catch_all(State(ctx): State<AppContext>, req: axum::extract::Request) -> Response {
@@ -138,7 +176,7 @@ impl Hooks for OpenGridApp {
     }
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
-        AppRoutes::with_default_routes().add_route(Routes::new().add("/", any(catch_all)).add("/{*path}", any(catch_all)))
+        AppRoutes::with_default_routes().add_route(Routes::new().add("/health", axum::routing::get(health)).add("/", any(catch_all)).add("/{*path}", any(catch_all)))
     }
 
     async fn connect_workers(_ctx: &AppContext, _queue: &Queue) -> Result<()> {

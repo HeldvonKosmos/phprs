@@ -213,6 +213,14 @@ impl Db {
         Ok(db)
     }
 
+    /// For the health endpoint (OPS1): mode (`embedded`/`server`) and the
+    /// version the database answers with (`None`: it does not answer).
+    pub fn status(&self) -> (&'static str, Option<String>) {
+        let mode = if self.config.is_embedded() { "embedded" } else { "server" };
+        let version = self.rt.block_on(async { self.client.version().await.ok().map(|v| v.to_string()) });
+        (mode, version)
+    }
+
     /// Mode, engine, location and versions; in server mode a warning when the
     /// server's major version differs from the built-in engine's.
     fn log_startup(&self) {
