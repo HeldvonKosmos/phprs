@@ -50,7 +50,7 @@ fn push_pull_fresh() {
     rt().block_on(async {
         let db = open("dev").await;
         let (text, warnings) = ops::push(&db, &root, SyncOptions::default()).await.expect("push");
-        assert_eq!(tables(&db).await, vec!["_opengrid_sessions", "products"], "framework fragment included");
+        assert_eq!(tables(&db).await, vec!["_opengrid_sessions", "personal_access_tokens", "products"], "framework fragment included");
         assert!(text.contains("DEFINE FIELD note ON products TYPE option<string>;"));
         assert_eq!(warnings.len(), 1, "unsupported DEFINE FUNCTION reported: {warnings:?}");
 
@@ -62,13 +62,13 @@ fn push_pull_fresh() {
         ops::fresh(&db, &root, "dev", true).await.expect("fresh keep_db");
         let mut r = db.query("SELECT * FROM products").await.unwrap();
         assert!(r.take::<Vec<serde_json::Value>>(0).unwrap().is_empty(), "data gone");
-        assert_eq!(tables(&db).await, vec!["_opengrid_sessions", "products"], "schema back");
+        assert_eq!(tables(&db).await, vec!["_opengrid_sessions", "personal_access_tokens", "products"], "schema back");
 
         db.query("CREATE products:2 SET sku = 'b'").await.unwrap().check().unwrap();
         ops::fresh(&db, &root, "dev", false).await.expect("fresh");
         let mut r = db.query("SELECT * FROM products").await.unwrap();
         assert!(r.take::<Vec<serde_json::Value>>(0).unwrap().is_empty());
-        assert_eq!(tables(&db).await, vec!["_opengrid_sessions", "products"]);
+        assert_eq!(tables(&db).await, vec!["_opengrid_sessions", "personal_access_tokens", "products"]);
     });
     std::fs::remove_dir_all(&root).unwrap();
 }
@@ -95,7 +95,7 @@ fn production_start_runs_planned_rollouts() {
         let (a, b) = plan_two(&root, "DEFINE TABLE orders SCHEMAFULL PERMISSIONS NONE;\n").await;
         let report = ops::apply_planned(&prod, &root).await.expect("start");
         assert_eq!(report.applied, vec![a, b]);
-        assert_eq!(tables(&prod).await, vec!["_opengrid_sessions", "orders", "products"]);
+        assert_eq!(tables(&prod).await, vec!["_opengrid_sessions", "orders", "personal_access_tokens", "products"]);
         // a second start finds nothing pending
         assert!(ops::apply_planned(&prod, &root).await.unwrap().applied.is_empty());
     });

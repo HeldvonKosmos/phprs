@@ -75,6 +75,13 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             Ok(pairs_to_array(&pairs))
         })
         .method("ip", |_, _| Ok(Val::Null))
+        // AU1: the authenticated user of this request (Laravel's `$request->user()`)
+        .method("user", |vm, _| Ok(state(vm)?.user.clone().unwrap_or(Val::Null)))
+        .method("setUser", |vm, c| {
+            let u = c.arg(0);
+            state(vm)?.user = if u.is_null() { None } else { Some(u) };
+            Ok(Val::Null)
+        })
         .method("body", |vm, _| Ok(Val::bytes(&state(vm)?.req.body)))
         .method("validate", |vm, c| {
             let all = input_all(vm)?;

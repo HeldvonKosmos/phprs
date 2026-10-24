@@ -298,7 +298,12 @@ fn db_count(vm: &mut Vm, table: &str, column: &str, value: &Val, except: Option<
         vars.insert("ex".to_string(), surrealdb::types::Value::RecordId(rid));
         cond.push_str(" AND id != $ex");
     }
-    let r = crate::native::database::query_one(vm, &format!("RETURN count((SELECT VALUE id FROM `{table}` WHERE {cond}))"), vars)?;
+    let r = match crate::native::database::query_one(vm, &format!("RETURN count((SELECT VALUE id FROM `{table}` WHERE {cond}))"), vars) {
+        Ok(r) => r,
+        // a table nobody defined yet holds no records
+        Err(e) if e.message.contains("does not exist") => return Ok(0),
+        Err(e) => return Err(e),
+    };
     let n = crate::native::database::value::from_surreal(vm, r)?;
     Ok(n.to_int().unwrap_or(0).max(0) as u64)
 }

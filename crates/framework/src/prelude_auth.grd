@@ -1,0 +1,130 @@
+<?grd
+namespace OpenGrid\Auth;
+
+use OpenGrid\Database\Model;
+use OpenGrid\Http\Middleware;
+use OpenGrid\Http\Request;
+use OpenGrid\Support\Config;
+
+/**
+ * API token of a user (AU1, like Laravel Sanctum's personal access tokens).
+ * Only the SHA-256 hash of the token is stored; the plain token is handed
+ * out once, at creation. Table in the framework's own schema fragment.
+ */
+final class PersonalAccessToken extends Model
+{
+    protected static string $table = 'personal_access_tokens';
+    protected bool $timestamps = false;
+    protected array $fillable = ['user', 'name', 'token_hash', 'created_at', 'last_used_at'];
+    protected array $hidden = ['token_hash'];
+}
+
+/**
+ * Token authentication for APIs (AU1): bearer tokens, no sessions.
+ * The user model is `settings.auth.model` (e.g. `Auth\Models\User`); it
+ * needs the fields `email` and `password` (a bcrypt hash from
+ * `password_hash`, compatible with Laravel).
+ */
+final class Auth
+{
+    /** The user model class from the configuration. */
+    public static function model(): string
+    {
+        $class = Config::get('auth.model', '');
+        if ($class === '' || !class_exists($class)) {
+            throw new \RuntimeException('settings.auth.model must name the user model class');
+        }
+        return $class;
+    }
+
+    /** The user with these credentials, or null (same answer for both failures). */
+    public static function attempt(string $email, string $password): ?Model
+    {
+        $class = self::model();
+        $user = $class::where('email', $email)->first();
+        if ($user === null) {
+            // spend the same time as a real check, so timing does not tell whether the account exists
+            password_verify($password, '$2y$10$c9I5e50pSO/sY8GirDR4iex0UUR5X/smTgxo2402ubMbAGHcxsVI.');
+            return null;
+        }
+        return password_verify($password, (string) $user->password) ? $user : null;
+    }
+
+    /** A new token for the user: 256 random bits, stored as SHA-256 hash; the plain token is returned once. */
+    public static function createToken(Model $user, string $name = 'api'): string
+    {
+        $plain = bin2hex(random_bytes(32));
+        PersonalAccessToken::create([
+            'user' => $user->id,
+            'name' => $name,
+            'token_hash' => hash('sha256', $plain),
+            'created_at' => new \DateTimeImmutable(),
+        ]);
+        return $plain;
+    }
+
+    /** The token record for a plain token, or null. */
+    public static function findToken(string $plain): ?PersonalAccessToken
+    {
+        if ($plain === '') {
+            return null;
+        }
+        return PersonalAccessToken::where('token_hash', hash('sha256', $plain))->first();
+    }
+
+    /** The user a plain token belongs to, or null; notes the use. */
+    public static function userFromToken(string $plain): ?Model
+    {
+        $token = self::findToken($plain);
+        if ($token === null) {
+            return null;
+        }
+        $class = self::model();
+        $user = $class::find($token->user);
+        if ($user !== null) {
+            $token->update(['last_used_at' => new \DateTimeImmutable()]);
+        }
+        return $user;
+    }
+
+    /** Delete the token of the current request (logout). */
+    public static function revokeCurrentToken(): void
+    {
+        $plain = request()->bearerToken();
+        $token = self::findToken($plain ?? '');
+        if ($token !== null) {
+            $token->forceDelete();
+        }
+    }
+
+    public static function user(): ?Model
+    {
+        return request()->user();
+    }
+
+    public static function id(): mixed
+    {
+        $user = request()->user();
+        return $user === null ? null : $user->id;
+    }
+
+    public static function check(): bool
+    {
+        return request()->user() !== null;
+    }
+}
+
+/** Middleware `auth`: a valid bearer token or 401 (JSON). */
+final class Authenticate extends Middleware
+{
+    public function handle(Request $request, \Closure $next): mixed
+    {
+        $plain = $request->bearerToken();
+        $user = $plain === null ? null : Auth::userFromToken($plain);
+        if ($user === null) {
+            abort(401, 'Unauthenticated.');
+        }
+        $request->setUser($user);
+        return $next($request);
+    }
+}

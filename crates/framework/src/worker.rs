@@ -56,6 +56,8 @@ pub struct RequestState {
     pub object: Option<ObjHandle>,
     pub input: Option<Val>,
     pub session: Option<SessionState>,
+    /// The authenticated user of this request (AU1, set by `auth`).
+    pub user: Option<Val>,
 }
 
 #[derive(Clone, Debug)]
@@ -104,6 +106,7 @@ impl PoolOptions {
 pub const FRAMEWORK_PRELUDE_HTTP: &str = include_str!("prelude_http.grd");
 pub const FRAMEWORK_PRELUDE_VALIDATION: &str = include_str!("prelude_validation.grd");
 pub const FRAMEWORK_PRELUDE_DATABASE: &str = include_str!("prelude_database.grd");
+pub const FRAMEWORK_PRELUDE_AUTH: &str = include_str!("prelude_auth.grd");
 
 type Job = Box<dyn FnOnce(&mut Vm) + Send>;
 
@@ -139,13 +142,14 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
         vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
     }
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
-    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE)] {
+    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
     vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, debug: options.debug, stale_error: None }));
     // default middleware aliases
     if let Some(c) = vm.host::<WorkerCtx>() {
         c.routes.aliases.insert("csrf".into(), "OpenGrid\\Http\\Middleware\\VerifyCsrfToken".into());
+        c.routes.aliases.insert("auth".into(), "OpenGrid\\Auth\\Authenticate".into());
     }
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();

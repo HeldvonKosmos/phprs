@@ -3,3 +3,12 @@
 -- Plain DEFINE (no IF NOT EXISTS): the merge reads statements like the
 -- platform's PHP classes, which take `IF` for the table name (R4b2).
 DEFINE TABLE _opengrid_sessions SCHEMALESS PERMISSIONS NONE;
+
+-- API tokens (AU1): only the SHA-256 hash of a token is stored.
+DEFINE TABLE personal_access_tokens SCHEMAFULL PERMISSIONS NONE;
+DEFINE FIELD user ON TABLE personal_access_tokens TYPE record;
+DEFINE FIELD name ON TABLE personal_access_tokens TYPE string DEFAULT 'api';
+DEFINE FIELD token_hash ON TABLE personal_access_tokens TYPE string;
+DEFINE FIELD created_at ON TABLE personal_access_tokens TYPE datetime;
+DEFINE FIELD last_used_at ON TABLE personal_access_tokens TYPE option<datetime>;
+DEFINE INDEX personal_access_tokens_token_hash ON TABLE personal_access_tokens FIELDS token_hash UNIQUE;

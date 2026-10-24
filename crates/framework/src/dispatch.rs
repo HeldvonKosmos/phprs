@@ -36,7 +36,7 @@ fn handle_inner(vm: &mut Vm, req: HttpRequest) -> Result<HttpResponse, HttpRespo
     };
     tracing::debug!(target: "opengrid", method = %req.method, path = %req.path, class = %entry.handler.class, action = %entry.handler.method, "dispatch");
     let middleware = ctx(vm).routes.resolve_middleware(&entry.middleware);
-    ctx(vm).request = Some(RequestState { req, handler: entry.handler.clone(), params, object: None, input: None, session: None });
+    ctx(vm).request = Some(RequestState { req, handler: entry.handler.clone(), params, object: None, input: None, session: None, user: None });
     let result = if middleware.is_empty() {
         run_controller(vm).map_err(|t| throw_response(vm, t))?
     } else {
