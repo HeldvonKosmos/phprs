@@ -20,7 +20,23 @@ impl Compiler<'_> {
         self.compile_expr_w(e, Want::Value)
     }
 
+    /// `Want::Discard` leaves nothing on the stack: assignments and
+    /// increments use their discarding forms, every other expression is
+    /// popped (statement `f();` must not leak its result).
     pub(crate) fn compile_expr_w(&mut self, e: &Expression<'_>, want: Want) -> CResult<()> {
+        let self_discarding = match e {
+            Expression::Parenthesized(_) | Expression::Assignment(_) | Expression::UnaryPostfix(_) => true,
+            Expression::UnaryPrefix(u) => matches!(u.operator, UnaryPrefixOperator::ErrorControl(_) | UnaryPrefixOperator::PreIncrement(_) | UnaryPrefixOperator::PreDecrement(_)),
+            _ => false,
+        };
+        self.compile_expr_inner(e, want)?;
+        if want == Want::Discard && !self_discarding {
+            self.emit(Op::Pop);
+        }
+        Ok(())
+    }
+
+    fn compile_expr_inner(&mut self, e: &Expression<'_>, want: Want) -> CResult<()> {
         let span = e.span();
         let line = self.line(span);
         self.ub().mark_line(line);
