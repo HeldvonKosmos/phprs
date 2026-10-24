@@ -1,0 +1,11 @@
+<?grd
+namespace OpenGrid\Database;
+
+abstract class Migration
+{
+    abstract public function up(): void;
+
+    public function down(): void
+    {
+    }
+}

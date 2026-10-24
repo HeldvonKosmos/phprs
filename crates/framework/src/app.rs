@@ -15,7 +15,7 @@ use loco_rs::config::Config;
 use loco_rs::controller::AppRoutes;
 use loco_rs::environment::Environment;
 use loco_rs::prelude::Routes;
-use loco_rs::task::Tasks;
+use loco_rs::task::{Task, TaskInfo, Tasks, Vars};
 use loco_rs::Result;
 
 use crate::dispatch;
@@ -107,5 +107,67 @@ impl Hooks for OpenGridApp {
         Ok(())
     }
 
-    fn register_tasks(_tasks: &mut Tasks) {}
+    fn register_tasks(tasks: &mut Tasks) {
+        tasks.register(MigrateTask { action: MigrateAction::Run });
+        tasks.register(MigrateTask { action: MigrateAction::Status });
+        tasks.register(MigrateTask { action: MigrateAction::Rollback });
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MigrateAction {
+    Run,
+    Status,
+    Rollback,
+}
+
+/// `opengrid task migrate`, `opengrid task migrate_status`,
+/// `opengrid task migrate_rollback steps:2`.
+struct MigrateTask {
+    action: MigrateAction,
+}
+
+#[async_trait]
+impl Task for MigrateTask {
+    fn task(&self) -> TaskInfo {
+        let (name, detail) = match self.action {
+            MigrateAction::Run => ("migrate", "run pending .grd migrations"),
+            MigrateAction::Status => ("migrate_status", "list ran and pending migrations"),
+            MigrateAction::Rollback => ("migrate_rollback", "roll back the last batch(es): steps:N"),
+        };
+        TaskInfo { name: name.into(), detail: detail.into() }
+    }
+
+    async fn run(&self, ctx: &AppContext, vars: &Vars) -> Result<()> {
+        let Some(PoolHandle(pool)) = ctx.shared_store.get::<PoolHandle>() else {
+            return Err(loco_rs::Error::Message("VM pool not started".into()));
+        };
+        let root = pool.options().root.clone();
+        let action = self.action;
+        let steps = vars.cli_arg("steps").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+        let report = pool
+            .run(move |vm| {
+                use crate::native::database::migrator;
+                let r = match action {
+                    MigrateAction::Run => migrator::migrate(vm, &root),
+                    MigrateAction::Status => migrator::status(vm, &root),
+                    MigrateAction::Rollback => migrator::rollback(vm, &root, steps),
+                };
+                vm.reset_request();
+                r.map_err(|t| format!("{}: {}", t.class, t.message))
+            })
+            .await
+            .map_err(|_| loco_rs::Error::Message("worker failed".into()))?
+            .map_err(loco_rs::Error::Message)?;
+        for (name, batch) in &report.ran {
+            println!("ran      {name} (batch {batch})");
+        }
+        for name in &report.pending {
+            println!("pending  {name}");
+        }
+        for name in &report.executed {
+            println!("executed {name}");
+        }
+        Ok(())
+    }
 }
