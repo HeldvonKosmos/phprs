@@ -1,0 +1,15 @@
+<?grd
+// PHP 8 sorts are stable: equal values keep their original order, also when
+// sorting in descending order (rsort, arsort, krsort).
+$scores = [10 => 5, 11 => 7, 12 => 5, 13 => 9, 14 => 7, 15 => 5];
+$a = arsort($scores);
+echo implode(',', array_keys($a)), "\n";
+$b = asort($scores);
+echo implode(',', array_keys($b)), "\n";
+$rows = [['n' => 'a', 's' => 1], ['n' => 'b', 's' => 2], ['n' => 'c', 's' => 1], ['n' => 'd', 's' => 2]];
+$r = usort($rows, fn ($x, $y) => $y['s'] <=> $x['s']);
+echo implode(',', array_map(fn ($x) => $x['n'], $r)), "\n";
+$k = krsort(['b' => 1, 'a' => 2, 'c' => 3]);
+echo implode(',', array_keys($k)), "\n";
+$v = rsort([3, 1, 2, 3, 1]);
+echo implode(',', $v), "\n";

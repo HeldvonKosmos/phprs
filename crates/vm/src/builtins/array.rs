@@ -590,9 +590,13 @@ fn sort_impl(vm: &mut Vm, a: &[Val], kind: SortKind, reverse: bool) -> Result<Va
     let flags = match kind { SortKind::Values | SortKind::ValuesKeepKeys | SortKind::Keys => args::int_opt(a, 1, "sort", 0)?, _ => 0 };
     let cb = a.get(1).cloned();
     let mut err: Option<Throw> = None;
+    // descending sorts compare the other way round instead of reversing the
+    // result: PHP 8 sorts are stable, equal elements keep their order (a
+    // reversed result would put them back to front)
+    let dir = |o: Ordering| if reverse { o.reverse() } else { o };
     match kind {
-        SortKind::Values | SortKind::ValuesKeepKeys => entries.sort_by(|x, y| php_sort_cmp(&x.1, &y.1, flags)),
-        SortKind::Keys => entries.sort_by(|x, y| php_sort_cmp(&x.0.to_val(), &y.0.to_val(), flags)),
+        SortKind::Values | SortKind::ValuesKeepKeys => entries.sort_by(|x, y| dir(php_sort_cmp(&x.1, &y.1, flags))),
+        SortKind::Keys => entries.sort_by(|x, y| dir(php_sort_cmp(&x.0.to_val(), &y.0.to_val(), flags))),
         SortKind::Natural => entries.sort_by(|x, y| nat(&x.1, &y.1, false)),
         SortKind::NaturalCase => entries.sort_by(|x, y| nat(&x.1, &y.1, true)),
         SortKind::UserValues | SortKind::UserValuesKeepKeys | SortKind::UserKeys => {
@@ -625,9 +629,6 @@ fn sort_impl(vm: &mut Vm, a: &[Val], kind: SortKind, reverse: bool) -> Result<Va
     }
     if let Some(e) = err {
         return Err(e);
-    }
-    if reverse {
-        entries.reverse();
     }
     let keep_keys = matches!(kind, SortKind::ValuesKeepKeys | SortKind::UserValuesKeepKeys | SortKind::Keys | SortKind::UserKeys | SortKind::Natural | SortKind::NaturalCase);
     let mut out = PhpArray::new();
