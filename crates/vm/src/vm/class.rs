@@ -447,7 +447,8 @@ impl Vm {
         if let Some(v) = value {
             obj.dynamic.insert(PhpString::from("value"), v);
         }
-        let h = self.objects.alloc(obj);
+        // enum cases are immutable singletons of the engine, not of the request
+        let h = self.objects.alloc_engine(obj);
         self.enum_cases.insert((class, name.to_vec()), h);
         Ok(h)
     }
@@ -603,8 +604,26 @@ impl Vm {
         let (owner, _) = self.static_prop_owner(class, name).ok_or_else(|| {
             Throw::error(format!("Access to undeclared static property {}::${}", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(name)))
         })?;
+        // DIALECT §5.4: statics outlive the request, objects do not (enum cases are engine singletons)
+        if let Some(h) = first_request_object(&v) {
+            return Err(Throw::error(format!(
+                "Cannot store an object of class {} in static property {}::${}: static properties outlive the request; only enum cases are allowed",
+                String::from_utf8_lossy(&self.class(self.objects.get(h).class).name),
+                String::from_utf8_lossy(&self.class(class).name),
+                String::from_utf8_lossy(name)
+            )));
+        }
         self.static_values[owner.0 as usize].insert(name.to_vec(), v);
         Ok(())
+    }
+}
+
+/// The first request-bound object inside `v` (arrays searched recursively).
+fn first_request_object(v: &Val) -> Option<ObjHandle> {
+    match v {
+        Val::Object(h) if !h.is_engine() => Some(*h),
+        Val::Array(a) => a.values().find_map(first_request_object),
+        _ => None,
     }
 }
 

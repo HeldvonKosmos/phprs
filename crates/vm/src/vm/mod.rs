@@ -279,13 +279,12 @@ impl Vm {
         self.run_main(idx).map_err(|t| self.describe_throw(t))
     }
 
-    /// End of a request (RUNTIME_ARCHITECTURE §1): objects, enum instances,
-    /// output and stacks go; code, classes, profiles, inline caches and
-    /// static properties stay. The host context stays too; the framework
-    /// clears its per-request part itself.
+    /// End of a request (RUNTIME_ARCHITECTURE §1): request objects, output
+    /// and stacks go; code, classes, profiles, inline caches, static
+    /// properties and enum singletons (engine objects) stay. The host
+    /// context stays too; the framework clears its per-request part itself.
     pub fn reset_request(&mut self) {
-        self.objects = ObjectStore::new();
-        self.enum_cases.clear();
+        self.objects.reset_request();
         self.frames.clear();
         self.slot_stack.clear();
         self.stack.clear();
