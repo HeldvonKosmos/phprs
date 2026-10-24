@@ -3,9 +3,12 @@ namespace Notes\Models;
 
 use OpenGrid\Database\Model;
 
+/** A note of one user; deleting keeps the record (soft delete). */
 final class Note extends Model
 {
     protected static string $table = 'notes';
-    protected array $fillable = ['title', 'body', 'done', 'priority'];
+    protected bool $softDeletes = true;
+    protected array $fillable = ['user', 'title', 'body', 'done', 'priority'];
     protected array $filterable = ['done', 'priority'];
+    protected array $hidden = ['deleted_at'];
 }

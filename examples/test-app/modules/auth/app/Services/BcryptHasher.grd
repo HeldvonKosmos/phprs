@@ -1,0 +1,13 @@
+<?grd
+namespace Auth\Services;
+
+use Auth\Contracts\PasswordHasher;
+
+/** bcrypt, compatible with Laravel's hashes ($2y$). */
+final class BcryptHasher implements PasswordHasher
+{
+    public function hash(string $password): string
+    {
+        return password_hash($password, PASSWORD_BCRYPT);
+    }
+}

@@ -1,0 +1,11 @@
+<?grd
+namespace Auth\Models;
+
+use OpenGrid\Database\Model;
+
+final class User extends Model
+{
+    protected static string $table = 'users';
+    protected array $fillable = ['name', 'email', 'password'];
+    protected array $hidden = ['password'];
+}

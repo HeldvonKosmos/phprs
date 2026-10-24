@@ -2,48 +2,73 @@
 namespace Notes\Controllers;
 
 use Notes\Models\Note;
+use OpenGrid\Auth\Auth;
+use OpenGrid\Http\Request;
 use OpenGrid\Http\Response;
 
+/** The signed-in user's notes (TP5); another user's note answers 404. */
 final class NoteController
 {
-    /** GET /notes?filters[done]=false&sort=priority */
-    public function index(): Response
+    public function __construct(private Request $request)
     {
-        return Response::json(Note::query()->filter()->sort()->get());
     }
 
-    public function show(string $id): Response
+    /** GET /api/notes?filter[done]=false&sort=priority&page=1&per_page=15 */
+    public function index(): Response
     {
-        return Response::json(Note::findOrFail($id));
+        $query = Note::where('user', Auth::id());
+        $filters = $this->request->query('filter', []);
+        if (is_array($filters)) {
+            $query = $query->filter($filters);
+        }
+        $perPage = (int) $this->request->query('per_page', '15');
+        $page = (int) $this->request->query('page', '1');
+        return Response::json($query->sort()->paginate($perPage, $page));
     }
 
     public function store(): Response
     {
-        $data = request()->validate([
+        $data = $this->request->validate([
             'title' => 'required|string|max:120',
             'body' => 'nullable|string',
             'done' => 'nullable|boolean',
             'priority' => 'nullable|integer|between:1,5',
         ]);
+        $data['user'] = Auth::id();
         return Response::json(Note::create($data), 201);
+    }
+
+    public function show(string $id): Response
+    {
+        return Response::json($this->owned($id));
     }
 
     public function update(string $id): Response
     {
-        $data = request()->validate([
-            'title' => 'string|max:120',
+        $note = $this->owned($id);
+        $data = $this->request->validate([
+            'title' => 'sometimes|string|max:120',
             'body' => 'nullable|string',
-            'done' => 'boolean',
-            'priority' => 'integer|between:1,5',
+            'done' => 'sometimes|boolean',
+            'priority' => 'sometimes|integer|between:1,5',
         ]);
-        $note = Note::findOrFail($id);
         $note->update($data);
         return Response::json($note);
     }
 
     public function destroy(string $id): Response
     {
-        Note::findOrFail($id)->delete();
-        return Response::json(['deleted' => $id]);
+        $this->owned($id)->delete();
+        return Response::noContent();
+    }
+
+    /** The note if it belongs to the signed-in user; 404 otherwise (no hint that a foreign id exists). */
+    private function owned(string $id): Note
+    {
+        $note = Note::find($id);
+        if ($note === null || (string) $note->user !== (string) Auth::id()) {
+            abort(404, 'Note not found.');
+        }
+        return $note;
     }
 }

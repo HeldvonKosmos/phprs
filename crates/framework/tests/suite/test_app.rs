@@ -1,6 +1,7 @@
-//! TP3: smoke test of the test project `examples/test-app` — loads, applies
-//! its declarative schema, and serves CRUD with validation, middleware and
-//! 404 through the real dispatcher. Runs on a copy (migrate_push writes
+//! TP3/TP5: smoke test of the test project `examples/test-app` in-process —
+//! loads, applies its declarative schema, health, register/login and the
+//! signed-in user's notes through the real dispatcher (the full acceptance
+//! flow against a server process is `api.sh`, see `api_script.rs`). Runs on a copy (migrate_push writes
 //! `database/schema/temporary.surql`) against `mem://`.
 
 use std::path::{Path, PathBuf};
@@ -39,7 +40,7 @@ fn test_app_crud() {
     let _ = std::fs::remove_dir_all(&root);
     copy_dir(&src, &root);
 
-    let opts = PoolOptions::new(root.clone()).workers(2).database(DbConfig::mem("test", "test_app")).settings(serde_json::json!({ "app": { "name": "TestApp" } }));
+    let opts = PoolOptions::new(root.clone()).workers(2).database(DbConfig::mem("test", "test_app")).settings(serde_json::json!({ "app": { "name": "TestApp" }, "auth": { "model": "Auth\\Models\\User" } }));
     let pool = Arc::new(Pool::start(opts).expect("test app loads"));
     let db = pool.db().expect("database");
     let (_, warnings) = db.block_on(ops::push(db.client(), &root, SyncOptions::default())).expect("migrate_push");
@@ -55,43 +56,38 @@ fn test_app_crud() {
     assert_eq!((hj["status"].as_str(), hj["app"].as_str(), hj["database"]["mode"].as_str()), (Some("ok"), Some("TestApp"), Some("embedded")));
     assert!(hj["database"]["version"].as_str().is_some_and(|v| v.starts_with('3')), "{hj}");
 
-    let r = send(&pool, HttpRequest::post("/notes", "application/json", br#"{"title":"Erste","priority":2}"#));
+    // TP5: register, login, notes of the signed-in user (the full flow is api.sh)
+    let j = "application/json";
+    let r = send(&pool, HttpRequest::post("/api/register", j, br#"{"name":"Ada","email":"ada@example.com","password":"secret-123","password_confirmation":"secret-123"}"#));
+    assert_eq!(r.status, 201, "{}", r.body_str());
+    let r = send(&pool, HttpRequest::post("/api/login", j, br#"{"email":"ada@example.com","password":"secret-123"}"#));
+    assert_eq!(r.status, 200, "{}", r.body_str());
+    let token = json(&r)["token"].as_str().unwrap().to_string();
+    let authed = |mut req: HttpRequest| {
+        req.headers.push(("authorization".into(), format!("Bearer {token}")));
+        req
+    };
+    assert_eq!(send(&pool, HttpRequest::get("/api/notes")).status, 401);
+    let r = send(&pool, authed(HttpRequest::post("/api/notes", j, br#"{"title":"Erste","priority":2}"#)));
     assert_eq!(r.status, 201, "{}", r.body_str());
     assert_eq!(r.header("x-module"), Some("notes"));
     let first = json(&r);
     assert_eq!((first["title"].as_str(), first["done"].as_bool(), first["priority"].as_i64()), (Some("Erste"), Some(false), Some(2)));
     let id = first["id"].as_str().unwrap().split_once(':').unwrap().1.to_string();
-    let r = send(&pool, HttpRequest::post("/notes", "application/json", br#"{"title":"Zweite","done":true}"#));
-    assert_eq!(r.status, 201);
+    let r = send(&pool, authed(HttpRequest::post("/api/notes", j, br#"{"title":"Zweite","done":true}"#)));
     assert_eq!(json(&r)["priority"].as_i64(), Some(3), "schema default");
-
-    // validation, middleware
-    let r = send(&pool, HttpRequest::post("/notes", "application/json", br#"{"priority":9}"#));
-    assert_eq!(r.status, 422);
-    let errors = &json(&r)["errors"];
-    assert_eq!(errors["title"], serde_json::json!(["The title field is required."]));
-    assert_eq!(errors["priority"], serde_json::json!(["The priority field must be between 1 and 5."]));
-    let r = send(&pool, HttpRequest::post("/notes", "application/x-www-form-urlencoded", b"title=x"));
+    let r = send(&pool, authed(HttpRequest::post("/api/notes", "application/x-www-form-urlencoded", b"title=x")));
     assert_eq!(r.status, 415);
-
-    // list with request-fed filter and sort
-    let r = send(&pool, HttpRequest::get("/notes?sort=priority"));
-    let titles: Vec<String> = json(&r).as_array().unwrap().iter().map(|n| n["title"].as_str().unwrap().to_string()).collect();
-    assert_eq!(titles, vec!["Erste", "Zweite"]);
-    let r = send(&pool, HttpRequest::get("/notes?filters%5Bdone%5D=true"));
-    assert_eq!(json(&r).as_array().unwrap().len(), 1);
-
-    // update, show, delete, 404
-    let mut put = HttpRequest::post(&format!("/notes/{id}"), "application/json", br#"{"done":true}"#);
-    put.method = "PUT".into();
-    let r = send(&pool, put);
-    assert_eq!(r.status, 200, "{}", r.body_str());
-    assert_eq!(json(&send(&pool, HttpRequest::get(&format!("/notes/{id}"))))["done"].as_bool(), Some(true));
-    let mut del = HttpRequest::post(&format!("/notes/{id}"), "application/json", b"");
+    let r = send(&pool, authed(HttpRequest::get("/api/notes?sort=priority&filter%5Bdone%5D=false")));
+    let page = json(&r);
+    assert_eq!((page["total"].as_i64(), page["data"][0]["title"].as_str()), (Some(1), Some("Erste")), "{page}");
+    let mut patch = authed(HttpRequest::post(&format!("/api/notes/{id}"), j, br#"{"done":true}"#));
+    patch.method = "PATCH".into();
+    assert_eq!(json(&send(&pool, patch))["done"].as_bool(), Some(true));
+    let mut del = authed(HttpRequest::get(&format!("/api/notes/{id}")));
     del.method = "DELETE".into();
-    assert_eq!(send(&pool, del).status, 200);
-    let r = send(&pool, HttpRequest::get(&format!("/notes/{id}")));
+    assert_eq!(send(&pool, del).status, 204);
+    let r = send(&pool, authed(HttpRequest::get(&format!("/api/notes/{id}"))));
     assert_eq!(r.status, 404, "{}", r.body_str());
-    assert_eq!(json(&r)["error"].as_str(), Some("ModelNotFoundException"));
     let _ = std::fs::remove_dir_all(&root);
 }

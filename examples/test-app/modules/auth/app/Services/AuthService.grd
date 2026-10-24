@@ -1,0 +1,34 @@
+<?grd
+namespace Auth\Services;
+
+use Auth\Contracts\PasswordHasher;
+use Auth\Models\User;
+use OpenGrid\Auth\Auth;
+
+/** Registration and token login; injected into the controller (I1). */
+final class AuthService
+{
+    public function __construct(private PasswordHasher $hasher)
+    {
+    }
+
+    public function register(string $name, string $email, string $password): User
+    {
+        return User::create(['name' => $name, 'email' => $email, 'password' => $this->hasher->hash($password)]);
+    }
+
+    /** `['token' => …, 'user' => …]`, or null for unknown email and wrong password alike. */
+    public function login(string $email, string $password): ?array
+    {
+        $user = Auth::attempt($email, $password);
+        if ($user === null) {
+            return null;
+        }
+        return ['token' => Auth::createToken($user), 'user' => $user];
+    }
+
+    public function logout(): void
+    {
+        Auth::revokeCurrentToken();
+    }
+}

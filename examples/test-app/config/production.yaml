@@ -18,6 +18,9 @@ workers:
 settings:
   app:
     name: TestApp
+  # user model of the token authentication (OpenGrid\Auth)
+  auth:
+    model: Auth\Models\User
   opengrid:
     root: .
     workers: 4

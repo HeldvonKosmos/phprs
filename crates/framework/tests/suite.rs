@@ -1,6 +1,8 @@
 //! One integration-test binary per crate (NACHRICHT 24.10. 5c): every test file
 //! links the whole SurrealDB engine, so one binary instead of one per file.
 
+#[path = "suite/api_script.rs"]
+mod api_script;
 #[path = "suite/auth.rs"]
 mod auth;
 #[path = "suite/database.rs"]

@@ -1,0 +1,50 @@
+<?grd
+namespace Auth\Controllers;
+
+use Auth\Services\AuthService;
+use OpenGrid\Auth\Auth;
+use OpenGrid\Http\Request;
+use OpenGrid\Http\Response;
+
+final class AuthController
+{
+    public function __construct(private AuthService $auth, private Request $request)
+    {
+    }
+
+    /** POST /api/register */
+    public function register(): Response
+    {
+        $data = $this->request->validate([
+            'name' => 'required|string|max:120',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+        $user = $this->auth->register($data['name'], $data['email'], $data['password']);
+        return Response::json($user, 201);
+    }
+
+    /** POST /api/login */
+    public function login(): Response
+    {
+        $data = $this->request->validate(['email' => 'required|string', 'password' => 'required|string']);
+        $result = $this->auth->login($data['email'], $data['password']);
+        if ($result === null) {
+            abort(401, 'These credentials do not match our records.');
+        }
+        return Response::json($result);
+    }
+
+    /** POST /api/logout (auth) */
+    public function logout(): Response
+    {
+        $this->auth->logout();
+        return Response::noContent();
+    }
+
+    /** GET /api/me (auth) */
+    public function me(): Response
+    {
+        return Response::json(Auth::user());
+    }
+}

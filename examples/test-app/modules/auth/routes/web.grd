@@ -1,0 +1,10 @@
+<?grd
+use Auth\Controllers\AuthController;
+use OpenGrid\Routing\Route;
+
+Route::post('/api/register', [AuthController::class, 'register']);
+Route::post('/api/login', [AuthController::class, 'login']);
+Route::group(['middleware' => ['auth']], function () {
+    Route::post('/api/logout', [AuthController::class, 'logout']);
+    Route::get('/api/me', [AuthController::class, 'me']);
+});

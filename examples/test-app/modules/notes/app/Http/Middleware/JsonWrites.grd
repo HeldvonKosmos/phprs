@@ -5,12 +5,12 @@ use OpenGrid\Http\Middleware;
 use OpenGrid\Http\Request;
 use OpenGrid\Http\Response;
 
-/** Writes must send JSON; every answer names the module. */
+/** A request with a body must send JSON; every answer names the module. */
 final class JsonWrites extends Middleware
 {
     public function handle(Request $request, \Closure $next): mixed
     {
-        if ($request->method() != 'GET' && !$request->isJson()) {
+        if ($request->body() !== '' && !$request->isJson()) {
             abort(415, 'send application/json');
         }
         $response = $next($request);
