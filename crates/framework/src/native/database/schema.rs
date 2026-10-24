@@ -6,6 +6,25 @@ use grd_vm::value::{ArrayKey, ObjHandle, PhpArray, Val};
 use grd_vm::vm::{Call, NativeClassDef, Vm};
 use surrealdb::types::{ToSql, Value};
 
+pub mod ast;
+pub mod dbinfo;
+pub mod generator;
+pub mod merge;
+pub mod parser;
+pub mod sources;
+
+/// Merge all schema sources of a project in their fixed order and generate
+/// the `temporary.surql` text (R4b). `framework` is the embedded fragment
+/// (R4e). Warnings list what the parser skipped.
+pub fn build_surql(root: &std::path::Path, framework: Option<&str>) -> std::io::Result<(String, Vec<ast::Warning>)> {
+    let mut schema = ast::Schema::default();
+    for src in sources::collect(root, framework)? {
+        schema.merge_source(&src.text, &src.label);
+    }
+    let text = generator::generate(&schema);
+    Ok((text, schema.warnings))
+}
+
 use super::query;
 use super::value::to_surreal;
 use crate::native::string_arg;
