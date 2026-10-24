@@ -9,6 +9,7 @@ use surrealdb::types::{ToSql, Value};
 pub mod ast;
 pub mod dbinfo;
 pub mod generator;
+pub mod kit;
 pub mod merge;
 pub mod parser;
 pub mod sources;

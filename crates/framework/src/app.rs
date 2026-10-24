@@ -87,6 +87,8 @@ impl Hooks for OpenGridApp {
     }
 
     async fn after_context(ctx: AppContext) -> Result<AppContext> {
+        // SurrealKit logs through `log`; forward it into tracing (D4)
+        crate::native::database::schema::kit::forward_logs();
         let dev = matches!(ctx.environment, Environment::Development);
         let opts = pool_options(ctx.config.settings.as_ref(), dev);
         tracing::info!(target: "grd", root = %opts.root.display(), workers = opts.workers, debug = opts.debug, watch = opts.watch, "starting VM pool");

@@ -22,7 +22,12 @@ serde_json = "1"
 tracing = "0.1"
 async-trait = "0.1"
 matchit = "0.9"
-surrealdb = { version = "3.3", features = ["kv-mem"] }
+surrealdb = { version = "3.3", features = ["kv-mem", "kv-surrealkv"] }
+# Embedded schema sync and rollouts (DECISIONS D4); exact pin while in beta,
+# no CLI dependencies. Only as a crate, never vendored (Jonas 24.10.).
+surrealkit = { version = "=1.0.0-beta.6", default-features = false, features = ["kv-mem"] }
+# SurrealKit reports progress through `log`; forward it into tracing.
+tracing-log = "0.2"
 chrono = "0.4"
 indexmap = "2"
 regex = "1"

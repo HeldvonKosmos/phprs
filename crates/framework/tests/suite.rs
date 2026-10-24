@@ -17,6 +17,8 @@ mod relations;
 mod reload;
 #[path = "suite/schema_files.rs"]
 mod schema_files;
+#[path = "suite/schema_kit.rs"]
+mod schema_kit;
 #[path = "suite/session.rs"]
 mod session;
 #[path = "suite/types.rs"]
