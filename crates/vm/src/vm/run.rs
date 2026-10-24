@@ -92,6 +92,17 @@ impl Vm {
                         }
                     }
                     Op::StoreSlot(s) => {
+                        // GRD021: the value keeps the local's type; anything
+                        // else goes to `exec`, which raises the error
+                        let i = slot_base + *s as usize;
+                        if slot_type_ok(self.slot_stack[i].as_ref(), self.stack.last().expect("store operand"), unit, *s) {
+                            let v = self.stack.pop().expect("store operand");
+                            self.slot_stack[i] = Some(v);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::BindSlot(s) => {
                         let v = self.stack.pop().expect("store operand");
                         self.slot_stack[slot_base + *s as usize] = Some(v);
                         ip += 1;
@@ -206,6 +217,7 @@ impl Vm {
                     Op::CompoundSlot { slot, op: bop, discard } => {
                         if let (Some(lhs), Some(rhs)) = (&self.slot_stack[slot_base + *slot as usize], self.stack.last())
                             && let Some(r) = num_fast(*bop, lhs, rhs)
+                            && std::mem::discriminant(lhs) == std::mem::discriminant(&r)
                         {
                             self.stack.pop();
                             if !*discard {
@@ -414,6 +426,14 @@ impl Vm {
                 self.push(v);
             }
             Op::StoreSlot(s) => {
+                let v = self.pop();
+                let i = self.frames[fidx].slot_base + *s as usize;
+                if !slot_type_ok(self.slot_stack[i].as_ref(), &v, unit, *s) {
+                    return Err(grd021_error(module, unit, *s, self.slot_stack[i].as_ref(), &v));
+                }
+                self.slot_stack[i] = Some(v);
+            }
+            Op::BindSlot(s) => {
                 let v = self.pop();
                 self.slot_stack[self.frames[fidx].slot_base + *s as usize] = Some(v);
             }
@@ -744,11 +764,12 @@ impl Vm {
             Op::UnsetPath(path) => self.unset_path(&path.base, &path.segs, midx)?,
             Op::CompoundSlot { slot, op: bop, discard } => {
                 let rhs = self.pop();
-                let lhs = self.slot_stack[self.frames[fidx].slot_base + *slot as usize].take().unwrap_or(Val::Null);
-                let r = match self.binary(*bop, lhs, rhs) {
-                    Ok(r) => r,
-                    Err(e) => return Err(e),
-                };
+                let i = self.frames[fidx].slot_base + *slot as usize;
+                let lhs = self.slot_stack[i].clone().unwrap_or(Val::Null);
+                let r = self.binary(*bop, lhs, rhs)?;
+                if !slot_type_ok(self.slot_stack[i].as_ref(), &r, unit, *slot) {
+                    return Err(grd021_error(module, unit, *slot, self.slot_stack[i].as_ref(), &r));
+                }
                 if !*discard {
                     self.push(r.clone());
                 }
@@ -1351,10 +1372,48 @@ impl Vm {
     }
 }
 
+/// GRD021 (D10): may `new` be stored over `old` in local `slot`? A local
+/// keeps the type of its first non-null value; `null` only if the local
+/// may hold it (`CodeUnit::slot_not_null`).
+#[inline(always)]
+pub(crate) fn slot_type_ok(old: Option<&Val>, new: &Val, unit: &CodeUnit, slot: Slot) -> bool {
+    match old {
+        None | Some(Val::Null) => true,
+        Some(o) => {
+            if matches!(new, Val::Null) {
+                !unit.slot_not_null.get(slot as usize).copied().unwrap_or(false)
+            } else {
+                std::mem::discriminant(o) == std::mem::discriminant(new)
+            }
+        }
+    }
+}
+
+#[cold]
+pub(crate) fn grd021_error(module: &Module, unit: &CodeUnit, slot: Slot, old: Option<&Val>, new: &Val) -> Throw {
+    let name = unit.slot_names.get(slot as usize).map(|n| module.str_lossy(*n)).unwrap_or_else(|| "?".into());
+    let tn = |v: &Val| match v {
+        Val::Null => "null",
+        Val::Bool(_) => "bool",
+        Val::Int(_) => "int",
+        Val::Float(_) => "float",
+        Val::Str(_) => "string",
+        Val::Array(_) => "array",
+        Val::Object(_) => "object",
+    };
+    let (was, now) = (old.map(tn).unwrap_or("null"), tn(new));
+    let hint = match (was, now) {
+        ("int", "float") => " (beginne mit 0.0 oder (float), wenn sie Kommazahlen aufnehmen soll)",
+        ("float", "int") => " (schreibe den Wert als Kommazahl oder mit (float))",
+        (_, "null") => " (soll sie null aufnehmen, beginne mit $x = null)",
+        _ => "",
+    };
+    Throw::type_error(format!("GRD021: die lokale Variable ${name} ist {was}, zugewiesen wird {now}{hint}"))
+}
+
 /// Arithmetic and comparison of two numbers without the generic path
-/// (PERF1): int/int, float/float and mixed, with PHP's results — int
-/// division that divides evenly stays int, overflow goes to the generic path (float, or ArithmeticError in the strict dialect) via the
-/// generic path, `===` between int and float is false. `None` means: take the
+/// (PERF1): int/int, float/float and mixed — `/` is always float (D10),
+/// overflow goes to the generic path (ArithmeticError), `===` between int and float is false. `None` means: take the
 /// generic path (overflow, division by zero, other types or operators).
 #[inline(always)]
 pub(crate) fn num_fast(bop: BinOp, a: &Val, b: &Val) -> Option<Val> {
@@ -1365,15 +1424,8 @@ pub(crate) fn num_fast(bop: BinOp, a: &Val, b: &Val) -> Option<Val> {
                 BinOp::Add => x.checked_add(y).map(Val::Int),
                 BinOp::Sub => x.checked_sub(y).map(Val::Int),
                 BinOp::Mul => x.checked_mul(y).map(Val::Int),
-                BinOp::Div => {
-                    if y == 0 || y == -1 {
-                        None
-                    } else if x % y == 0 {
-                        Some(Val::Int(x / y))
-                    } else {
-                        Some(Val::Float(x as f64 / y as f64))
-                    }
-                }
+                // always float in the dialect (D10)
+                BinOp::Div if y != 0 => Some(Val::Float(x as f64 / y as f64)),
                 BinOp::Mod if y != 0 && y != -1 => Some(Val::Int(x % y)),
                 BinOp::Lt => Some(Val::Bool(x < y)),
                 BinOp::Le => Some(Val::Bool(x <= y)),

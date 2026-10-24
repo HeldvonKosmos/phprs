@@ -1,25 +1,30 @@
-//! GRD021 measurement (D8/D9, DX1): would "a local variable keeps the type
-//! of its first assignment" reject this code? Counted only, never enforced.
+//! GRD021 (DIALECT §5.2, D10): a local variable keeps the type of its first
+//! assignment. This pass checks it at compile time wherever both types are
+//! evident; the VM checks the remaining stores at run time (`StoreSlot`).
 //!
-//! Static and approximate: assignments are taken in source order per scope
-//! (top level, function, method, closure, arrow function); only assignments
-//! whose value type is evident from the expression are judged (literals,
-//! arithmetic of known numbers, concatenation, comparisons, casts, `new`,
-//! array literals, variables already typed). Others count as "not judged".
-//! Two variants:
-//! - strict: the first assignment fixes the type, `null` included;
-//! - tolerant: a first `null` makes the type `?T` with the first non-null
-//!   type; only two different non-null types count.
-//!
-//! int → float is no widening for locals (D9): `$x = 0; $x = 1.5;` counts.
+//! Static and per scope (top level, function, method, closure, arrow
+//! function), assignments in source order. A type is evident from literals,
+//! casts, arithmetic of known numbers (`/` is always float), concatenation,
+//! comparisons, `new`, array literals, typed parameters and variables already
+//! typed. Rules:
+//! - the first assignment fixes the type; a first `null` makes it `?T` with
+//!   the first non-null type;
+//! - a later assignment of another non-null type is GRD021, `null` into a
+//!   variable that was not `?T` too;
+//! - no widening int → float for locals (the message suggests `0.0` or
+//!   `(float)`).
+//! `foreach` and `catch` variables are bound per iteration and not checked.
+//! The same pass counts for `grd check --report` (strict variant: also a
+//! first `null` fixes the type).
 
 use std::collections::HashMap;
 
+use mago_span::HasSpan;
 use mago_syntax::cst::*;
 use mago_syntax::walker::{MutWalker, walk_program_mut};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum T {
+pub enum T {
     Null,
     Int,
     Float,
@@ -29,29 +34,75 @@ enum T {
     Object,
 }
 
-/// Result of the measurement for one file.
+impl T {
+    pub fn name(self) -> &'static str {
+        match self {
+            T::Null => "null",
+            T::Int => "int",
+            T::Float => "float",
+            T::Bool => "bool",
+            T::Str => "string",
+            T::Array => "array",
+            T::Object => "object",
+        }
+    }
+}
+
+/// One GRD021 violation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Violation {
+    pub line: u32,
+    pub var: String,
+    pub declared: T,
+    pub assigned: T,
+}
+
+impl Violation {
+    pub fn message(&self) -> String {
+        format!("die lokale Variable ${} ist {}, zugewiesen wird {}", self.var, self.declared.name(), self.assigned.name())
+    }
+    pub fn hint(&self) -> &'static str {
+        match (self.declared, self.assigned) {
+            (T::Float, T::Int) => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; schreibe den Wert als Kommazahl (1.0) oder mit (float).",
+            (T::Int, T::Float) => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; beginne mit 0.0 oder (float), wenn sie Kommazahlen aufnehmen soll.",
+            (_, T::Null) => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; soll sie null aufnehmen, beginne mit `$x = null;` (Typ ?T).",
+            _ => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; nimm für den anderen Wert eine eigene Variable.",
+        }
+    }
+}
+
+/// Result for one file.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Grd021Counts {
-    /// Assignments that change the type (strict variant).
+    /// Violations of the strict variant (a first `null` fixes the type too).
     pub strict: u32,
-    /// Assignments that change the type (tolerant variant, `?T`).
+    /// Violations of the rule in force (`?T` after a first `null`).
     pub tolerant: u32,
-    /// Of `strict`, the int/float changes (fix: `0.0` or `(float)`).
+    /// Of `tolerant`, the int/float changes.
     pub int_float: u32,
     /// Assignments to plain variables whose type was judged.
     pub judged: u32,
     /// Assignments to plain variables whose type is not evident.
     pub not_judged: u32,
-    /// Source lines of the strict hits (first 20).
+    /// Source lines of the first violations (rule in force).
     pub lines: Vec<u32>,
+    /// All violations of the rule in force.
+    pub violations: Vec<Violation>,
+}
+
+#[derive(Default)]
+struct Var {
+    /// first assignment (strict variant)
+    first: Option<T>,
+    /// established non-null type
+    ty: Option<T>,
+    /// may hold null (`?T`, or first assignment `null`, or nullable parameter)
+    nullable: bool,
 }
 
 #[derive(Default)]
 struct Scope {
-    /// first type (strict variant)
-    first: HashMap<Vec<u8>, T>,
-    /// first non-null type (tolerant variant)
-    first_non_null: HashMap<Vec<u8>, T>,
+    vars: HashMap<Vec<u8>, Var>,
 }
 
 struct Counter<'s> {
@@ -67,15 +118,45 @@ fn var_name<'a>(e: &Expression<'a>) -> Option<&'a [u8]> {
     }
 }
 
+/// Type of a parameter hint: (type, nullable); `None` for anything else.
+fn hint_type(h: &Hint<'_>) -> Option<(T, bool)> {
+    Some(match h {
+        Hint::Integer(_) => (T::Int, false),
+        Hint::Float(_) => (T::Float, false),
+        Hint::String(_) => (T::Str, false),
+        Hint::Bool(_) | Hint::True(_) | Hint::False(_) => (T::Bool, false),
+        Hint::Array(_) => (T::Array, false),
+        Hint::Object(_) | Hint::Identifier(_) | Hint::Self_(_) | Hint::Static(_) | Hint::Parent(_) => (T::Object, false),
+        Hint::Nullable(n) => (hint_type(n.hint)?.0, true),
+        Hint::Parenthesized(p) => hint_type(p.hint)?,
+        _ => return None,
+    })
+}
+
 impl Counter<'_> {
     fn scope(&mut self) -> &mut Scope {
         self.scopes.last_mut().expect("scope")
     }
 
+    fn enter(&mut self, params: Option<&FunctionLikeParameterList<'_>>) {
+        let mut scope = Scope::default();
+        for p in params.into_iter().flat_map(|l| l.parameters.iter()) {
+            let name = p.variable.name.strip_prefix(b"$").unwrap_or(p.variable.name).to_vec();
+            let default_null = p.default_value.as_ref().is_some_and(|d| matches!(d.value, Expression::Literal(Literal::Null(_))));
+            let var = match p.hint.as_ref().and_then(hint_type) {
+                // variadic parameters are arrays
+                _ if p.ellipsis.is_some() => Var { first: Some(T::Array), ty: Some(T::Array), nullable: false },
+                Some((t, nullable)) => Var { first: Some(t), ty: Some(t), nullable: nullable || default_null },
+                // untyped: its type comes from the argument at run time
+                None => Var { first: None, ty: None, nullable: true },
+            };
+            scope.vars.insert(name, var);
+        }
+        self.scopes.push(scope);
+    }
+
     fn known(&self, name: &[u8]) -> Option<T> {
-        let s = self.scopes.last()?;
-        // the variable's established type: first non-null, else first
-        s.first_non_null.get(name).or_else(|| s.first.get(name)).copied()
+        self.scopes.last()?.vars.get(name)?.ty
     }
 
     fn type_of(&self, e: &Expression<'_>) -> Option<T> {
@@ -120,9 +201,9 @@ impl Counter<'_> {
                     (T::Array, T::Array) if matches!(b.operator, B::Addition(_)) => T::Array,
                     _ => return None,
                 },
-                // int / int is int or float depending on the values
+                // always float in the dialect (D10)
                 B::Division(_) => match (self.type_of(b.lhs)?, self.type_of(b.rhs)?) {
-                    (T::Float, T::Int | T::Float) | (T::Int, T::Float) => T::Float,
+                    (T::Int | T::Float, T::Int | T::Float) => T::Float,
                     _ => return None,
                 },
                 _ => return None,
@@ -134,29 +215,44 @@ impl Counter<'_> {
     fn assign(&mut self, name: &[u8], t: Option<T>, line: u32) {
         let Some(t) = t else {
             self.counts.not_judged += 1;
+            // an unknown value may be null; a variable first assigned this
+            // way is checked at run time
+            let var = self.scope().vars.entry(name.to_vec()).or_default();
+            if var.first.is_none() {
+                var.nullable = true;
+            }
             return;
         };
         self.counts.judged += 1;
-        let scope = self.scope();
-        let first = *scope.first.entry(name.to_vec()).or_insert(t);
+        let var = self.scope().vars.entry(name.to_vec()).or_default();
+        let first = *var.first.get_or_insert(t);
         let strict_hit = first != t;
-        let tolerant_hit = if t == T::Null {
-            false
+        let mut violation = None;
+        if t == T::Null {
+            if var.ty.is_none() && first == T::Null {
+                var.nullable = true;
+            } else if !var.nullable {
+                violation = var.ty.map(|declared| (declared, t));
+            }
         } else {
-            let fnn = *scope.first_non_null.entry(name.to_vec()).or_insert(t);
-            fnn != t
-        };
+            match var.ty {
+                None => var.ty = Some(t),
+                Some(declared) if declared != t => violation = Some((declared, t)),
+                _ => {}
+            }
+        }
         if strict_hit {
             self.counts.strict += 1;
-            if matches!((first, t), (T::Int, T::Float) | (T::Float, T::Int)) {
+        }
+        if let Some((declared, assigned)) = violation {
+            self.counts.tolerant += 1;
+            if matches!((declared, assigned), (T::Int, T::Float) | (T::Float, T::Int)) {
                 self.counts.int_float += 1;
             }
             if self.counts.lines.len() < 20 {
                 self.counts.lines.push(line);
             }
-        }
-        if tolerant_hit {
-            self.counts.tolerant += 1;
+            self.counts.violations.push(Violation { line, var: String::from_utf8_lossy(name).into_owned(), declared, assigned });
         }
     }
 
@@ -166,32 +262,31 @@ impl Counter<'_> {
 }
 
 impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
-    fn walk_in_function(&mut self, _: &'ast Function<'arena>, _: &mut ()) {
-        self.scopes.push(Scope::default());
+    fn walk_in_function(&mut self, f: &'ast Function<'arena>, _: &mut ()) {
+        self.enter(Some(&f.parameter_list));
     }
     fn walk_out_function(&mut self, _: &'ast Function<'arena>, _: &mut ()) {
         self.scopes.pop();
     }
-    fn walk_in_method(&mut self, _: &'ast Method<'arena>, _: &mut ()) {
-        self.scopes.push(Scope::default());
+    fn walk_in_method(&mut self, m: &'ast Method<'arena>, _: &mut ()) {
+        self.enter(Some(&m.parameter_list));
     }
     fn walk_out_method(&mut self, _: &'ast Method<'arena>, _: &mut ()) {
         self.scopes.pop();
     }
-    fn walk_in_closure(&mut self, _: &'ast Closure<'arena>, _: &mut ()) {
-        self.scopes.push(Scope::default());
+    fn walk_in_closure(&mut self, c: &'ast Closure<'arena>, _: &mut ()) {
+        self.enter(Some(&c.parameter_list));
     }
     fn walk_out_closure(&mut self, _: &'ast Closure<'arena>, _: &mut ()) {
         self.scopes.pop();
     }
-    fn walk_in_arrow_function(&mut self, _: &'ast ArrowFunction<'arena>, _: &mut ()) {
-        self.scopes.push(Scope::default());
+    fn walk_in_arrow_function(&mut self, a: &'ast ArrowFunction<'arena>, _: &mut ()) {
+        self.enter(Some(&a.parameter_list));
     }
     fn walk_out_arrow_function(&mut self, _: &'ast ArrowFunction<'arena>, _: &mut ()) {
         self.scopes.pop();
     }
     fn walk_in_assignment(&mut self, a: &'ast Assignment<'arena>, _: &mut ()) {
-        use mago_span::HasSpan;
         let Some(name) = var_name(a.lhs) else { return };
         if name == b"this" {
             return;
@@ -207,7 +302,7 @@ impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
                 _ => None,
             },
             AssignmentOperator::Division(_) => match (cur, rhs) {
-                (Some(T::Float), Some(T::Int | T::Float)) | (Some(T::Int), Some(T::Float)) => Some(T::Float),
+                (Some(T::Int | T::Float), Some(T::Int | T::Float)) => Some(T::Float),
                 _ => None,
             },
             AssignmentOperator::Modulo(_) | AssignmentOperator::BitwiseAnd(_) | AssignmentOperator::BitwiseOr(_) | AssignmentOperator::BitwiseXor(_) | AssignmentOperator::LeftShift(_) | AssignmentOperator::RightShift(_) => Some(T::Int),
@@ -218,7 +313,7 @@ impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
     }
 }
 
-/// Count GRD021 hits in a parsed program.
+/// Check / count GRD021 in a parsed program.
 pub fn count_grd021(program: &Program<'_>, source: &[u8]) -> Grd021Counts {
     let mut c = Counter { scopes: vec![Scope::default()], counts: Grd021Counts::default(), source };
     walk_program_mut(&mut c, program, &mut ());

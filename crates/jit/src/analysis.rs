@@ -150,15 +150,8 @@ fn num_result(op: BinOp, a: Ty, b: Ty) -> Result<Ty, Fail> {
                 Ty::Num
             }
         }
-        Div => {
-            if any_float {
-                Ty::Float
-            } else if a == Ty::Int && b == Ty::Int {
-                Ty::Num
-            } else {
-                return Err(());
-            }
-        }
+        // always float in the dialect (D10)
+        Div => Ty::Float,
         Mod | BitAnd | BitOr | BitXor | Spaceship => {
             if a == Ty::Int && b == Ty::Int {
                 Ty::Int
@@ -238,9 +231,12 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                         return None;
                     }
                     let t: Ty = $t;
+                    // GRD021 (D10): a local keeps its type; a store of another
+                    // type raises in the interpreter, so such code is not compiled
                     slot_ty[sl] = Some(match slot_ty[sl] {
                         None => t,
-                        Some(o) => o.join(t)?,
+                        Some(o) if o == t => o,
+                        Some(_) => return None,
                     });
                     s.def[sl] = Def::Yes;
                 }};
@@ -261,7 +257,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let t = load!(*sl);
                     s.stack.push(t);
                 }
-                Op::StoreSlot(sl) => {
+                Op::StoreSlot(sl) | Op::BindSlot(sl) => {
                     let t = pop!();
                     store!(*sl, t);
                 }

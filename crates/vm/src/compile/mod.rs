@@ -73,6 +73,10 @@ pub fn compile_source(file_name: &str, source: &[u8]) -> CResult<Module> {
             file: file_name.to_string(),
         });
     }
+    // GRD021: a local keeps the type of its first assignment (D10)
+    if let Some(v) = typecheck::count_grd021(program, source).violations.first() {
+        return Err(CompileError { code: Some("GRD021"), message: v.message(), hint: Some(v.hint()), line: v.line, file: file_name.to_string() });
+    }
     let mut c = Compiler::new(file_name, source);
     c.compile_program(program)?;
     Ok(c.module)
@@ -103,6 +107,7 @@ pub fn check_source(file_name: &str, source: &[u8]) -> CheckReport {
         return report;
     }
     report.grd021 = typecheck::count_grd021(program, source);
+    let grd021: Vec<CompileError> = report.grd021.violations.iter().map(|v| CompileError { code: Some("GRD021"), message: v.message(), hint: Some(v.hint()), line: v.line, file: file_name.to_string() }).collect();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut c = Compiler::new(file_name, source);
         c.report = Some(Vec::new());
@@ -117,6 +122,7 @@ pub fn check_source(file_name: &str, source: &[u8]) -> CheckReport {
         Ok(errors) => report.errors = errors,
         Err(_) => report.panicked = true,
     }
+    report.errors.extend(grd021);
     report
 }
 
@@ -169,6 +175,8 @@ pub(crate) struct UnitBuilder {
     pub is_method: bool,
     pub is_closure: bool,
     pub last_line: u32,
+    /// Slots that already had their first assignment (GRD021 null rule).
+    pub first_assigned: std::collections::HashSet<Slot>,
 }
 
 impl UnitBuilder {
@@ -177,6 +185,7 @@ impl UnitBuilder {
             unit: CodeUnit::new(name, line),
             label_targets: std::collections::HashSet::new(),
             slots: HashMap::new(),
+            first_assigned: std::collections::HashSet::new(),
             loops: Vec::new(),
             tries: Vec::new(),
             function_name: Vec::new(),
@@ -263,6 +272,18 @@ impl UnitBuilder {
         self.slots.get(name).copied()
     }
     /// Anonymous slot for temporaries (iterators, match subjects).
+    /// First assignment of a local (GRD021): remember whether it may hold
+    /// `null` later (`not_null`: the value is evidently not null).
+    pub fn note_assignment(&mut self, slot: Slot, not_null: bool) {
+        if self.first_assigned.insert(slot) && not_null {
+            let i = slot as usize;
+            if self.unit.slot_not_null.len() <= i {
+                self.unit.slot_not_null.resize(i + 1, false);
+            }
+            self.unit.slot_not_null[i] = true;
+        }
+    }
+
     pub fn temp_slot(&mut self) -> Slot {
         let s = self.unit.num_slots;
         self.unit.num_slots += 1;

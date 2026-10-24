@@ -284,6 +284,10 @@ impl Compiler<'_> {
                 None => None,
             };
             let name = self.intern(&pname);
+            // GRD021 null rule: a typed, non-nullable parameter without a null default
+            let default_null = matches!(p.default_value.as_ref().map(|d| d.value), Some(Expression::Literal(Literal::Null(_))));
+            let not_null = !default_null && matches!(&ty, Some(t) if !matches!(t, TypeHint::Mixed | TypeHint::Null | TypeHint::Nullable(_) | TypeHint::Union(_)));
+            self.ub().note_assignment(slot, not_null);
             params.push(Param { name, slot, ty, has_default, default_init, variadic, promote, promote_readonly, attributes });
         }
         // default-value prologue
@@ -627,10 +631,11 @@ impl Compiler<'_> {
         }
         let top = self.ub().here();
         let next = self.emit(Op::IterNext { iter, end: 0, with_key: key_target.is_some() });
-        // stack: [key,] value
-        self.compile_store_target(value_target)?;
+        // stack: [key,] value; foreach variables are bound per iteration
+        // and not subject to GRD021 (D10)
+        self.compile_bind_target(value_target)?;
         if let Some(k) = key_target {
-            self.compile_store_target(k)?;
+            self.compile_bind_target(k)?;
         }
         self.push_loop(false);
         match &f.body {
@@ -645,12 +650,24 @@ impl Compiler<'_> {
         Ok(())
     }
 
+    /// Like `compile_store_target`, but a plain variable is bound without
+    /// the GRD021 type rule (`foreach` variables).
+    fn compile_bind_target(&mut self, target: &Expression<'_>) -> CResult<()> {
+        if let Expression::Variable(Variable::Direct(d)) = target {
+            let slot = self.ub().slot(var_name(d.name));
+            self.emit(Op::BindSlot(slot));
+            return Ok(());
+        }
+        self.compile_store_target(target)
+    }
+
     /// Pops the value on the stack into an assignment target (variable,
     /// path or destructuring pattern).
     fn compile_store_target(&mut self, target: &Expression<'_>) -> CResult<()> {
         match target {
             Expression::Variable(Variable::Direct(d)) => {
                 let slot = self.ub().slot(var_name(d.name));
+                self.ub().note_assignment(slot, false);
                 self.emit(Op::StoreSlot(slot));
                 Ok(())
             }
@@ -662,7 +679,7 @@ impl Compiler<'_> {
             Expression::List(l) => self.reject(dialect::LIST, l.span()),
             other => {
                 let tmp = self.ub().temp_slot();
-                self.emit(Op::StoreSlot(tmp));
+                self.emit(Op::BindSlot(tmp));
                 let (base, segs) = self.build_path(other)?;
                 self.emit(Op::LoadSlot(tmp));
                 self.emit(Op::StorePath(Box::new(PathOp { base, segs, mode: WriteMode::Assign })));
@@ -675,7 +692,7 @@ impl Compiler<'_> {
     fn compile_switch(&mut self, sw: &Switch<'_>) -> CResult<()> {
         let subject = self.ub().temp_slot();
         self.compile_expr(sw.expression)?;
-        self.emit(Op::StoreSlot(subject));
+        self.emit(Op::BindSlot(subject));
         let cases: Vec<&SwitchCase<'_>> = match &sw.body {
             SwitchBody::BraceDelimited(b) => b.cases.iter().collect(),
             SwitchBody::ColonDelimited(b) => b.cases.iter().collect(),

@@ -159,8 +159,11 @@ pub enum Op {
     LoadSlot(Slot),
     /// `$x ?? …`, `isset($x)`: undefined reads as null.
     LoadSlotQuiet(Slot),
-    /// Pops.
+    /// Pops. A local keeps the type of its first value (GRD021, D10).
     StoreSlot(Slot),
+    /// Pops, without the type rule: `foreach` variables (bound per
+    /// iteration) and compiler temporaries.
+    BindSlot(Slot),
     UnsetSlot(Slot),
     LoadThis,
 
@@ -354,6 +357,11 @@ pub struct CodeUnit {
     /// source line starts, in index order.
     #[serde(default)]
     pub lines: Vec<(u32, u32)>,
+    /// GRD021: `true` for a local that may not take `null` once it holds a
+    /// value (first assignment evidently non-null, or a non-nullable typed
+    /// parameter). Missing entries mean "may".
+    #[serde(default)]
+    pub slot_not_null: Vec<bool>,
 }
 
 impl CodeUnit {
@@ -378,6 +386,7 @@ impl CodeUnit {
             uses_this: false,
             line,
             lines: Vec::new(),
+            slot_not_null: Vec::new(),
         }
     }
 }

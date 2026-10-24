@@ -848,6 +848,7 @@ impl Compiler<'_> {
         if let Some(slot) = self.simple_slot_target(a.lhs)? {
             match mode {
                 WriteMode::Assign => {
+                    self.ub().note_assignment(slot, never_null(a.rhs));
                     self.compile_expr(a.rhs)?;
                     if want == Want::Discard {
                         self.emit(Op::StoreSlot(slot));
@@ -876,6 +877,7 @@ impl Compiler<'_> {
         if let Some(slot) = self.simple_slot_target(target)? {
             match mode {
                 WriteMode::Assign => {
+                    self.ub().note_assignment(slot, never_null(rhs));
                     self.compile_expr(rhs)?;
                     self.emit(Op::Dup);
                     self.emit(Op::StoreSlot(slot));
@@ -932,11 +934,12 @@ impl Compiler<'_> {
             Expression::List(l) => self.reject(dialect::LIST, l.span()),
             _ => {
                 if let Some(slot) = self.simple_slot_target(target)? {
+                    self.ub().note_assignment(slot, false);
                     self.emit(Op::StoreSlot(slot));
                     return Ok(());
                 }
                 let tmp = self.ub().temp_slot();
-                self.emit(Op::StoreSlot(tmp));
+                self.emit(Op::BindSlot(tmp));
                 let (base, segs) = self.build_path(target)?;
                 self.emit(Op::LoadSlot(tmp));
                 self.emit(Op::StorePath(Box::new(PathOp { base, segs, mode: WriteMode::Assign })));
@@ -951,7 +954,7 @@ impl Compiler<'_> {
     fn compile_match(&mut self, m: &Match<'_>) -> CResult<()> {
         let subject = self.ub().temp_slot();
         self.compile_expr(m.expression)?;
-        self.emit(Op::StoreSlot(subject));
+        self.emit(Op::BindSlot(subject));
         let mut end_jumps = Vec::new();
         let mut default: Option<&Expression<'_>> = None;
         for arm in m.arms.iter() {
@@ -1189,3 +1192,15 @@ fn unquote_fallback(raw: &[u8]) -> Vec<u8> {
     out
 }
 
+/// GRD021 null rule: is the value of `e` evidently never `null`?
+fn never_null(e: &Expression<'_>) -> bool {
+    match e {
+        Expression::Parenthesized(p) => never_null(p.expression),
+        Expression::Literal(Literal::Null(_)) => false,
+        Expression::Literal(_) | Expression::CompositeString(_) | Expression::Array(_) | Expression::LegacyArray(_) => true,
+        Expression::Instantiation(_) | Expression::Closure(_) | Expression::ArrowFunction(_) | Expression::AnonymousClass(_) => true,
+        Expression::Binary(b) => !matches!(b.operator, BinaryOperator::NullCoalesce(_)),
+        Expression::UnaryPrefix(u) => !matches!(u.operator, UnaryPrefixOperator::ErrorControl(_) | UnaryPrefixOperator::Reference(_)),
+        _ => false,
+    }
+}

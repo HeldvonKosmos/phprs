@@ -270,7 +270,7 @@ fn check_report(paths: &[String]) -> ExitCode {
     for (m, n) in un.iter().take(25) {
         println!("{n}\t{m}");
     }
-    println!("\n## GRD021 (counted, not enforced)");
+    println!("\n## GRD021 (static, compile time)");
     println!("strict\t{}\tfiles {g_files_strict}", g.strict);
     println!("tolerant (?T)\t{}\tfiles {g_files_tolerant}", g.tolerant);
     println!("of strict: int<->float\t{}", g.int_float);

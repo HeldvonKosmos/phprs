@@ -4,5 +4,5 @@ class Sq implements Shape { public function __construct(private float $s) {} pub
 $s = new Sq(3);
 var_dump($s instanceof Shape);
 echo $s->area(), "\n";
-function total(Shape ...$shapes): float { $t = 0; foreach ($shapes as $sh) { $t += $sh->area(); } return $t; }
+function total(Shape ...$shapes): float { $t = 0.0; foreach ($shapes as $sh) { $t += $sh->area(); } return $t; }
 echo total($s, new Sq(2)), "\n";

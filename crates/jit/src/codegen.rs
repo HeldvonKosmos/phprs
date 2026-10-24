@@ -504,25 +504,13 @@ impl<'a, 'b> Gen<'a, 'b> {
                 }
             }
             Div => {
-                if tx == Ty::Int && ty == Ty::Int {
-                    let (V::I(a), V::I(c)) = (x, y) else { unreachable!() };
-                    let z = self.b.ins().icmp_imm_s(IntCC::Equal, c, 0);
-                    let m1 = self.b.ins().icmp_imm_s(IntCC::Equal, c, -1);
-                    let bad = self.b.ins().bor(z, m1);
-                    self.guard(bad, ip, pre);
-                    let q = self.b.ins().sdiv(a, c);
-                    let r = self.b.ins().srem(a, c);
-                    let inexact = self.b.ins().icmp_imm_s(IntCC::NotEqual, r, 0);
-                    let (fa, fc) = (self.to_f(x), self.to_f(y));
-                    let fq = self.b.ins().fdiv(fa, fc);
-                    V::N(inexact, q, fq)
-                } else {
-                    let (a, c) = (self.to_f(x), self.to_f(y));
-                    let zero = self.fc(0.0);
-                    let z = self.b.ins().fcmp(FloatCC::Equal, c, zero);
-                    self.guard(z, ip, pre);
-                    V::F(self.b.ins().fdiv(a, c))
-                }
+                // always float in the dialect (D10); division by zero leaves
+                // compiled code so the interpreter raises the error
+                let (a, c) = (self.to_f(x), self.to_f(y));
+                let zero = self.fc(0.0);
+                let z = self.b.ins().fcmp(FloatCC::Equal, c, zero);
+                self.guard(z, ip, pre);
+                V::F(self.b.ins().fdiv(a, c))
             }
             Mod => {
                 let (V::I(a), V::I(c)) = (x, y) else { unreachable!() };
@@ -708,7 +696,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let v = self.read_slot(*s);
                 stack.push(v);
             }
-            Op::StoreSlot(s) => {
+            Op::StoreSlot(s) | Op::BindSlot(s) => {
                 let v = stack.pop().expect("store");
                 self.write_slot(*s, v);
             }

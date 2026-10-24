@@ -12,36 +12,11 @@ fn div_by_zero() -> Throw {
     Throw::new("DivisionByZeroError", "Division by zero")
 }
 
-/// Strict dialect (D8, DIALECT §5.2): integer overflow raises
-/// `ArithmeticError` and local variables keep their type (GRD021). Off by
-/// default until the dialect cost measurement (DX1) has been reviewed; then
-/// PHP's behaviour applies (overflow switches to float). Process-wide,
-/// because arithmetic has no VM at hand; `GRD_STRICT=1` or
-/// `set_strict_dialect`.
-static STRICT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(2);
-
-pub fn strict_dialect() -> bool {
-    use std::sync::atomic::Ordering;
-    match STRICT.load(Ordering::Relaxed) {
-        0 => false,
-        1 => true,
-        _ => {
-            let on = std::env::var("GRD_STRICT").as_deref() == Ok("1");
-            STRICT.store(on as u8, Ordering::Relaxed);
-            on
-        }
-    }
-}
-
-pub fn set_strict_dialect(on: bool) {
-    STRICT.store(on as u8, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Overflow of an int operation: `ArithmeticError` in the strict dialect,
-/// otherwise PHP's float result.
+/// Overflow of an int operation raises `ArithmeticError` (DIALECT §5.2,
+/// D10): no silent switch to float as in PHP.
 #[cold]
-fn overflow(sym: &str, float: f64) -> Result<Val, Throw> {
-    if strict_dialect() { Err(Throw::new("ArithmeticError", format!("Integer overflow in {sym}"))) } else { Ok(Val::Float(float)) }
+fn overflow(sym: &str, _php_float: f64) -> Result<Val, Throw> {
+    Err(Throw::new("ArithmeticError", format!("Integer overflow in {sym}")))
 }
 
 fn modulo_by_zero() -> Throw {
@@ -77,13 +52,8 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
             if j == 0 {
                 return Err(div_by_zero());
             }
-            if i == i64::MIN && j == -1 {
-                overflow(sym, i as f64 / j as f64)?
-            } else if i % j == 0 {
-                Val::Int(i / j)
-            } else {
-                Val::Float(i as f64 / j as f64)
-            }
+            // `/` is always float in the dialect (D10); `intdiv()` divides ints
+            Val::Float(i as f64 / j as f64)
         }
         (BinOp::Mod, _, _) => {
             let i = match x {

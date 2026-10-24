@@ -287,7 +287,7 @@ try { M::query()->limit('zehn'); } catch (TypeError $e) { echo "TypeError\n"; }
 #[test]
 fn profile_counts_calls_backedges_and_types() {
     let mut vm = Vm::with_prelude().expect("prelude");
-    let src = b"<?grd\nfunction f($x) { return $x + 1.5; }\n$s = 0; for ($i = 0; $i < 2000; $i++) { $s = f($i); }\necho $s;";
+    let src = b"<?grd\nfunction f($x) { return $x + 1.5; }\n$s = 0.0; for ($i = 0; $i < 2000; $i++) { $s = f($i); }\necho $s;";
     vm.run_file("p.grd", src).expect("run");
     let hot: Vec<&grd_vm::vm::CodeProfile> = vm.profiles.iter().filter(|p| p.hot).collect();
     assert!(hot.iter().any(|p| p.calls >= 2000), "f() should be hot by calls");

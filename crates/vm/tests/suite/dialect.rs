@@ -54,6 +54,58 @@ fn rejected_constructs_carry_codes() {
     }
 }
 
+/// GRD021 (D10): a local keeps the type of its first assignment.
+#[test]
+fn local_variables_keep_their_type() {
+    let rejected: &[&str] = &[
+        "<?grd $x = 1; $x = 'a';",
+        "<?grd $x = 0; $x = 1.5;",
+        "<?grd $x = 0.0; $x = 1;",
+        "<?grd $n = 10; $n /= 4;",
+        "<?grd $i = 1; $i .= 'x';",
+        "<?grd $x = 5; $x = null;",
+        "<?grd $x = null; $x = 1; $x = 'a';",
+        "<?grd function f(int $a) { $a = 'x'; }",
+        "<?grd $f = function () { $y = []; $y = 1; };",
+    ];
+    for src in rejected {
+        assert_eq!(code_of(src), Some("GRD021"), "source: {src}");
+    }
+    let err = compile_source("t.grd", b"<?grd $x = 0; $x = 1.5;").unwrap_err();
+    assert!(err.hint.unwrap_or("").contains("0.0"), "hint names 0.0 / (float): {err}");
+    // allowed: ?T after a first null, same types, foreach rebinding, separate scopes,
+    // untyped parameters, values whose type is not evident (checked at run time)
+    compiles("<?grd $x = null; $x = 1; $x = null; $x = 2;");
+    compiles("<?grd $t = 0.0; $t += 1; $t = $t * 2; $i = 0; $i += 1; $s = ''; $s .= 1;");
+    compiles("<?grd foreach ([1, 'a', null] as $v) { echo $v; } foreach (['a' => 1, 2 => 'b'] as $k => $v) {}");
+    compiles("<?grd $x = 1; function f() { $x = 'a'; } $g = fn() => 1;");
+    compiles("<?grd function f(?int $a = null, float $b = 1) { $a = 3; $a = null; $b = 2.5; }");
+    compiles("<?grd $r = 10 / 4; $r = 1.0; $q = intdiv(10, 4); $q = 3;");
+}
+
+/// GRD021 at run time, where the compiler cannot see the type.
+#[test]
+fn local_variables_keep_their_type_at_run_time() {
+    let run = |src: &str| -> String {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let r = vm.run_file("t.grd", src.as_bytes());
+        let mut out = String::from_utf8_lossy(&vm.output).into_owned();
+        if let Err(e) = r {
+            out.push_str(&format!("{e}"));
+        }
+        out
+    };
+    let out = run("<?grd $a = [1, 'x']; $v = $a[0]; try { $v = $a[1]; } catch (TypeError $e) { echo $e->getMessage(); }");
+    assert!(out.contains("GRD021: die lokale Variable $v ist int, zugewiesen wird string"), "{out}");
+    let out = run("<?grd $a = [5, null]; $v = $a[0]; $v = $a[1]; echo 'ok';");
+    assert_eq!(out, "ok", "null into a local whose first value was not evident is allowed");
+    let out = run("<?grd $x = 2; $y = [0.5]; try { $x += $y[0]; } catch (TypeError $e) { echo 'caught'; }");
+    assert_eq!(out, "caught", "compound assignment that changes the type");
+    let out = run("<?grd echo PHP_INT_MAX + 0; try { echo PHP_INT_MAX + 1; } catch (ArithmeticError $e) { echo ' ', $e->getMessage(); }");
+    assert_eq!(out, "9223372036854775807 Integer overflow in +");
+    assert_eq!(run("<?grd var_dump(10 / 2, intdiv(10, 2));"), "float(5)\nint(5)\n");
+}
+
 #[test]
 fn allowed_constructs_compile() {
     compiles("<?grd declare(strict_types=1); echo 1;");
