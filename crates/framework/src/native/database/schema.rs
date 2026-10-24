@@ -1,9 +1,14 @@
 //! Declarative schema (DECISIONS "Schema-Verwaltung deklarativ", R4): the
 //! `.surql` sources of a project are merged (`build_surql`) and applied with
 //! the embedded SurrealKit (`ops`, `kit`). There is no imperative path: the
-//! dialect's `Schema` class only *generates* statements (`Schema::sql`, for
-//! writing `blueprint.surql`) and reads the current state (`hasTable`,
-//! `hasColumn`, `columns`); it never changes the database.
+//! dialect's `Schema` class only *generates* statements (`Schema::sql`) and
+//! reads the current state (`hasTable`, `hasColumn`, `columns`); it never
+//! changes the database.
+//!
+//! **Deferred (BP1, D10):** the Blueprint part (`Schema::table`,
+//! `Schema::sql`, `Blueprint`, `ColumnDefinition`) stays as it is and is not
+//! developed further. Module schemas are written by hand in
+//! `modules/<m>/database/schema/schema.surql`.
 
 use grd_vm::error::Throw;
 use grd_vm::value::{ArrayKey, ObjHandle, PhpArray, Val};

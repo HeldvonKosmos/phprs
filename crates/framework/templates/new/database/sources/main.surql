@@ -1,4 +1,4 @@
 -- Base schema of the project (first after the framework's own tables).
--- Modules add theirs in modules/<module>/database/schema/blueprint.surql
+-- Modules add theirs in modules/<module>/database/schema/schema.surql
 -- and hand edits in manually.surql. `opengrid task migrate_push` merges all
 -- of them into database/schema/temporary.surql and syncs the database.

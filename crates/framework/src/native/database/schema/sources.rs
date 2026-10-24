@@ -1,10 +1,11 @@
 //! Source files of the schema in merge order (port of
 //! `MigratePush::collectSourceFiles`): the framework fragment (embedded,
-//! R4e) → `database/sources/main.surql` → every
-//! `modules/*/database/schema/blueprint.surql` → every
+//! R4e) → `database/sources/main.surql` → per module
+//! `modules/<m>/database/schema/blueprint.surql`, then `schema.surql` (the
+//! hand-written module schema, D10; Blueprint is deferred, BP1) → every
 //! `modules/*/database/schema/manually.surql`. Modules are sorted bytewise
-//! by directory name (PHP `glob` sorts; `read_dir` does not). All blueprint
-//! files come before all manually files.
+//! by directory name (PHP `glob` sorts; `read_dir` does not). All
+//! blueprint/schema files come before all manually files.
 
 use std::path::Path;
 
@@ -17,6 +18,8 @@ pub struct Source {
 
 pub const MAIN: &str = "database/sources/main.surql";
 pub const BLUEPRINT: &str = "blueprint.surql";
+/// Hand-written schema of a module (D10).
+pub const SCHEMA: &str = "schema.surql";
 pub const MANUALLY: &str = "manually.surql";
 
 pub fn collect(root: &Path, framework: Option<&str>) -> std::io::Result<Vec<Source>> {
@@ -39,12 +42,14 @@ pub fn collect(root: &Path, framework: Option<&str>) -> std::io::Result<Vec<Sour
         }
     }
     modules.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-    for file in [BLUEPRINT, MANUALLY] {
+    for group in [&[BLUEPRINT, SCHEMA][..], &[MANUALLY][..]] {
         for m in &modules {
-            let rel = format!("modules/{m}/database/schema/{file}");
-            let p = root.join(&rel);
-            if p.is_file() {
-                out.push(Source { label: rel, text: std::fs::read_to_string(&p)? });
+            for file in group {
+                let rel = format!("modules/{m}/database/schema/{file}");
+                let p = root.join(&rel);
+                if p.is_file() {
+                    out.push(Source { label: rel, text: std::fs::read_to_string(&p)? });
+                }
             }
         }
     }
@@ -70,6 +75,8 @@ mod tests {
             write(&root, &format!("modules/{m}/database/schema/blueprint.surql"), "");
             write(&root, &format!("modules/{m}/database/schema/manually.surql"), "");
         }
+        write(&root, "modules/billing/database/schema/schema.surql", "");
+        write(&root, "modules/notes/database/schema/schema.surql", "");
         write(&root, "modules/nodb/app/X.grd", "");
         let labels: Vec<String> = collect(&root, Some("-- fw")).unwrap().into_iter().map(|s| s.label).collect();
         assert_eq!(
@@ -79,6 +86,8 @@ mod tests {
                 "database/sources/main.surql",
                 "modules/Alpha/database/schema/blueprint.surql",
                 "modules/billing/database/schema/blueprint.surql",
+                "modules/billing/database/schema/schema.surql",
+                "modules/notes/database/schema/schema.surql",
                 "modules/zeta/database/schema/blueprint.surql",
                 "modules/Alpha/database/schema/manually.surql",
                 "modules/billing/database/schema/manually.surql",

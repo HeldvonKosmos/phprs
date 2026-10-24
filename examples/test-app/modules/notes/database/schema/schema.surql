@@ -1,4 +1,4 @@
--- Schema of the notes module (declarative; `opengrid task migrate_push` applies it).
+-- Schema of the notes module, written by hand (schema.surql, D10); `opengrid task migrate_push` applies it.
 DEFINE TABLE notes SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD title ON TABLE notes TYPE string ASSERT string::len($value) > 0;
 DEFINE FIELD body ON TABLE notes TYPE option<string>;
