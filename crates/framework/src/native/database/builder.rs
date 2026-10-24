@@ -353,22 +353,48 @@ fn filter_allowed(vm: &mut Vm, b: &BuilderData, field: &str) -> Result<(), Throw
     if ok { Ok(()) } else { Err(Throw::value_error(format!("filter on `{field}` is not allowed for {} (declare $filterable)", vm.class_name(class)))) }
 }
 
-/// Query-string filters arrive as strings; `true`/`false` and integers are
-/// compared as such, because SurrealDB does not coerce `done = 'true'`.
-fn coerce_filter_value(v: &Val) -> Val {
-    if let Val::Str(s) = v {
-        let t = s.to_string_lossy();
-        return match t.as_str() {
-            "true" => Val::Bool(true),
-            "false" => Val::Bool(false),
-            "null" => Val::Null,
-            _ => match t.parse::<i64>() {
-                Ok(i) if !t.starts_with('+') && !(t.len() > 1 && t.starts_with('0')) => Val::Int(i),
-                _ => v.clone(),
-            },
-        };
+/// Field types of a table from `INFO FOR TABLE` (`DEFINE FIELD x ON t TYPE bool …`),
+/// cached per worker. Empty when the table has no schema.
+pub fn schema_types(vm: &mut Vm, table: &str) -> Result<std::collections::HashMap<String, String>, Throw> {
+    if let Some(t) = ctx(vm).schema_cache.get(table) {
+        return Ok(t.clone());
     }
-    v.clone()
+    let mut types = std::collections::HashMap::new();
+    if ctx(vm).db.is_some() {
+        let v = query_one(vm, &format!("INFO FOR TABLE {table}"), Default::default())?;
+        if let Value::Object(o) = v
+            && let Some(Value::Object(fields)) = o.get("fields")
+        {
+            for (name, def) in fields.iter() {
+                if let Value::String(d) = def
+                    && let Some(pos) = d.find(" TYPE ")
+                {
+                    // the type runs up to the next clause; SurrealDB 3 prints
+                    // `option<int>` as `none | int` and `record<a | b>` with spaces
+                    let rest = &d[pos + 6..];
+                    let end = ["PERMISSIONS", "DEFAULT", "VALUE", "ASSERT", "READONLY", "COMMENT", "REFERENCE"]
+                        .iter()
+                        .filter_map(|k| rest.find(&format!(" {k}")))
+                        .min()
+                        .unwrap_or(rest.len());
+                    types.insert(name.clone(), rest[..end].trim().to_string());
+                }
+            }
+        }
+    }
+    ctx(vm).schema_cache.insert(table.to_string(), types.clone());
+    Ok(types)
+}
+
+/// Filter values from query strings are text; the declared field type says
+/// what they mean (DECISIONS 24.10.). Non-string values pass unchanged.
+fn coerce_filter_value(vm: &mut Vm, table: &str, field: &str, v: &Val) -> Result<Val, Throw> {
+    let Val::Str(s) = v else { return Ok(v.clone()) };
+    let types = schema_types(vm, table)?;
+    match types.get(field) {
+        Some(ty) => super::value::cast_to_field_type(vm, ty, &s.to_string_lossy()),
+        None => Ok(v.clone()),
+    }
 }
 
 /// A query parameter of the active request (`?filters[done]=1&sort=title:desc`), if any.
@@ -539,12 +565,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
                     Val::Null => {
                         data(vm, this)?.where_none(&field, false);
                     }
-                    Val::Array(_) => {
-                        let values = arg_values(vm, v)?;
+                    Val::Array(items) => {
+                        let table = data(vm, this)?.table.clone();
+                        let mut values = Vec::new();
+                        for item in items.values() {
+                            let c = coerce_filter_value(vm, &table, &field, item)?;
+                            values.push(to_surreal(vm, &c)?);
+                        }
                         data(vm, this)?.where_in(&field, values);
                     }
                     other => {
-                        let value = to_surreal(vm, &coerce_filter_value(other))?;
+                        let table = data(vm, this)?.table.clone();
+                        let c = coerce_filter_value(vm, &table, &field, other)?;
+                        let value = to_surreal(vm, &c)?;
                         data(vm, this)?.r#where(&field, value, "=");
                     }
                 }

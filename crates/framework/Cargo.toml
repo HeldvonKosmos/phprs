@@ -28,6 +28,9 @@ indexmap = "2"
 regex = "1"
 notify = "8"
 getrandom = "0.4"
+rust_decimal = "1"
+geo = "0.32"
+uuid = "1"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

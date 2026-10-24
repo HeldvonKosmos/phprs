@@ -30,17 +30,29 @@ pub fn parse(s: &str) -> Option<RecordId> {
     Some(RecordId::new(table, key))
 }
 
-/// A record id from a dialect value: `RecordId` object, `"table:key"`, or a
-/// bare key for `table`.
+/// A record id from a dialect value: a `RecordId` object, or a bare key
+/// (int or string) for `table`. Strings are never parsed as `table:key`
+/// here (DECISIONS 24.10.: no guessing) — use `RecordId::parse()`.
 pub fn from_val(vm: &mut Vm, table: &str, v: &Val) -> Result<RecordId, Throw> {
     match v {
-        Val::Object(h) => vm.native_payload::<RecordId>(*h).cloned().ok_or_else(|| Throw::type_error("expected a RecordId")),
+        Val::Object(h) => match vm.native_payload::<RecordId>(*h).cloned() {
+            Some(r) => Ok(r),
+            None => match vm.native_payload::<super::model::ModelData>(*h).and_then(|m| m.id.clone()) {
+                Some(r) => Ok(r),
+                None => Err(Throw::type_error("expected a RecordId")),
+            },
+        },
         Val::Int(i) => Ok(RecordId::new(table, RecordIdKey::Number(*i))),
-        Val::Str(s) => {
-            let s = s.to_string_lossy();
-            Ok(parse(&s).unwrap_or_else(|| RecordId::new(table, RecordIdKey::String(s))))
-        }
+        Val::Str(s) => Ok(RecordId::new(table, RecordIdKey::String(s.to_string_lossy()))),
         other => Err(Throw::type_error(format!("cannot make a record id from {}", other.type_name()))),
+    }
+}
+
+/// Key from text: digits → number, else string (used where the schema says `record<t>`).
+pub fn key_from_str(s: &str) -> RecordIdKey {
+    match s.parse::<i64>() {
+        Ok(i) if !s.starts_with('+') && !(s.len() > 1 && s.starts_with('0')) => RecordIdKey::Number(i),
+        _ => RecordIdKey::String(s.to_string()),
     }
 }
 
@@ -71,6 +83,8 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             set: None,
             isset: None,
             unset: None,
+            arith: None,
+            clone: Some(|p| p.downcast_ref::<RecordId>().map(|r| Box::new(r.clone()) as Box<dyn std::any::Any>)),
             compare: Some(|vm, h, other| {
                 let Val::Object(o) = other else { return Ok(None) };
                 let a = vm.native_payload::<RecordId>(h).map(|r| r.to_sql());

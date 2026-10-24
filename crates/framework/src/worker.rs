@@ -38,6 +38,8 @@ pub struct WorkerCtx {
     pub txn: Option<surrealdb::method::Transaction<surrealdb::engine::any::Any>>,
     /// Model metadata read once per class from the dialect declarations.
     pub model_meta: HashMap<ClassId, ModelMeta>,
+    /// Field types per table from `INFO FOR TABLE`, for typed filters.
+    pub schema_cache: HashMap<String, HashMap<String, String>>,
     /// Dev mode: error pages with file, line, trace and source.
     pub debug: bool,
     /// Session store shared by all workers of the pool.
@@ -127,7 +129,7 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
     for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
-    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), sessions, debug: options.debug, stale_error: None }));
+    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, debug: options.debug, stale_error: None }));
     // default middleware aliases
     if let Some(c) = vm.host::<WorkerCtx>() {
         c.routes.aliases.insert("csrf".into(), "OpenGrid\\Http\\Middleware\\VerifyCsrfToken".into());

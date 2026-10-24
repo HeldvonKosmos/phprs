@@ -1,4 +1,6 @@
-//! `Val` ↔ `surrealdb::types::Value` (DATABASE_LAYER.md §2, "value.rs").
+//! `Val` ↔ `surrealdb::types::Value` (DECISIONS 2026-10-24 "SurrealDB-Typen nativ"):
+//! every SurrealDB type has a native class, the type of the value decides the
+//! binding (no guessing), `null` is written as `NONE`.
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use grd_vm::error::Throw;
@@ -8,10 +10,12 @@ use surrealdb::types::{Array, Datetime, Number, Object, RecordId, ToSql, Value};
 
 use super::model::ModelData;
 use super::record_id;
+use super::types;
 
 pub fn to_surreal(vm: &mut Vm, v: &Val) -> Result<Value, Throw> {
     Ok(match v {
-        Val::Null => Value::Null,
+        // null means "no value": NONE (absent field / removed on MERGE)
+        Val::Null => Value::None,
         Val::Bool(b) => Value::Bool(*b),
         Val::Int(i) => Value::Number(Number::Int(*i)),
         Val::Float(f) => Value::Number(Number::Float(*f)),
@@ -41,15 +45,18 @@ pub fn to_surreal(vm: &mut Vm, v: &Val) -> Result<Value, Throw> {
                 return Ok(Value::RecordId(r.clone()));
             }
             if let Some(m) = vm.native_payload::<ModelData>(*h) {
-                return Ok(m.id.clone().map(Value::RecordId).unwrap_or(Value::Null));
+                return Ok(m.id.clone().map(Value::RecordId).unwrap_or(Value::None));
+            }
+            if let Some(v) = types::typed_value(vm, *h) {
+                return Ok(v);
             }
             let class = vm.class_of(*h);
             if let Some(dti) = vm.lookup_class(b"DateTimeInterface")
                 && vm.instance_of(class, dti)
             {
-                let s = vm.call_method_sync(*h, b"format", vec![Val::str("Y-m-d\\TH:i:s.uP")])?;
-                let s = s.to_php_string()?.to_string_lossy();
-                return parse_datetime(&s).map(Value::Datetime).ok_or_else(|| Throw::value_error(format!("cannot convert DateTime `{s}`")));
+                let (ts, us) = grd_vm::builtins::datetime_class::instant_of(vm, *h)?;
+                let dt = DateTime::<Utc>::from_timestamp(ts, (us.clamp(0, 999_999) * 1000) as u32).ok_or_else(|| Throw::value_error("datetime out of range"))?;
+                return Ok(Value::Datetime(Datetime::from(dt)));
             }
             return Err(Throw::type_error(format!("cannot bind an object of class {} to a query", vm.class_name(class))));
         }
@@ -62,11 +69,16 @@ pub fn from_surreal(vm: &mut Vm, v: Value) -> Result<Val, Throw> {
         Value::Bool(b) => Val::Bool(b),
         Value::Number(Number::Int(i)) => Val::Int(i),
         Value::Number(Number::Float(f)) => Val::Float(f),
-        Value::Number(Number::Decimal(d)) => Val::Float(d.to_string().parse().unwrap_or(0.0)),
+        Value::Number(Number::Decimal(d)) => types::new_decimal(vm, d)?,
         Value::String(s) => Val::str(&s),
-        Value::Bytes(b) => Val::bytes(&b.into_inner()),
-        Value::Datetime(d) => Val::str(&d.into_inner().to_rfc3339()),
-        Value::Uuid(u) => Val::str(&u.into_inner().to_string()),
+        Value::Bytes(b) => types::new_bytes(vm, b)?,
+        Value::Datetime(d) => {
+            let dt = d.into_inner();
+            grd_vm::builtins::datetime_class::new_immutable(vm, dt.timestamp(), dt.timestamp_subsec_micros() as i64, "UTC")?
+        }
+        Value::Duration(d) => types::new_duration(vm, d)?,
+        Value::Uuid(u) => types::new_uuid(vm, u)?,
+        Value::Geometry(g) => types::new_geometry(vm, g)?,
         Value::RecordId(r) => record_id::new_object(vm, r)?,
         Value::Array(a) => {
             let items = a.into_inner();
@@ -104,4 +116,91 @@ pub fn parse_datetime(s: &str) -> Option<Datetime> {
         return Some(Datetime::from(d.and_hms_opt(0, 0, 0)?.and_utc()));
     }
     None
+}
+
+/// Cast a string filter value to the declared SurrealQL field type
+/// (`bool`, `int`, `float`, `number`, `decimal`, `datetime`, `record<t>`,
+/// `option<…>`); other types keep the string.
+pub fn cast_to_field_type(vm: &mut Vm, ty: &str, s: &str) -> Result<Val, Throw> {
+    let inner = base_type(ty);
+    Ok(match inner.as_str() {
+        "bool" => match s {
+            "true" | "1" => Val::Bool(true),
+            "false" | "0" => Val::Bool(false),
+            _ => Val::str(s),
+        },
+        "int" => s.parse::<i64>().map(Val::Int).unwrap_or_else(|_| Val::str(s)),
+        "float" | "number" => s.parse::<f64>().map(Val::Float).unwrap_or_else(|_| Val::str(s)),
+        "decimal" => match rust_decimal::Decimal::from_str_exact(s) {
+            Ok(d) => types::new_decimal(vm, d)?,
+            Err(_) => Val::str(s),
+        },
+        "datetime" => match parse_datetime(s) {
+            Some(d) => {
+                let dt = d.into_inner();
+                grd_vm::builtins::datetime_class::new_immutable(vm, dt.timestamp(), 0, "UTC")?
+            }
+            None => Val::str(s),
+        },
+        t if t.starts_with("record<") => {
+            let table = t.trim_start_matches("record<").trim_end_matches('>').split('|').next().unwrap_or("").trim();
+            let rid = record_id::parse(s).unwrap_or_else(|| RecordId::new(table, record_id::key_from_str(s)));
+            record_id::new_object(vm, rid)?
+        }
+        "uuid" => match surrealdb::types::Uuid::from_str(s) {
+            Ok(u) => types::new_uuid(vm, u)?,
+            Err(_) => Val::str(s),
+        },
+        "duration" => match types::parse_duration(s) {
+            Some(d) => types::new_duration(vm, d)?,
+            None => Val::str(s),
+        },
+        _ => Val::str(s),
+    })
+}
+
+/// The value type of a field declaration without its optional wrapper:
+/// `option<int>`, `none | int`, `int | none`, `null | int` all give `int`.
+/// A union of several real types is returned unchanged (no cast applies).
+pub fn base_type(ty: &str) -> String {
+    let ty = ty.trim();
+    let ty = ty.strip_prefix("option<").and_then(|t| t.strip_suffix('>')).unwrap_or(ty);
+    // split on `|` outside of `<…>`
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0usize, 0usize);
+    for (i, c) in ty.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            '|' if depth == 0 => {
+                parts.push(ty[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(ty[start..].trim());
+    let real: Vec<&str> = parts.into_iter().filter(|p| !p.is_empty() && *p != "none" && *p != "null").collect();
+    match real.as_slice() {
+        [one] => one.to_string(),
+        _ => ty.to_string(),
+    }
+}
+
+use std::str::FromStr as _;
+
+#[cfg(test)]
+mod tests {
+    use super::base_type;
+
+    #[test]
+    fn base_types() {
+        assert_eq!(base_type("int"), "int");
+        assert_eq!(base_type("option<int>"), "int");
+        assert_eq!(base_type("none | int"), "int");
+        assert_eq!(base_type("int | none"), "int");
+        assert_eq!(base_type("null | datetime"), "datetime");
+        assert_eq!(base_type("none | record<tasks | users>"), "record<tasks | users>");
+        assert_eq!(base_type("int | string"), "int | string");
+    }
 }

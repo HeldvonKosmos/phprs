@@ -10,6 +10,7 @@ pub mod model;
 pub mod record_id;
 pub mod schema;
 pub mod surreal;
+pub mod types;
 pub mod value;
 
 use std::collections::BTreeMap;
@@ -22,6 +23,7 @@ use super::ctx;
 
 pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     record_id::register(vm)?;
+    types::register(vm)?;
     builder::register(vm)?;
     model::register(vm)?;
     db::register(vm)?;

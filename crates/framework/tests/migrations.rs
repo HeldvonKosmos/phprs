@@ -32,10 +32,10 @@ fn run(pool: &Pool, src: &'static str) -> String {
 fn migrate_status_rollback() {
     let pool = pool("mig");
     let r = pool.run_sync(|vm| migrator::migrate(vm, &root()).map_err(|t| t.message)).unwrap().expect("migrate");
-    assert_eq!(r.executed, vec!["2026_10_24_000001_create_tasks", "2026_10_24_000002_add_task_notes", "2026_10_24_000003_create_comments"]);
+    assert_eq!(r.executed, vec!["2026_10_24_000001_create_tasks", "2026_10_24_000002_add_task_notes", "2026_10_24_000003_create_comments", "2026_10_24_000004_create_measurements"]);
 
     let r = pool.run_sync(|vm| migrator::status(vm, &root()).map_err(|t| t.message)).unwrap().expect("status");
-    assert_eq!(r.ran.len(), 3);
+    assert_eq!(r.ran.len(), 4);
     assert!(r.pending.is_empty());
     assert_eq!(r.ran[0].1, 1, "both in batch 1");
 
@@ -58,14 +58,14 @@ echo Task::count(), "\n";
     assert!(r.executed.is_empty());
 
     let r = pool.run_sync(|vm| migrator::rollback(vm, &root(), 1).map_err(|t| t.message)).unwrap().expect("rollback");
-    assert_eq!(r.executed, vec!["2026_10_24_000003_create_comments", "2026_10_24_000002_add_task_notes", "2026_10_24_000001_create_tasks"], "one batch holds all");
-    assert_eq!(r.pending.len(), 3);
+    assert_eq!(r.executed, vec!["2026_10_24_000004_create_measurements", "2026_10_24_000003_create_comments", "2026_10_24_000002_add_task_notes", "2026_10_24_000001_create_tasks"], "one batch holds all");
+    assert_eq!(r.pending.len(), 4);
     let out = run(&pool, "<?grd\nuse OpenGrid\\Database\\Schema;\necho Schema::hasTable('tasks') ? 'table' : 'none', \"\\n\";");
     assert_eq!(out, "none\n");
 
     // migrate once more; the classes are already loaded in this worker
     let r = pool.run_sync(|vm| migrator::migrate(vm, &root()).map_err(|t| t.message)).unwrap().expect("migrate third");
-    assert_eq!(r.executed.len(), 3);
+    assert_eq!(r.executed.len(), 4);
     assert_eq!(r.ran.iter().map(|(_, b)| *b).max(), Some(1), "table was empty again, numbering restarts");
 }
 

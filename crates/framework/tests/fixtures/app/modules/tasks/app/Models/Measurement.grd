@@ -1,0 +1,10 @@
+<?grd
+namespace Tasks\Models;
+
+use OpenGrid\Database\Model;
+
+final class Measurement extends Model
+{
+    protected static string $table = 'measurements';
+    protected array $fillable = ['label', 'amount', 'took', 'tag', 'blob', 'where', 'at', 'task_id', 'note', 'count', 'ratio'];
+}

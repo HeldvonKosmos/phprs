@@ -19,10 +19,40 @@ pub const CLASS: &str = "OpenGrid\\Database\\Model";
 
 #[derive(Default)]
 pub struct ModelData {
+    /// Converted attributes (set by code, or materialised from `pending` on access).
     pub attributes: IndexMap<String, Val>,
+    /// Fields of the loaded record not yet converted (lazy, DECISIONS 24.10.).
+    pub pending: BTreeMap<String, Value>,
     pub dirty: Vec<String>,
     pub exists: bool,
     pub id: Option<RecordId>,
+}
+
+impl ModelData {
+    pub fn has(&self, key: &str) -> bool {
+        self.attributes.contains_key(key) || self.pending.contains_key(key)
+    }
+}
+
+/// Convert one pending field into `attributes` (if any) and return it.
+fn materialize(vm: &mut Vm, h: ObjHandle, key: &str) -> Result<Option<Val>, Throw> {
+    if let Some(v) = data(vm, h)?.attributes.get(key) {
+        return Ok(Some(v.clone()));
+    }
+    let Some(raw) = data(vm, h)?.pending.remove(key) else { return Ok(None) };
+    let val = from_surreal(vm, raw)?;
+    let d = data(vm, h)?;
+    d.attributes.insert(key.to_string(), val.clone());
+    Ok(Some(val))
+}
+
+/// Convert every pending field (for `toArray`, JSON, saves).
+fn materialize_all(vm: &mut Vm, h: ObjHandle) -> Result<(), Throw> {
+    let keys: Vec<String> = data(vm, h)?.pending.keys().cloned().collect();
+    for k in keys {
+        materialize(vm, h, &k)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -82,23 +112,23 @@ pub fn from_record(vm: &mut Vm, class: ClassId, record: Object) -> Result<Val, T
 }
 
 fn load_record(vm: &mut Vm, h: ObjHandle, record: Object) -> Result<(), Throw> {
-    let mut id = None;
-    let mut attrs: Vec<(String, Val)> = Vec::new();
+    let d = data(vm, h)?;
+    d.attributes.clear();
+    d.pending.clear();
+    d.id = None;
     for (k, v) in record.into_inner() {
         if k == "id"
             && let Value::RecordId(r) = &v
         {
-            id = Some(r.clone());
+            d.id = Some(r.clone());
         }
-        let val = from_surreal(vm, v)?;
-        attrs.push((k, val));
+        // NONE/NULL fields read as null without conversion work
+        if matches!(v, Value::None | Value::Null) {
+            d.attributes.insert(k, Val::Null);
+        } else {
+            d.pending.insert(k, v);
+        }
     }
-    let d = data(vm, h)?;
-    d.attributes.clear();
-    for (k, v) in attrs {
-        d.attributes.insert(k, v);
-    }
-    d.id = id;
     d.exists = true;
     d.dirty.clear();
     Ok(())
@@ -133,6 +163,7 @@ fn call_hook(vm: &mut Vm, h: ObjHandle, name: &str) -> Result<(), Throw> {
 }
 
 fn attributes_array(vm: &mut Vm, h: ObjHandle, hide: bool) -> Result<Val, Throw> {
+    materialize_all(vm, h)?;
     let class = vm.class_of(h);
     let hidden = if hide { meta(vm, class)?.hidden } else { Vec::new() };
     let d = data(vm, h)?;
@@ -226,7 +257,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(ModelData::default()))
         .handlers(ObjectHandlers {
-            get: Some(|vm, h, name| Ok(vm.native_payload::<ModelData>(h).and_then(|m| m.attributes.get(&String::from_utf8_lossy(name).into_owned()).cloned()))),
+            get: Some(|vm, h, name| materialize(vm, h, &String::from_utf8_lossy(name))),
             set: Some(|vm, h, name, v| {
                 let key = String::from_utf8_lossy(name).into_owned();
                 let m = data(vm, h)?;
@@ -237,15 +268,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
                 Ok(true)
             }),
             isset: Some(|vm, h, name| {
-                Ok(Some(vm.native_payload::<ModelData>(h).is_some_and(|m| m.attributes.get(&String::from_utf8_lossy(name).into_owned()).is_some_and(|v| !v.is_null()))))
+                let key = String::from_utf8_lossy(name).into_owned();
+                Ok(Some(materialize(vm, h, &key)?.is_some_and(|v| !v.is_null())))
             }),
             unset: Some(|vm, h, name| {
                 let key = String::from_utf8_lossy(name).into_owned();
                 let m = data(vm, h)?;
                 m.attributes.shift_remove(&key);
+                m.pending.remove(&key);
                 Ok(true)
             }),
             compare: None,
+            arith: None,
+            clone: None,
         })
         .method("__construct", |vm, c| {
             let this = c.this()?;
@@ -413,7 +448,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         })
         .method("getKey", |vm, c| {
             let this = c.this()?;
-            Ok(data(vm, this)?.attributes.get("id").cloned().unwrap_or(Val::Null))
+            Ok(materialize(vm, this, "id")?.unwrap_or(Val::Null))
         })
         .method("isDirty", |vm, c| {
             let this = c.this()?;
