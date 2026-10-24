@@ -124,7 +124,8 @@ fn loco_config_of_the_fixture_loads() {
     use loco_rs::config::Config;
     use loco_rs::environment::Environment;
     let cfg = Config::from_folder(&Environment::Test, &root().join("config")).expect("config loads");
-    let opts = opengrid_framework::app::pool_options(cfg.settings.as_ref());
+    let opts = opengrid_framework::app::pool_options(cfg.settings.as_ref(), true);
+    assert!(opts.debug && opts.watch, "development defaults");
     assert_eq!(opts.workers, 2);
     assert_eq!(cfg.settings.as_ref().and_then(|s| s.pointer("/app/name")).and_then(|v| v.as_str()), Some("Fixture"));
 }

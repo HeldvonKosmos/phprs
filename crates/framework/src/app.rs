@@ -27,9 +27,10 @@ pub struct PoolHandle(pub Arc<Pool>);
 
 pub struct OpenGridApp;
 
-/// `settings.opengrid.root` / `OPENGRID_ROOT` (default `.`) and
-/// `settings.opengrid.workers` (default: cores).
-pub fn pool_options(settings: Option<&serde_json::Value>) -> PoolOptions {
+/// `settings.opengrid.root` / `OPENGRID_ROOT` (default `.`),
+/// `settings.opengrid.workers` (default: cores), `debug` and `watch`
+/// (default: `dev`, i.e. the development environment).
+pub fn pool_options(settings: Option<&serde_json::Value>, dev: bool) -> PoolOptions {
     let og = settings.and_then(|s| s.get("opengrid"));
     let root = std::env::var("OPENGRID_ROOT")
         .ok()
@@ -42,6 +43,8 @@ pub fn pool_options(settings: Option<&serde_json::Value>) -> PoolOptions {
     if let Some(cfg) = crate::native::database::surreal::DbConfig::from_settings(settings) {
         opts = opts.database(cfg);
     }
+    let flag = |k: &str| og.and_then(|o| o.get(k)).and_then(|v| v.as_bool());
+    opts = opts.debug(flag("debug").unwrap_or(dev)).watch(flag("watch").unwrap_or(dev));
     opts
 }
 
@@ -83,8 +86,9 @@ impl Hooks for OpenGridApp {
     }
 
     async fn after_context(ctx: AppContext) -> Result<AppContext> {
-        let opts = pool_options(ctx.config.settings.as_ref());
-        tracing::info!(target: "grd", root = %opts.root.display(), workers = opts.workers, "starting VM pool");
+        let dev = matches!(ctx.environment, Environment::Development);
+        let opts = pool_options(ctx.config.settings.as_ref(), dev);
+        tracing::info!(target: "grd", root = %opts.root.display(), workers = opts.workers, debug = opts.debug, watch = opts.watch, "starting VM pool");
         // Pool::start blocks (workers load the project, the database connects
         // with block_on), so it must not run on a Tokio thread.
         let pool = tokio::task::spawn_blocking(move || Pool::start(opts))

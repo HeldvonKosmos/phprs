@@ -38,6 +38,7 @@ class Exception implements Throwable {
     protected int $code = 0;
     protected string $file = '';
     protected int $line = 0;
+    protected array $trace = [];
     protected ?Throwable $previous = null;
 
     public function __construct(string $message = '', int $code = 0, ?Throwable $previous = null) {
@@ -50,8 +51,16 @@ class Exception implements Throwable {
     public function getFile(): string { return $this->file; }
     public function getLine(): int { return $this->line; }
     public function getPrevious(): ?Throwable { return $this->previous; }
-    public function getTrace(): array { return []; }
-    public function getTraceAsString(): string { return '#0 {main}'; }
+    public function getTrace(): array { return $this->trace; }
+    public function getTraceAsString(): string {
+        $out = [];
+        foreach ($this->trace as $i => $f) {
+            $call = (isset($f['class']) ? $f['class'] . $f['type'] : '') . $f['function'] . '()';
+            $out[] = '#' . $i . ' ' . $f['file'] . '(' . $f['line'] . '): ' . $call;
+        }
+        $out[] = '#' . count($this->trace) . ' {main}';
+        return implode("\n", $out);
+    }
     public function __toString(): string { return static::class . ': ' . $this->message; }
 }
 
@@ -60,6 +69,7 @@ class Error implements Throwable {
     protected int $code = 0;
     protected string $file = '';
     protected int $line = 0;
+    protected array $trace = [];
     protected ?Throwable $previous = null;
 
     public function __construct(string $message = '', int $code = 0, ?Throwable $previous = null) {
@@ -72,8 +82,16 @@ class Error implements Throwable {
     public function getFile(): string { return $this->file; }
     public function getLine(): int { return $this->line; }
     public function getPrevious(): ?Throwable { return $this->previous; }
-    public function getTrace(): array { return []; }
-    public function getTraceAsString(): string { return '#0 {main}'; }
+    public function getTrace(): array { return $this->trace; }
+    public function getTraceAsString(): string {
+        $out = [];
+        foreach ($this->trace as $i => $f) {
+            $call = (isset($f['class']) ? $f['class'] . $f['type'] : '') . $f['function'] . '()';
+            $out[] = '#' . $i . ' ' . $f['file'] . '(' . $f['line'] . '): ' . $call;
+        }
+        $out[] = '#' . count($this->trace) . ' {main}';
+        return implode("\n", $out);
+    }
     public function __toString(): string { return static::class . ': ' . $this->message; }
 }
 

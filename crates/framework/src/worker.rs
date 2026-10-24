@@ -3,8 +3,12 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use notify::Watcher;
 
 use std::collections::HashMap;
 
@@ -31,6 +35,11 @@ pub struct WorkerCtx {
     pub txn: Option<surrealdb::method::Transaction<surrealdb::engine::any::Any>>,
     /// Model metadata read once per class from the dialect declarations.
     pub model_meta: HashMap<ClassId, ModelMeta>,
+    /// Dev mode: error pages with file, line, trace and source.
+    pub debug: bool,
+    /// Set when a hot reload failed: the worker keeps the old code and
+    /// answers every request with this error until the next good reload.
+    pub stale_error: Option<String>,
 }
 
 pub struct RequestState {
@@ -47,11 +56,14 @@ pub struct PoolOptions {
     pub workers: usize,
     pub settings: serde_json::Value,
     pub database: Option<DbConfig>,
+    pub debug: bool,
+    /// Watch `modules/` and `routes/` for `.grd` changes and reload.
+    pub watch: bool,
 }
 
 impl PoolOptions {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        PoolOptions { root: root.into(), workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2), settings: serde_json::Value::Null, database: None }
+        PoolOptions { root: root.into(), workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2), settings: serde_json::Value::Null, database: None, debug: true, watch: false }
     }
     pub fn workers(mut self, n: usize) -> Self {
         self.workers = n.max(1);
@@ -63,6 +75,14 @@ impl PoolOptions {
     }
     pub fn database(mut self, cfg: DbConfig) -> Self {
         self.database = Some(cfg);
+        self
+    }
+    pub fn debug(mut self, on: bool) -> Self {
+        self.debug = on;
+        self
+    }
+    pub fn watch(mut self, on: bool) -> Self {
+        self.watch = on;
         self
     }
 }
@@ -77,6 +97,8 @@ pub struct Pool {
     tx: mpsc::Sender<Job>,
     workers: usize,
     options: PoolOptions,
+    /// Bumped on reload; a worker whose VM is older rebuilds it before its next job.
+    generation: Arc<AtomicU64>,
 }
 
 #[derive(Debug)]
@@ -92,7 +114,7 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>) -> Result<(Vm, grd_v
     for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
-    vm.set_host(Box::new(WorkerCtx { routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new() }));
+    vm.set_host(Box::new(WorkerCtx { routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), debug: options.debug, stale_error: None }));
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
     Ok((vm, summary))
@@ -105,6 +127,7 @@ impl Pool {
         let (tx, rx) = mpsc::channel::<Job>();
         let rx = Arc::new(Mutex::new(rx));
         let (ready_tx, ready_rx) = mpsc::channel::<Result<usize, String>>();
+        let generation = Arc::new(AtomicU64::new(0));
         // One connection for all workers: the SDK client multiplexes, and an
         // in-memory database must be the same for every worker.
         let db = match &options.database {
@@ -116,10 +139,11 @@ impl Pool {
             let ready = ready_tx.clone();
             let opts = options.clone();
             let db = db.clone();
+            let generation = Arc::clone(&generation);
             std::thread::Builder::new()
                 .name(format!("grd-worker-{id}"))
                 .stack_size(64 * 1024 * 1024)
-                .spawn(move || worker_main(id, opts, db, rx, ready))
+                .spawn(move || worker_main(id, opts, db, rx, ready, generation))
                 .map_err(|e| format!("spawn worker: {e}"))?;
         }
         drop(ready_tx);
@@ -131,7 +155,19 @@ impl Pool {
                 Err(_) => return Err("worker exited during startup".into()),
             }
         }
-        Ok(Pool { tx, workers: options.workers, options })
+        if options.watch {
+            start_watcher(options.root.clone(), Arc::clone(&generation));
+        }
+        Ok(Pool { tx, workers: options.workers, options, generation })
+    }
+
+    /// Ask every worker to rebuild its VM before its next job (hot reload).
+    pub fn reload(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
     }
 
     pub fn workers(&self) -> usize {
@@ -166,7 +202,8 @@ impl Pool {
     }
 }
 
-fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>) {
+fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
+    let mut my_generation = generation.load(Ordering::SeqCst);
     let mut vm = match build_vm(&options, db.clone()) {
         Ok((vm, summary)) => {
             tracing::info!(target: "grd", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
@@ -187,6 +224,22 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mut
             guard.recv()
         };
         let Ok(job) = job else { return };
+        let current = generation.load(Ordering::SeqCst);
+        if current != my_generation {
+            my_generation = current;
+            match build_vm(&options, db.clone()) {
+                Ok((fresh, summary)) => {
+                    tracing::info!(target: "grd", worker = id, classes = summary.class_files, routes = summary.route_files, "reloaded");
+                    vm = fresh;
+                }
+                Err(e) => {
+                    tracing::error!(target: "grd", worker = id, "reload failed: {e}");
+                    if let Some(c) = vm.host::<WorkerCtx>() {
+                        c.stale_error = Some(e);
+                    }
+                }
+            }
+        }
         if catch_unwind(AssertUnwindSafe(|| job(&mut vm))).is_err() {
             // RUNTIME_ARCHITECTURE §11: the worker catches the panic; the
             // VM state is suspect afterwards, so rebuild it.
@@ -199,5 +252,49 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mut
                 }
             }
         }
+    }
+}
+
+fn is_grd_event(ev: &notify::Result<notify::Event>) -> bool {
+    ev.as_ref().map(|e| e.paths.iter().any(|p| p.extension().is_some_and(|x| x == "grd"))).unwrap_or(false)
+}
+
+/// Watch `root/modules` and `root/routes`; a burst of `.grd` changes bumps
+/// the generation once (150 ms debounce).
+fn start_watcher(root: PathBuf, generation: Arc<AtomicU64>) {
+    let spawned = std::thread::Builder::new().name("grd-watch".into()).spawn(move || {
+        let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
+        let mut watcher = match notify::recommended_watcher(move |res| {
+            let _ = tx.send(res);
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::error!(target: "grd", "file watcher unavailable: {e}");
+                return;
+            }
+        };
+        for dir in ["modules", "routes"] {
+            let p = root.join(dir);
+            if p.is_dir()
+                && let Err(e) = watcher.watch(&p, notify::RecursiveMode::Recursive)
+            {
+                tracing::warn!(target: "grd", path = %p.display(), "cannot watch: {e}");
+            }
+        }
+        tracing::info!(target: "grd", root = %root.display(), "watching .grd files");
+        while let Ok(ev) = rx.recv() {
+            let mut relevant = is_grd_event(&ev);
+            let deadline = Instant::now() + Duration::from_millis(150);
+            while let Ok(ev) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                relevant |= is_grd_event(&ev);
+            }
+            if relevant {
+                generation.fetch_add(1, Ordering::SeqCst);
+                tracing::info!(target: "grd", "source changed; workers reload before their next request");
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::error!(target: "grd", "cannot start watcher thread: {e}");
     }
 }

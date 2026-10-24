@@ -504,10 +504,53 @@ impl Vm {
         if self.is_throwable(class) {
             let line = self.current_line();
             let file = self.current_file();
+            let trace = self.build_trace();
             self.set_prop_raw(h, b"line", Val::Int(line as i64));
             self.set_prop_raw(h, b"file", Val::from(file));
+            self.set_prop_raw(h, b"trace", trace);
         }
         Ok(h)
+    }
+
+    /// PHP-shaped backtrace of the live frames: entry k describes the call
+    /// into frame k+1 made from frame k (file/line of the call site).
+    pub(crate) fn build_trace(&self) -> Val {
+        let mut arr = PhpArray::new();
+        let n = self.frames.len();
+        for k in (1..n).rev() {
+            let callee = &self.frames[k];
+            let caller = &self.frames[k - 1];
+            let mut e = PhpArray::new();
+            e.insert(ArrayKey::from_str("file"), Val::from(caller.module.file.clone()));
+            e.insert(ArrayKey::from_str("line"), Val::Int(caller.line as i64));
+            let unit_name = callee.module.units[callee.unit as usize].name.clone();
+            let function = unit_name.rsplit("::").next().unwrap_or(&unit_name).to_string();
+            if let Some(c) = callee.class {
+                e.insert(ArrayKey::from_str("class"), Val::from(String::from_utf8_lossy(&self.class(c).name).into_owned()));
+                e.insert(ArrayKey::from_str("type"), Val::str(if callee.this.is_some() { "->" } else { "::" }));
+            }
+            e.insert(ArrayKey::from_str("function"), Val::from(function));
+            arr.push(Val::array(e));
+        }
+        // The outermost frame, when it is a function or method entered from
+        // Rust (controller action, callback): no call site, so its own
+        // declaration line stands in.
+        if let Some(root) = self.frames.first()
+            && root.unit != root.module.main
+        {
+            let unit = &root.module.units[root.unit as usize];
+            let mut e = PhpArray::new();
+            e.insert(ArrayKey::from_str("file"), Val::from(root.module.file.clone()));
+            e.insert(ArrayKey::from_str("line"), Val::Int(unit.line as i64));
+            let function = unit.name.rsplit("::").next().unwrap_or(&unit.name).to_string();
+            if let Some(c) = root.class {
+                e.insert(ArrayKey::from_str("class"), Val::from(String::from_utf8_lossy(&self.class(c).name).into_owned()));
+                e.insert(ArrayKey::from_str("type"), Val::str(if root.this.is_some() { "->" } else { "::" }));
+            }
+            e.insert(ArrayKey::from_str("function"), Val::from(function));
+            arr.push(Val::array(e));
+        }
+        Val::array(arr)
     }
 
     /// Set a declared property without visibility checks.
