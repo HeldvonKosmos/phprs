@@ -4,6 +4,9 @@
 //! tier 2 swapped in before the code runs. A further test shows the
 //! asynchronous hot swap.
 
+#[path = "suite/fuzz.rs"]
+mod fuzz;
+
 use std::path::Path;
 use std::time::{Duration, Instant};
 
