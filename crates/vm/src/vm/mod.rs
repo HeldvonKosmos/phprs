@@ -17,6 +17,7 @@ pub(crate) mod ops;
 mod path;
 mod run;
 pub mod jit;
+pub mod inject;
 #[cfg(feature = "opstats")]
 pub mod opstats;
 
@@ -146,6 +147,8 @@ pub struct WellKnown {
 pub struct Vm {
     pub modules: Vec<Rc<Module>>,
     pub classes: Vec<RtClass>,
+    /// Objects the host supplies for constructor injection (I1).
+    pub(crate) injector: Option<inject::Injector>,
     pub class_by_name: HashMap<Vec<u8>, ClassId>,
     pub functions: HashMap<Vec<u8>, FuncRef>,
     /// Link-step ids: function name → index into `function_table`.
@@ -205,6 +208,7 @@ impl Vm {
         let mut vm = Vm {
             modules: Vec::new(),
             classes: Vec::new(),
+            injector: None,
             class_by_name: HashMap::new(),
             functions: HashMap::new(),
             function_ids: HashMap::new(),

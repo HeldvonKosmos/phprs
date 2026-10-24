@@ -54,7 +54,8 @@ pub fn run_controller(vm: &mut Vm) -> Result<Val, Throw> {
         (s.handler.clone(), s.params.clone())
     };
     let class = vm.lookup_class(handler.class.as_bytes()).ok_or_else(|| Throw::error(format!("controller class `{}` not found", handler.class)))?;
-    let controller = vm.instantiate(class, Vec::new())?;
+    // I1: constructor injection (interfaces bind to their one implementation)
+    let controller = vm.resolve(class)?;
     let args: Vec<Val> = params.iter().map(|(_, v)| Val::str(v)).collect();
     vm.call_method_sync(controller, handler.method.as_bytes(), args)
 }

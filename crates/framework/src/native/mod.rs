@@ -26,6 +26,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     validation::register(vm)?;
     session::register(vm)?;
     vm.register_native("opengrid_run_controller", |vm, _| crate::dispatch::run_controller(vm));
+    // I1: `opengrid_resolve(Foo::class)` creates an object with constructor injection
+    vm.register_native("opengrid_resolve", |vm, a| {
+        let name = a.first().ok_or_else(|| Throw::error("opengrid_resolve(): class name expected"))?.to_php_string()?;
+        let class = vm.lookup_class(name.as_bytes()).ok_or_else(|| Throw::error(format!("class `{}` not found", name.to_string_lossy())))?;
+        Ok(Val::Object(vm.resolve(class)?))
+    });
+    // the current request is what a constructor gets for `Request $request`
+    vm.set_injector(|vm, class| {
+        if vm.class(class).name.as_slice() == b"OpenGrid\\Http\\Request" && ctx(vm).request.is_some() {
+            return vm.call_value(&Val::str("request"), Vec::new()).map(Some);
+        }
+        Ok(None)
+    });
     // abort(404, 'message') → HttpException
     vm.register_native("abort", |vm, a| {
         let status = match a.first() {

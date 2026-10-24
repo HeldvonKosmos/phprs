@@ -11,6 +11,8 @@ mod db_embedded;
 mod errors;
 #[path = "suite/http.rs"]
 mod http;
+#[path = "suite/inject.rs"]
+mod inject;
 #[path = "suite/middleware.rs"]
 mod middleware;
 #[path = "suite/relations.rs"]

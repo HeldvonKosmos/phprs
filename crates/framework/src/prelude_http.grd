@@ -31,7 +31,8 @@ final class Pipeline
             return \opengrid_run_controller($request);
         }
         $class = $this->middleware[$this->index];
-        $middleware = new $class();
+        // I1: middleware gets its constructor dependencies injected
+        $middleware = \opengrid_resolve($class);
         if (!($middleware instanceof Middleware)) {
             throw new \TypeError($class . ' is not an OpenGrid\Http\Middleware');
         }
