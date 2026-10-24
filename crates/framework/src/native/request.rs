@@ -65,6 +65,15 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             let params = state(vm)?.params.clone();
             pick(pairs_to_array(&params), &c)
         })
+        .method("cookie", |vm, c| {
+            let name = string_arg(&c, 0, "Request::cookie")?;
+            let found = state(vm)?.req.header("cookie").and_then(|h| crate::session::parse_cookies(h).into_iter().find(|(k, _)| *k == name).map(|(_, v)| v));
+            Ok(found.map(|v| Val::str(&v)).unwrap_or_else(|| c.arg(1)))
+        })
+        .method("cookies", |vm, _| {
+            let pairs = state(vm)?.req.header("cookie").map(crate::session::parse_cookies).unwrap_or_default();
+            Ok(pairs_to_array(&pairs))
+        })
         .method("ip", |_, _| Ok(Val::Null))
         .method("body", |vm, _| Ok(Val::bytes(&state(vm)?.req.body)))
         .method("validate", |vm, c| {

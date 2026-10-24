@@ -9,7 +9,10 @@ use crate::native::response::ResponseData;
 use crate::worker::{RequestState, WorkerCtx};
 
 pub fn handle(vm: &mut Vm, req: HttpRequest) -> HttpResponse {
-    let resp = handle_inner(vm, req).unwrap_or_else(|r| r);
+    let mut resp = handle_inner(vm, req).unwrap_or_else(|r| r);
+    if let Err(t) = crate::session::finish(vm, &mut resp) {
+        tracing::error!(target: "grd", "session save failed: {}", t.message);
+    }
     if let Some(ctx) = vm.host::<WorkerCtx>() {
         ctx.request = None;
     }
@@ -33,7 +36,7 @@ fn handle_inner(vm: &mut Vm, req: HttpRequest) -> Result<HttpResponse, HttpRespo
     };
     tracing::debug!(target: "grd", method = %req.method, path = %req.path, class = %entry.handler.class, action = %entry.handler.method, "dispatch");
     let middleware = ctx(vm).routes.resolve_middleware(&entry.middleware);
-    ctx(vm).request = Some(RequestState { req, handler: entry.handler.clone(), params, object: None, input: None });
+    ctx(vm).request = Some(RequestState { req, handler: entry.handler.clone(), params, object: None, input: None, session: None });
     let result = if middleware.is_empty() {
         run_controller(vm).map_err(|t| throw_response(vm, t))?
     } else {

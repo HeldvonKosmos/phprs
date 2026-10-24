@@ -56,3 +56,24 @@ class HttpException extends \RuntimeException
         return $this->headers;
     }
 }
+
+namespace OpenGrid\Http\Middleware;
+
+use OpenGrid\Http\Middleware;
+use OpenGrid\Http\Request;
+use OpenGrid\Support\Session;
+
+/** Alias `csrf`: state-changing requests must carry the session's token. */
+final class VerifyCsrfToken extends Middleware
+{
+    public function handle(Request $request, \Closure $next): mixed
+    {
+        if (in_array($request->method(), ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+            $token = $request->header('x-csrf-token') ?? $request->input('_token');
+            if ($token == null || $token != Session::token()) {
+                abort(419, 'CSRF token mismatch');
+            }
+        }
+        return $next($request);
+    }
+}

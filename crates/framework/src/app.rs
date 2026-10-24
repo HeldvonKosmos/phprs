@@ -45,6 +45,7 @@ pub fn pool_options(settings: Option<&serde_json::Value>, dev: bool) -> PoolOpti
     }
     let flag = |k: &str| og.and_then(|o| o.get(k)).and_then(|v| v.as_bool());
     opts = opts.debug(flag("debug").unwrap_or(dev)).watch(flag("watch").unwrap_or(dev));
+    opts = opts.session(crate::session::SessionConfig::from_settings(settings));
     opts
 }
 

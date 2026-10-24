@@ -7,6 +7,7 @@ pub mod dispatch;
 pub mod http;
 pub mod native;
 pub mod routes;
+pub mod session;
 pub mod worker;
 
 pub use http::{HttpRequest, HttpResponse};

@@ -7,6 +7,7 @@ pub mod log;
 pub mod request;
 pub mod response;
 pub mod route;
+pub mod session;
 pub mod validation;
 
 use grd_vm::error::Throw;
@@ -23,6 +24,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     config::register(vm)?;
     database::register(vm)?;
     validation::register(vm)?;
+    session::register(vm)?;
     vm.register_native("opengrid_run_controller", |vm, _| crate::dispatch::run_controller(vm));
     // abort(404, 'message') → HttpException
     vm.register_native("abort", |vm, a| {

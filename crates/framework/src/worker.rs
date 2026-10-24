@@ -20,6 +20,7 @@ use crate::native::database::surreal::{Db, DbConfig};
 
 use crate::http::HttpRequest;
 use crate::routes::{Handler, RouteTable};
+use crate::session::{SessionConfig, SessionState, SessionStore};
 
 /// Host context of a worker VM: lives as long as the VM; `request` is
 /// swapped per request.
@@ -39,6 +40,8 @@ pub struct WorkerCtx {
     pub model_meta: HashMap<ClassId, ModelMeta>,
     /// Dev mode: error pages with file, line, trace and source.
     pub debug: bool,
+    /// Session store shared by all workers of the pool.
+    pub sessions: Arc<SessionStore>,
     /// Set when a hot reload failed: the worker keeps the old code and
     /// answers every request with this error until the next good reload.
     pub stale_error: Option<String>,
@@ -50,6 +53,7 @@ pub struct RequestState {
     pub params: Vec<(String, String)>,
     pub object: Option<ObjHandle>,
     pub input: Option<Val>,
+    pub session: Option<SessionState>,
 }
 
 #[derive(Clone, Debug)]
@@ -61,11 +65,12 @@ pub struct PoolOptions {
     pub debug: bool,
     /// Watch `modules/` and `routes/` for `.grd` changes and reload.
     pub watch: bool,
+    pub session: SessionConfig,
 }
 
 impl PoolOptions {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        PoolOptions { root: root.into(), workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2), settings: serde_json::Value::Null, database: None, debug: true, watch: false }
+        PoolOptions { root: root.into(), workers: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2), settings: serde_json::Value::Null, database: None, debug: true, watch: false, session: SessionConfig::default() }
     }
     pub fn workers(mut self, n: usize) -> Self {
         self.workers = n.max(1);
@@ -87,6 +92,10 @@ impl PoolOptions {
         self.watch = on;
         self
     }
+    pub fn session(mut self, cfg: SessionConfig) -> Self {
+        self.session = cfg;
+        self
+    }
 }
 
 /// Dialect part of the framework: Middleware, Pipeline, Controller, HttpException, ValidationException.
@@ -102,6 +111,7 @@ pub struct Pool {
     options: PoolOptions,
     /// Bumped on reload; a worker whose VM is older rebuilds it before its next job.
     generation: Arc<AtomicU64>,
+    sessions: Arc<SessionStore>,
 }
 
 #[derive(Debug)]
@@ -111,13 +121,17 @@ pub enum PoolError {
 }
 
 /// Build a worker VM: prelude, native classes, host context, project.
-pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
+pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
     let mut vm = Vm::with_prelude().map_err(|t| format!("prelude: {}", t.message))?;
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
     for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
-    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), debug: options.debug, stale_error: None }));
+    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), sessions, debug: options.debug, stale_error: None }));
+    // default middleware aliases
+    if let Some(c) = vm.host::<WorkerCtx>() {
+        c.routes.aliases.insert("csrf".into(), "OpenGrid\\Http\\Middleware\\VerifyCsrfToken".into());
+    }
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
     Ok((vm, summary))
@@ -131,6 +145,7 @@ impl Pool {
         let rx = Arc::new(Mutex::new(rx));
         let (ready_tx, ready_rx) = mpsc::channel::<Result<usize, String>>();
         let generation = Arc::new(AtomicU64::new(0));
+        let sessions = Arc::new(SessionStore::new(options.session.clone()));
         // One connection for all workers: the SDK client multiplexes, and an
         // in-memory database must be the same for every worker.
         let db = match &options.database {
@@ -143,10 +158,11 @@ impl Pool {
             let opts = options.clone();
             let db = db.clone();
             let generation = Arc::clone(&generation);
+            let sessions = Arc::clone(&sessions);
             std::thread::Builder::new()
                 .name(format!("grd-worker-{id}"))
                 .stack_size(64 * 1024 * 1024)
-                .spawn(move || worker_main(id, opts, db, rx, ready, generation))
+                .spawn(move || worker_main(id, opts, db, sessions, rx, ready, generation))
                 .map_err(|e| format!("spawn worker: {e}"))?;
         }
         drop(ready_tx);
@@ -161,7 +177,7 @@ impl Pool {
         if options.watch {
             start_watcher(options.root.clone(), Arc::clone(&generation));
         }
-        Ok(Pool { tx, workers: options.workers, options, generation })
+        Ok(Pool { tx, workers: options.workers, options, generation, sessions })
     }
 
     /// Ask every worker to rebuild its VM before its next job (hot reload).
@@ -171,6 +187,10 @@ impl Pool {
 
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::SeqCst)
+    }
+
+    pub fn sessions(&self) -> &SessionStore {
+        &self.sessions
     }
 
     pub fn workers(&self) -> usize {
@@ -205,9 +225,9 @@ impl Pool {
     }
 }
 
-fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
+fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
     let mut my_generation = generation.load(Ordering::SeqCst);
-    let mut vm = match build_vm(&options, db.clone()) {
+    let mut vm = match build_vm(&options, db.clone(), sessions.clone()) {
         Ok((vm, summary)) => {
             tracing::info!(target: "grd", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
             let _ = ready.send(Ok(id));
@@ -230,7 +250,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mut
         let current = generation.load(Ordering::SeqCst);
         if current != my_generation {
             my_generation = current;
-            match build_vm(&options, db.clone()) {
+            match build_vm(&options, db.clone(), sessions.clone()) {
                 Ok((fresh, summary)) => {
                     tracing::info!(target: "grd", worker = id, classes = summary.class_files, routes = summary.route_files, "reloaded");
                     vm = fresh;
@@ -247,7 +267,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, rx: Arc<Mut
             // RUNTIME_ARCHITECTURE §11: the worker catches the panic; the
             // VM state is suspect afterwards, so rebuild it.
             tracing::error!(target: "grd", worker = id, "panic in worker; rebuilding VM");
-            match build_vm(&options, db.clone()) {
+            match build_vm(&options, db.clone(), sessions.clone()) {
                 Ok((fresh, _)) => vm = fresh,
                 Err(e) => {
                     tracing::error!(target: "grd", worker = id, error = %e, "cannot rebuild VM; worker exits");

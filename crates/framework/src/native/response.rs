@@ -123,6 +123,17 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             }
             Ok(Val::Object(c.this()?))
         })
+        .method("cookie", |vm, c| {
+            let name = string_arg(&c, 0, "Response::cookie")?;
+            let value = string_arg(&c, 1, "Response::cookie")?;
+            let minutes = int_arg_opt(&c, 2, 0)?;
+            let mut cookie = format!("{name}={value}; Path=/; HttpOnly; SameSite=Lax");
+            if minutes > 0 {
+                cookie.push_str(&format!("; Max-Age={}", minutes * 60));
+            }
+            data(vm, &c)?.headers.push(("set-cookie".into(), cookie));
+            Ok(Val::Object(c.this()?))
+        })
         .method("setContent", |vm, c| {
             let body = string_arg(&c, 0, "Response::setContent")?;
             data(vm, &c)?.body = body.into_bytes();

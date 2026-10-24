@@ -1,0 +1,45 @@
+<?grd
+namespace Tasks\Controllers;
+
+use OpenGrid\Http\Response;
+use OpenGrid\Support\Session;
+
+final class SessionController
+{
+    public function put(): array
+    {
+        if (request()->query('name') != null) {
+            Session::put('name', request()->query('name'));
+        }
+        $n = Session::get('hits', 0) + 1;
+        Session::put('hits', $n);
+        return ['hits' => $n];
+    }
+
+    public function show(): array
+    {
+        return ['name' => Session::get('name'), 'hits' => Session::get('hits', 0), 'msg' => Session::get('msg'), 'id' => Session::getId()];
+    }
+
+    public function flash(): Response
+    {
+        Session::flash('msg', 'saved!');
+        return Response::redirect('/session');
+    }
+
+    public function token(): array
+    {
+        return ['token' => csrf_token()];
+    }
+
+    public function protectedPost(): array
+    {
+        return ['ok' => true];
+    }
+
+    public function logout(): array
+    {
+        Session::invalidate();
+        return ['bye' => true];
+    }
+}

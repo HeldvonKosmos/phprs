@@ -1,6 +1,7 @@
 <?grd
 use OpenGrid\Routing\Route;
 use Tasks\Controllers\TaskController;
+use Tasks\Controllers\SessionController;
 use Tasks\Http\Middleware\RequireToken;
 
 Route::get('/tasks', [TaskController::class, 'index']);
@@ -19,3 +20,10 @@ Route::group(['prefix' => '/admin', 'middleware' => ['token']], function () {
     Route::get('/tasks', [TaskController::class, 'index'])->name('admin.tasks');
     Route::post('/tasks', [TaskController::class, 'validated']);
 });
+
+Route::get('/session/put', [SessionController::class, 'put']);
+Route::get('/session', [SessionController::class, 'show']);
+Route::get('/session/flash', [SessionController::class, 'flash']);
+Route::get('/session/token', [SessionController::class, 'token']);
+Route::post('/session/protected', [SessionController::class, 'protectedPost'])->middleware('csrf');
+Route::get('/session/logout', [SessionController::class, 'logout']);
