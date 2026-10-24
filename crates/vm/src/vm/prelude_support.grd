@@ -1,0 +1,892 @@
+<?grd
+// OpenGrid\Support (S1, core): Str, Arr and Collection in the dialect,
+// behaving like Laravel's Illuminate\Support (R3 as the specification; the
+// spec test runs Laravel's own classes from refs/ and compares). The dialect
+// has no references: Arr::set/forget return the new array.
+namespace OpenGrid\Support;
+
+final class Str
+{
+    public static function lower(string $value): string { return mb_strtolower($value); }
+    public static function upper(string $value): string { return mb_strtoupper($value); }
+    public static function title(string $value): string { return mb_convert_case($value, MB_CASE_TITLE); }
+    public static function length(string $value): int { return mb_strlen($value); }
+    public static function ucfirst(string $value): string { return mb_strtoupper(mb_substr($value, 0, 1)) . mb_substr($value, 1); }
+    public static function lcfirst(string $value): string { return mb_strtolower(mb_substr($value, 0, 1)) . mb_substr($value, 1); }
+
+    public static function studly(string $value): string
+    {
+        $words = explode(' ', str_replace(['-', '_'], ' ', $value));
+        $out = '';
+        foreach ($words as $w) { $out .= self::ucfirst($w); }
+        return $out;
+    }
+
+    public static function camel(string $value): string { return lcfirst(self::studly($value)); }
+
+    public static function snake(string $value, string $delimiter = '_'): string
+    {
+        if (!ctype_lower($value)) {
+            $value = preg_replace('/\s+/u', '', ucwords($value));
+            $value = mb_strtolower(preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, $value));
+        }
+        return $value;
+    }
+
+    public static function kebab(string $value): string { return self::snake($value, '-'); }
+
+    public static function slug(string $title, string $separator = '-'): string
+    {
+        $flip = $separator === '-' ? '_' : '-';
+        $title = preg_replace('![' . preg_quote($flip) . ']+!u', $separator, $title);
+        $title = str_replace('@', $separator . 'at' . $separator, $title);
+        $title = preg_replace('![^' . preg_quote($separator) . '\pL\pN\s]+!u', '', mb_strtolower($title));
+        $title = preg_replace('![' . preg_quote($separator) . '\s]+!u', $separator, $title);
+        return trim($title, $separator);
+    }
+
+    public static function contains(string $haystack, string|array $needles, bool $ignoreCase = false): bool
+    {
+        if ($ignoreCase) { $haystack = mb_strtolower($haystack); }
+        foreach ((array) $needles as $needle) {
+            $n = $ignoreCase ? mb_strtolower((string) $needle) : (string) $needle;
+            if ($n !== '' && str_contains($haystack, $n)) { return true; }
+        }
+        return false;
+    }
+
+    public static function containsAll(string $haystack, array $needles, bool $ignoreCase = false): bool
+    {
+        foreach ($needles as $needle) {
+            if (!self::contains($haystack, (string) $needle, $ignoreCase)) { return false; }
+        }
+        return true;
+    }
+
+    public static function startsWith(string $haystack, string|array $needles): bool
+    {
+        foreach ((array) $needles as $needle) {
+            if ((string) $needle !== '' && str_starts_with($haystack, (string) $needle)) { return true; }
+        }
+        return false;
+    }
+
+    public static function endsWith(string $haystack, string|array $needles): bool
+    {
+        foreach ((array) $needles as $needle) {
+            if ((string) $needle !== '' && str_ends_with($haystack, (string) $needle)) { return true; }
+        }
+        return false;
+    }
+
+    public static function limit(string $value, int $limit = 100, string $end = '...'): string
+    {
+        if (mb_strwidth($value) <= $limit) { return $value; }
+        return rtrim(mb_substr($value, 0, $limit)) . $end;
+    }
+
+    public static function words(string $value, int $words = 100, string $end = '...'): string
+    {
+        $m = preg_match('/^\s*+(?:\S++\s*+){1,' . $words . '}/u', $value);
+        if ($m === [] || mb_strlen($value) === mb_strlen($m[0])) { return $value; }
+        return rtrim($m[0]) . $end;
+    }
+
+    public static function after(string $subject, string $search): string
+    {
+        if ($search === '') { return $subject; }
+        $parts = explode($search, $subject, 2);
+        return $parts[count($parts) - 1];
+    }
+
+    public static function afterLast(string $subject, string $search): string
+    {
+        if ($search === '') { return $subject; }
+        $pos = strrpos($subject, $search);
+        return $pos === false ? $subject : substr($subject, $pos + strlen($search));
+    }
+
+    public static function before(string $subject, string $search): string
+    {
+        if ($search === '') { return $subject; }
+        $result = strstr($subject, $search, true);
+        return $result === false ? $subject : $result;
+    }
+
+    public static function beforeLast(string $subject, string $search): string
+    {
+        if ($search === '') { return $subject; }
+        $pos = mb_strrpos($subject, $search);
+        return $pos === false ? $subject : mb_substr($subject, 0, $pos);
+    }
+
+    public static function between(string $subject, string $from, string $to): string
+    {
+        if ($from === '' || $to === '') { return $subject; }
+        return self::beforeLast(self::after($subject, $from), $to);
+    }
+
+    public static function replace(string|array $search, string|array $replace, string $subject): string
+    {
+        return str_replace($search, $replace, $subject);
+    }
+
+    public static function replaceFirst(string $search, string $replace, string $subject): string
+    {
+        if ($search === '') { return $subject; }
+        $pos = strpos($subject, $search);
+        return $pos === false ? $subject : substr_replace($subject, $replace, $pos, strlen($search));
+    }
+
+    public static function start(string $value, string $prefix): string
+    {
+        return $prefix . preg_replace('/^(?:' . preg_quote($prefix, '/') . ')+/u', '', $value);
+    }
+
+    public static function finish(string $value, string $cap): string
+    {
+        return preg_replace('/(?:' . preg_quote($cap, '/') . ')+$/u', '', $value) . $cap;
+    }
+
+    public static function is(string|array $pattern, string $value): bool
+    {
+        foreach ((array) $pattern as $p) {
+            $p = (string) $p;
+            if ($p === $value) { return true; }
+            $regex = str_replace('\*', '.*', preg_quote($p, '#'));
+            if (preg_match('#^' . $regex . '\z#u', $value) !== []) { return true; }
+        }
+        return false;
+    }
+
+    public static function squish(string $value): string
+    {
+        return preg_replace('~\s+~u', ' ', trim($value));
+    }
+
+    public static function padLeft(string $value, int $length, string $pad = ' '): string { return str_pad($value, $length, $pad, STR_PAD_LEFT); }
+    public static function padRight(string $value, int $length, string $pad = ' '): string { return str_pad($value, $length, $pad, STR_PAD_RIGHT); }
+    public static function padBoth(string $value, int $length, string $pad = ' '): string { return str_pad($value, $length, $pad, STR_PAD_BOTH); }
+
+    public static function isUuid(string $value): bool
+    {
+        return preg_match('/^[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}$/D', $value) !== [];
+    }
+
+    public static function isJson(string $value): bool { return json_validate($value); }
+
+    public static function random(int $length = 16): string
+    {
+        $pool = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        $out = '';
+        for ($i = 0; $i < $length; $i++) { $out .= $pool[random_int(0, 61)]; }
+        return $out;
+    }
+
+    /** Version 4 UUID. */
+    public static function uuid(): string
+    {
+        $b = random_bytes(16);
+        $hex = bin2hex($b);
+        $variant = dechex((hexdec($hex[16]) & 3) | 8);
+        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-4' . substr($hex, 13, 3) . '-' . $variant . substr($hex, 17, 3) . '-' . substr($hex, 20, 12);
+    }
+
+    public static function mask(string $string, string $character, int $index, ?int $length = null): string
+    {
+        if ($character === '') { return $string; }
+        $segment = mb_substr($string, $index, $length);
+        if ($segment === '') { return $string; }
+        $strlen = mb_strlen($string);
+        $start = $index < 0 ? max(0, $strlen + $index) : $index;
+        return mb_substr($string, 0, $start) . str_repeat(mb_substr($character, 0, 1), mb_strlen($segment)) . mb_substr($string, $start + mb_strlen($segment));
+    }
+
+    public static function wrap(string $value, string $before, ?string $after = null): string
+    {
+        return $before . $value . ($after ?? $before);
+    }
+}
+
+final class Arr
+{
+    public static function accessible(mixed $value): bool
+    {
+        return is_array($value) || $value instanceof \ArrayAccess;
+    }
+
+    public static function exists(array $array, string|int $key): bool
+    {
+        return array_key_exists($key, $array);
+    }
+
+    /** Dot-notation read: `Arr::get($a, 'user.name', 'x')`. */
+    public static function get(mixed $array, string|int|null $key, mixed $default = null): mixed
+    {
+        if (!self::accessible($array)) { return $default instanceof \Closure ? $default() : $default; }
+        if ($key === null) { return $array; }
+        if (is_array($array) && array_key_exists($key, $array)) { return $array[$key]; }
+        if (!is_string($key) || !str_contains($key, '.')) {
+            return is_array($array) ? ($default instanceof \Closure ? $default() : $default) : ($array[$key] ?? $default);
+        }
+        $current = $array;
+        foreach (explode('.', $key) as $segment) {
+            if (is_array($current) && array_key_exists($segment, $current)) {
+                $current = $current[$segment];
+            } elseif ($current instanceof \ArrayAccess && isset($current[$segment])) {
+                $current = $current[$segment];
+            } else {
+                return $default instanceof \Closure ? $default() : $default;
+            }
+        }
+        return $current;
+    }
+
+    public static function has(array $array, string|array $keys): bool
+    {
+        $keys = (array) $keys;
+        if ($keys === [] || $array === []) { return false; }
+        $missing = new \stdClass();
+        foreach ($keys as $key) {
+            if (self::get($array, $key, $missing) === $missing) { return false; }
+        }
+        return true;
+    }
+
+    public static function hasAny(array $array, string|array $keys): bool
+    {
+        foreach ((array) $keys as $key) {
+            if (self::has($array, $key)) { return true; }
+        }
+        return false;
+    }
+
+    /** Dot-notation write; returns the new array (no references in the dialect). */
+    public static function set(array $array, string|int|null $key, mixed $value): array
+    {
+        if ($key === null) { return (array) $value; }
+        $keys = is_string($key) ? explode('.', $key) : [$key];
+        return self::setPath($array, $keys, $value);
+    }
+
+    private static function setPath(array $array, array $keys, mixed $value): array
+    {
+        $first = $keys[0];
+        if (count($keys) === 1) {
+            $array[$first] = $value;
+            return $array;
+        }
+        $inner = isset($array[$first]) && is_array($array[$first]) ? $array[$first] : [];
+        $array[$first] = self::setPath($inner, array_slice($keys, 1), $value);
+        return $array;
+    }
+
+    /** Removes keys (dot notation); returns the new array. */
+    public static function forget(array $array, string|int|array $keys): array
+    {
+        foreach ((array) $keys as $key) {
+            if (array_key_exists($key, $array)) {
+                unset($array[$key]);
+                continue;
+            }
+            $parts = explode('.', (string) $key);
+            $array = self::forgetPath($array, $parts);
+        }
+        return $array;
+    }
+
+    private static function forgetPath(array $array, array $parts): array
+    {
+        $first = $parts[0];
+        if (count($parts) === 1) {
+            unset($array[$first]);
+            return $array;
+        }
+        if (isset($array[$first]) && is_array($array[$first])) {
+            $array[$first] = self::forgetPath($array[$first], array_slice($parts, 1));
+        }
+        return $array;
+    }
+
+    public static function add(array $array, string|int $key, mixed $value): array
+    {
+        if (self::get($array, $key) === null) { return self::set($array, $key, $value); }
+        return $array;
+    }
+
+    public static function only(array $array, array|string $keys): array
+    {
+        return array_intersect_key($array, array_flip((array) $keys));
+    }
+
+    public static function except(array $array, array|string $keys): array
+    {
+        return self::forget($array, $keys);
+    }
+
+    public static function first(array $array, ?callable $callback = null, mixed $default = null): mixed
+    {
+        if ($callback === null) {
+            if ($array === []) { return $default instanceof \Closure ? $default() : $default; }
+            return $array[array_key_first($array)];
+        }
+        foreach ($array as $key => $value) {
+            if ($callback($value, $key)) { return $value; }
+        }
+        return $default instanceof \Closure ? $default() : $default;
+    }
+
+    public static function last(array $array, ?callable $callback = null, mixed $default = null): mixed
+    {
+        if ($callback === null) {
+            if ($array === []) { return $default instanceof \Closure ? $default() : $default; }
+            return $array[array_key_last($array)];
+        }
+        return self::first(array_reverse($array, true), $callback, $default);
+    }
+
+    public static function wrap(mixed $value): array
+    {
+        if ($value === null) { return []; }
+        return is_array($value) ? $value : [$value];
+    }
+
+    public static function flatten(array $array, int|float $depth = INF): array
+    {
+        $result = [];
+        foreach ($array as $item) {
+            $item = $item instanceof Collection ? $item->all() : $item;
+            if (!is_array($item)) {
+                $result[] = $item;
+            } else {
+                $values = $depth === 1 ? array_values($item) : self::flatten($item, $depth - 1);
+                foreach ($values as $v) { $result[] = $v; }
+            }
+        }
+        return $result;
+    }
+
+    public static function collapse(array $array): array
+    {
+        $result = [];
+        foreach ($array as $values) {
+            $values = $values instanceof Collection ? $values->all() : $values;
+            if (!is_array($values)) { continue; }
+            foreach ($values as $v) { $result[] = $v; }
+        }
+        return $result;
+    }
+
+    public static function pluck(array $array, string|int|null $value, string|int|null $key = null): array
+    {
+        $results = [];
+        foreach ($array as $item) {
+            $itemValue = data_get($item, $value);
+            if ($key === null) {
+                $results[] = $itemValue;
+            } else {
+                $itemKey = data_get($item, $key);
+                $results[is_object($itemKey) ? (string) $itemKey : $itemKey] = $itemValue;
+            }
+        }
+        return $results;
+    }
+
+    public static function keyBy(array $array, string|callable $keyBy): array
+    {
+        $results = [];
+        foreach ($array as $key => $item) {
+            $k = is_string($keyBy) && !is_callable($keyBy) ? data_get($item, $keyBy) : $keyBy($item, $key);
+            $results[is_object($k) ? (string) $k : $k] = $item;
+        }
+        return $results;
+    }
+
+    public static function where(array $array, callable $callback): array
+    {
+        return array_filter($array, $callback, ARRAY_FILTER_USE_BOTH);
+    }
+
+    public static function whereNotNull(array $array): array
+    {
+        return array_filter($array, fn($v) => $v !== null);
+    }
+
+    public static function map(array $array, callable $callback): array
+    {
+        $keys = array_keys($array);
+        $items = array_map($callback, $array, $keys);
+        return array_combine($keys, $items);
+    }
+
+    public static function mapWithKeys(array $array, callable $callback): array
+    {
+        $result = [];
+        foreach ($array as $key => $value) {
+            foreach ($callback($value, $key) as $k => $v) { $result[$k] = $v; }
+        }
+        return $result;
+    }
+
+    public static function isAssoc(array $array): bool { return !array_is_list($array); }
+    public static function isList(array $array): bool { return array_is_list($array); }
+
+    public static function dot(array $array, string $prepend = ''): array
+    {
+        $results = [];
+        foreach ($array as $key => $value) {
+            if (is_array($value) && $value !== []) {
+                foreach (self::dot($value, $prepend . $key . '.') as $k => $v) { $results[$k] = $v; }
+            } else {
+                $results[$prepend . $key] = $value;
+            }
+        }
+        return $results;
+    }
+
+    public static function undot(array $array): array
+    {
+        $results = [];
+        foreach ($array as $key => $value) { $results = self::set($results, $key, $value); }
+        return $results;
+    }
+
+    public static function join(array $array, string $glue, string $finalGlue = ''): string
+    {
+        if ($finalGlue === '') { return implode($glue, $array); }
+        if (count($array) === 0) { return ''; }
+        if (count($array) === 1) { return (string) $array[array_key_first($array)]; }
+        $finalItem = $array[array_key_last($array)];
+        return implode($glue, array_slice($array, 0, -1)) . $finalGlue . $finalItem;
+    }
+
+    public static function prepend(array $array, mixed $value, string|int|null $key = null): array
+    {
+        if ($key === null) { return array_merge([$value], $array); }
+        return [$key => $value] + $array;
+    }
+
+    public static function query(array $array): string { return http_build_query($array, '', '&', PHP_QUERY_RFC3986); }
+
+    public static function random(array $array): mixed { return $array[array_rand($array)]; }
+
+    // replacements for the by-reference array functions: [value, rest]
+    public static function pop(array $a): array { return \Arr::pop($a); }
+    public static function shift(array $a): array { return \Arr::shift($a); }
+}
+
+/** A collection of items (Laravel's Illuminate\Support\Collection, core methods). */
+class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonSerializable
+{
+    protected array $items;
+
+    public function __construct(mixed $items = [])
+    {
+        $this->items = self::arrayOf($items);
+    }
+
+    protected static function arrayOf(mixed $items): array
+    {
+        if (is_array($items)) { return $items; }
+        if ($items instanceof Collection) { return $items->all(); }
+        if ($items === null) { return []; }
+        if ($items instanceof \Traversable) { return iterator_to_array($items); }
+        return [$items];
+    }
+
+    public static function make(mixed $items = []): static { return new static($items); }
+
+    /** `callable` or a key for data_get. */
+    protected function valueRetriever(mixed $value): \Closure
+    {
+        if ($value instanceof \Closure) { return $value; }
+        if ($value === null) { return fn($item) => $item; }
+        return fn($item) => data_get($item, $value);
+    }
+
+    public function all(): array { return $this->items; }
+    public function count(): int { return count($this->items); }
+    public function isEmpty(): bool { return $this->items === []; }
+    public function isNotEmpty(): bool { return $this->items !== []; }
+    public function keys(): static { return new static(array_keys($this->items)); }
+    public function values(): static { return new static(array_values($this->items)); }
+
+    public function toArray(): array
+    {
+        $out = [];
+        foreach ($this->items as $k => $v) {
+            $out[$k] = is_object($v) && method_exists($v, 'toArray') ? $v->toArray() : $v;
+        }
+        return $out;
+    }
+
+    public function jsonSerialize(): mixed
+    {
+        $out = [];
+        foreach ($this->items as $k => $v) {
+            if ($v instanceof \JsonSerializable) {
+                $out[$k] = $v->jsonSerialize();
+            } elseif (is_object($v) && method_exists($v, 'toArray')) {
+                $out[$k] = $v->toArray();
+            } else {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
+    }
+
+    public function toJson(int $options = 0): string { return json_encode($this->jsonSerialize(), $options); }
+
+    public function get(string|int $key, mixed $default = null): mixed
+    {
+        if (array_key_exists($key, $this->items)) { return $this->items[$key]; }
+        return $default instanceof \Closure ? $default() : $default;
+    }
+
+    public function has(string|int|array $key): bool
+    {
+        foreach ((array) $key as $k) {
+            if (!array_key_exists($k, $this->items)) { return false; }
+        }
+        return true;
+    }
+
+    public function first(?callable $callback = null, mixed $default = null): mixed { return Arr::first($this->items, $callback, $default); }
+    public function last(?callable $callback = null, mixed $default = null): mixed { return Arr::last($this->items, $callback, $default); }
+
+    public function map(callable $callback): static { return new static(Arr::map($this->items, $callback)); }
+    public function mapWithKeys(callable $callback): static { return new static(Arr::mapWithKeys($this->items, $callback)); }
+
+    public function each(callable $callback): static
+    {
+        foreach ($this->items as $key => $item) {
+            if ($callback($item, $key) === false) { break; }
+        }
+        return $this;
+    }
+
+    public function filter(?callable $callback = null): static
+    {
+        if ($callback === null) { return new static(array_filter($this->items)); }
+        return new static(array_filter($this->items, $callback, ARRAY_FILTER_USE_BOTH));
+    }
+
+    public function reject(callable $callback): static
+    {
+        return $this->filter(fn($value, $key) => !$callback($value, $key));
+    }
+
+    protected function operatorFor(string $operator, mixed $value): \Closure
+    {
+        return function ($item) use ($operator, $value) {
+            // ordered comparison with null as in PHP: compare as booleans
+            $cmp = ($item === null || $value === null) ? ((int) (bool) $item <=> (int) (bool) $value) : ($item <=> $value);
+            return match ($operator) {
+                '=', '==', '===' => $item === $value,
+                '!=', '<>', '!==' => $item !== $value,
+                '<' => $cmp < 0,
+                '>' => $cmp > 0,
+                '<=' => $cmp <= 0,
+                '>=' => $cmp >= 0,
+                default => $item === $value,
+            };
+        };
+    }
+
+    /** `where('done', true)`, `where('n', '>', 3)` (comparisons are strict, DIALECT §5.1). */
+    public function where(string $key, mixed $operator = null, mixed $value = null): static
+    {
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = '=';
+        }
+        $test = $this->operatorFor((string) $operator, $value);
+        return $this->filter(fn($item) => $test(data_get($item, $key)));
+    }
+
+    public function firstWhere(string $key, mixed $operator = null, mixed $value = null): mixed
+    {
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = '=';
+        }
+        return $this->where($key, $operator, $value)->first();
+    }
+
+    public function whereIn(string $key, array $values): static
+    {
+        return $this->filter(fn($item) => in_array(data_get($item, $key), $values, true));
+    }
+
+    public function whereNotNull(?string $key = null): static
+    {
+        return $this->filter(fn($item) => data_get($item, $key) !== null);
+    }
+
+    public function pluck(string|int $value, string|int|null $key = null): static { return new static(Arr::pluck($this->items, $value, $key)); }
+
+    public function keyBy(string|callable $keyBy): static { return new static(Arr::keyBy($this->items, $keyBy)); }
+
+    public function groupBy(string|callable $groupBy): static
+    {
+        $retrieve = $this->valueRetriever($groupBy);
+        $groups = [];
+        foreach ($this->items as $key => $item) {
+            $g = $retrieve($item, $key);
+            $g = is_bool($g) ? (int) $g : (is_object($g) ? (string) $g : $g);
+            $groups[$g][] = $item;
+        }
+        $out = [];
+        foreach ($groups as $g => $list) { $out[$g] = new static($list); }
+        return new static($out);
+    }
+
+    public function sortBy(string|callable $callback, bool $descending = false): static
+    {
+        $retrieve = $this->valueRetriever($callback);
+        $keys = [];
+        foreach ($this->items as $key => $item) { $keys[$key] = $retrieve($item, $key); }
+        $keys = $descending ? arsort($keys) : asort($keys);
+        $out = [];
+        foreach ($keys as $key => $_) { $out[$key] = $this->items[$key]; }
+        return new static($out);
+    }
+
+    public function sortByDesc(string|callable $callback): static { return $this->sortBy($callback, true); }
+
+    public function sort(?callable $callback = null): static
+    {
+        return new static($callback === null ? asort($this->items) : uasort($this->items, $callback));
+    }
+
+    public function sortDesc(): static { return new static(arsort($this->items)); }
+    public function sortKeys(bool $descending = false): static { return new static($descending ? krsort($this->items) : ksort($this->items)); }
+    public function reverse(): static { return new static(array_reverse($this->items, true)); }
+
+    public function sum(string|callable|null $callback = null): int|float
+    {
+        $retrieve = $this->valueRetriever($callback);
+        // int + float may turn the sum into a float: array_sum adds like PHP
+        return array_sum(array_map($retrieve, array_values($this->items)));
+    }
+
+    public function avg(string|callable|null $callback = null): int|float|null
+    {
+        $retrieve = $this->valueRetriever($callback);
+        $values = [];
+        foreach ($this->items as $item) {
+            $v = $retrieve($item);
+            if ($v !== null) { $values[] = $v; }
+        }
+        if ($values === []) { return null; }
+        return array_sum($values) / count($values);
+    }
+
+    public function average(string|callable|null $callback = null): int|float|null { return $this->avg($callback); }
+
+    public function min(string|callable|null $callback = null): mixed
+    {
+        $retrieve = $this->valueRetriever($callback);
+        $result = null;
+        foreach ($this->items as $item) {
+            $v = $retrieve($item);
+            if ($v !== null && ($result === null || $v < $result)) { $result = $v; }
+        }
+        return $result;
+    }
+
+    public function max(string|callable|null $callback = null): mixed
+    {
+        $retrieve = $this->valueRetriever($callback);
+        $result = null;
+        foreach ($this->items as $item) {
+            $v = $retrieve($item);
+            if ($v !== null && ($result === null || $v > $result)) { $result = $v; }
+        }
+        return $result;
+    }
+
+    public function contains(mixed $key, mixed $operator = null, mixed $value = null): bool
+    {
+        if (func_num_args() === 1) {
+            if ($key instanceof \Closure) {
+                foreach ($this->items as $k => $item) {
+                    if ($key($item, $k)) { return true; }
+                }
+                return false;
+            }
+            return in_array($key, $this->items, true);
+        }
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = '=';
+        }
+        return $this->where((string) $key, $operator, $value)->isNotEmpty();
+    }
+
+    public function unique(string|callable|null $key = null): static
+    {
+        $retrieve = $this->valueRetriever($key);
+        $seen = [];
+        $out = [];
+        foreach ($this->items as $k => $item) {
+            $id = $retrieve($item, $k);
+            $marker = is_array($id) || is_object($id) ? serialize($id) : var_export($id, true);
+            if (!array_key_exists($marker, $seen)) {
+                $seen[$marker] = true;
+                $out[$k] = $item;
+            }
+        }
+        return new static($out);
+    }
+
+    public function take(int $limit): static
+    {
+        if ($limit < 0) { return $this->slice($limit, -$limit); }
+        return $this->slice(0, $limit);
+    }
+
+    public function skip(int $count): static { return $this->slice($count); }
+
+    public function slice(int $offset, ?int $length = null): static { return new static(array_slice($this->items, $offset, $length, true)); }
+
+    public function chunk(int $size): static
+    {
+        if ($size <= 0) { return new static(); }
+        $chunks = [];
+        foreach (array_chunk($this->items, $size, true) as $chunk) { $chunks[] = new static($chunk); }
+        return new static($chunks);
+    }
+
+    public function flatten(int|float $depth = INF): static { return new static(Arr::flatten($this->items, $depth)); }
+    public function collapse(): static { return new static(Arr::collapse($this->items)); }
+
+    public function merge(mixed $items): static { return new static(array_merge($this->items, self::arrayOf($items))); }
+
+    public function push(mixed ...$values): static
+    {
+        foreach ($values as $v) { $this->items[] = $v; }
+        return $this;
+    }
+
+    public function put(string|int $key, mixed $value): static
+    {
+        $this->items[$key] = $value;
+        return $this;
+    }
+
+    public function prepend(mixed $value, string|int|null $key = null): static
+    {
+        $this->items = Arr::prepend($this->items, $value, $key);
+        return $this;
+    }
+
+    public function pop(): mixed
+    {
+        [$value, $rest] = \Arr::pop($this->items);
+        $this->items = $rest;
+        return $value;
+    }
+
+    public function shift(): mixed
+    {
+        [$value, $rest] = \Arr::shift($this->items);
+        $this->items = $rest;
+        return $value;
+    }
+
+    public function implode(string|callable $value, ?string $glue = null): string
+    {
+        if ($value instanceof \Closure) { return implode($glue ?? '', $this->map($value)->all()); }
+        $first = $this->first();
+        if (is_array($first) || (is_object($first) && !$first instanceof \Stringable)) {
+            return implode($glue ?? '', $this->pluck($value)->all());
+        }
+        return implode($value, $this->items);
+    }
+
+    public function join(string $glue, string $finalGlue = ''): string { return Arr::join($this->items, $glue, $finalGlue); }
+
+    public function reduce(callable $callback, mixed $initial = null): mixed
+    {
+        $result = $initial;
+        foreach ($this->items as $key => $item) { $result = $callback($result, $item, $key); }
+        return $result;
+    }
+
+    public function only(array|string $keys): static { return new static(Arr::only($this->items, $keys)); }
+    public function except(array|string $keys): static { return new static(Arr::except($this->items, $keys)); }
+    public function flip(): static { return new static(array_flip($this->items)); }
+
+    public function search(mixed $value): int|string|false
+    {
+        if ($value instanceof \Closure) {
+            foreach ($this->items as $k => $item) {
+                if ($value($item, $k)) { return $k; }
+            }
+            return false;
+        }
+        return array_search($value, $this->items, true);
+    }
+
+    public function every(callable $callback): bool
+    {
+        foreach ($this->items as $k => $item) {
+            if (!$callback($item, $k)) { return false; }
+        }
+        return true;
+    }
+
+    public function partition(callable $callback): static
+    {
+        $pass = [];
+        $fail = [];
+        foreach ($this->items as $k => $item) {
+            if ($callback($item, $k)) { $pass[$k] = $item; } else { $fail[$k] = $item; }
+        }
+        return new static([new static($pass), new static($fail)]);
+    }
+
+    public function countBy(string|callable|null $callback = null): static
+    {
+        $retrieve = $this->valueRetriever($callback);
+        $counts = [];
+        foreach ($this->items as $k => $item) {
+            $g = $retrieve($item, $k);
+            $counts[$g] = ($counts[$g] ?? 0) + 1;
+        }
+        return new static($counts);
+    }
+
+    public function pipe(callable $callback): mixed { return $callback($this); }
+
+    public function tap(callable $callback): static
+    {
+        $callback($this);
+        return $this;
+    }
+
+    public function when(mixed $value, callable $callback, ?callable $default = null): static
+    {
+        if ($value) { return $callback($this, $value) ?? $this; }
+        if ($default !== null) { return $default($this, $value) ?? $this; }
+        return $this;
+    }
+
+    public function unless(mixed $value, callable $callback, ?callable $default = null): static
+    {
+        return $this->when(!$value, $callback, $default);
+    }
+
+    public function getIterator(): \Iterator { return new \ArrayIterator($this->items); }
+
+    public function offsetExists(mixed $key): bool { return isset($this->items[$key]); }
+    public function offsetGet(mixed $key): mixed { return $this->items[$key]; }
+
+    public function offsetSet(mixed $key, mixed $value): void
+    {
+        if ($key === null) { $this->items[] = $value; } else { $this->items[$key] = $value; }
+    }
+
+    public function offsetUnset(mixed $key): void { unset($this->items[$key]); }
+}

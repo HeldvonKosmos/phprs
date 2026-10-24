@@ -63,6 +63,14 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("stripos", |_, a| strpos(a, "stripos", true, false));
     vm.register_native("strrpos", |_, a| strpos(a, "strrpos", false, true));
     vm.register_native("strripos", |_, a| strpos(a, "strripos", true, true));
+    vm.register_native("mb_strrpos", |_, a| {
+        let h = args::string(a, 0, "mb_strrpos")?.to_string_lossy();
+        let n = args::string(a, 1, "mb_strrpos")?.to_string_lossy();
+        Ok(match h.rfind(&*n) {
+            Some(bi) => Val::Int(h[..bi].chars().count() as i64),
+            None => Val::Bool(false),
+        })
+    });
     vm.register_native("mb_strpos", |_, a| {
         let h = args::string(a, 0, "mb_strpos")?.to_string_lossy();
         let n = args::string(a, 1, "mb_strpos")?.to_string_lossy();

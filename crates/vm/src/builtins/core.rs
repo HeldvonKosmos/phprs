@@ -34,6 +34,11 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("get_class_methods", get_class_methods);
     vm.register_native("method_exists", method_exists);
     vm.register_native("property_exists", property_exists);
+    // number of arguments the calling user function received
+    vm.register_native("func_num_args", |vm, _| {
+        let f = vm.frames.last().ok_or_else(|| Throw::error("func_num_args() must be called from a function"))?;
+        Ok(Val::Int(f.arg_present.count_ones() as i64))
+    });
     vm.register_native("class_exists", |vm, a| Ok(Val::Bool(args::string(a, 0, "class_exists").ok().and_then(|s| vm.lookup_class(s.as_bytes())).is_some_and(|c| vm.class(c).kind == crate::bytecode::ClassKind::Class))));
     vm.register_native("interface_exists", |vm, a| Ok(Val::Bool(args::string(a, 0, "interface_exists").ok().and_then(|s| vm.lookup_class(s.as_bytes())).is_some_and(|c| vm.class(c).kind == crate::bytecode::ClassKind::Interface))));
     vm.register_native("trait_exists", |vm, a| Ok(Val::Bool(args::string(a, 0, "trait_exists").ok().and_then(|s| vm.lookup_class(s.as_bytes())).is_some_and(|c| vm.class(c).kind == crate::bytecode::ClassKind::Trait))));

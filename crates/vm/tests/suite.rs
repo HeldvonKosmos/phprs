@@ -11,5 +11,7 @@ mod native_classes;
 mod probes;
 #[path = "suite/project.rs"]
 mod project;
+#[path = "suite/support.rs"]
+mod support;
 #[path = "suite/statics.rs"]
 mod statics;

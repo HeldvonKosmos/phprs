@@ -249,10 +249,21 @@ impl Vm {
     /// A VM with the prelude (exception hierarchy, SPL interfaces, Closure,
     /// Generator) loaded.
     pub fn with_prelude() -> Result<Self, Throw> {
+        // the preludes are compiled once per process; each VM loads a copy
+        static COMPILED: std::sync::OnceLock<Result<(Module, Module), String>> = std::sync::OnceLock::new();
+        let (prelude, support) = COMPILED
+            .get_or_init(|| {
+                let p = crate::compile::compile_source("{prelude}", PRELUDE.as_bytes()).map_err(|e| format!("prelude: {e}"))?;
+                // OpenGrid\Support: Str, Arr, Collection (S1)
+                let s = crate::compile::compile_source("{prelude/support}", PRELUDE_SUPPORT.as_bytes()).map_err(|e| format!("prelude support: {e}"))?;
+                Ok((p, s))
+            })
+            .clone()
+            .map_err(Throw::error)?;
         let mut vm = Vm::new();
-        let module = crate::compile::compile_source("{prelude}", PRELUDE.as_bytes())
-            .map_err(|e| Throw::error(format!("prelude: {e}")))?;
-        vm.load_module(module)?;
+        vm.load_module(prelude)?;
+        vm.run_main((vm.modules.len() - 1) as u32)?;
+        vm.load_module(support)?;
         vm.run_main((vm.modules.len() - 1) as u32)?;
         // native classes that implement prelude interfaces
         crate::builtins::datetime_class::register(&mut vm)?;
@@ -438,3 +449,4 @@ impl std::fmt::Display for RunError {
 }
 
 pub const PRELUDE: &str = include_str!("prelude.grd");
+pub const PRELUDE_SUPPORT: &str = include_str!("prelude_support.grd");

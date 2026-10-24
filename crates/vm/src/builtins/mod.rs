@@ -19,6 +19,11 @@ use crate::vm::Vm;
 pub fn register(vm: &mut Vm) {
     vm.define_constant("PHP_EOL", Val::str("\n"));
     vm.define_constant("PHP_INT_MAX", Val::Int(i64::MAX));
+    vm.define_constant("MB_CASE_UPPER", Val::Int(0));
+    vm.define_constant("MB_CASE_LOWER", Val::Int(1));
+    vm.define_constant("MB_CASE_TITLE", Val::Int(2));
+    vm.define_constant("PHP_QUERY_RFC1738", Val::Int(1));
+    vm.define_constant("PHP_QUERY_RFC3986", Val::Int(2));
     vm.define_constant("PHP_INT_MIN", Val::Int(i64::MIN));
     vm.define_constant("PHP_INT_SIZE", Val::Int(8));
     vm.define_constant("PHP_FLOAT_EPSILON", Val::Float(f64::EPSILON));

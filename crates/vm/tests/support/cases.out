@@ -1,0 +1,215 @@
+"hello world"
+"HELLO"
+"Hello Big World"
+6
+"Hello"
+"hello"
+"FooBarBazQux"
+"fooBarBaz"
+"foo_bar_baz"
+"foo_bar"
+"foo_bar"
+"foo-bar"
+"foo-bar-baz"
+"hello-world-again"
+"foo-bar-baz"
+"a_at_bc_d"
+"trim-me"
+true
+true
+false
+true
+true
+false
+true
+true
+false
+true
+false
+"The quick..."
+"Short"
+"The quick >"
+"The quick brown..."
+"One two"
+" my name"
+"abc"
+"abc"
+"Controller"
+"This is "
+"abc"
+"This is my name "
+" is my "
+"a] [b"
+"Laravel 10.x"
+"a quick the fox"
+"\/this\/string"
+"\/this\/string"
+"this\/string\/"
+"this\/string\/"
+true
+false
+true
+true
+"laravel framework"
+"-=-=-James"
+"James-----"
+"__James___"
+true
+false
+true
+false
+20
+true
+"tay***************"
+"tay***@example.com"
+"1234"
+"\"Laravel\""
+"This is Laravel!"
+true
+false
+true
+100
+0
+1
+{"a":1}
+null
+true
+false
+true
+false
+{"products":{"desk":{"price":200}}}
+{"a":{"b":{"c":1}}}
+{"products":{"desk":{"x":1}}}
+{"b":2}
+{"name":"Desk","price":100}
+{"name":"Desk","price":100}
+{"name":"Desk","price":5}
+{"name":"Desk","price":100}
+{"name":"Desk"}
+200
+"none"
+1
+300
+3
+["Laravel"]
+[]
+[1]
+["Joe","PHP","Ruby","Go"]
+[1,2,[3,[4]]]
+[1,2,3,4,5,6,7,8,9]
+["Taylor","Abigail"]
+{"1":"Taylor","2":"Abigail"}
+{"a":{"id":"a","v":1},"b":{"id":"b","v":2}}
+{"1":"200","3":"400"}
+{"0":0,"2":"a"}
+{"first":"James","last":"Kirk"}
+{"john@example.com":"John"}
+true
+false
+true
+false
+{"products.desk.price":100,"empty":[]}
+{"user":{"name":"Kevin","age":31}}
+"Tailwind, Alpine, Laravel, Livewire"
+"Tailwind, Alpine, Laravel and Livewire"
+"One"
+["zero","one","two"]
+{"name":"Desk","price":100}
+"name=Taylor&order%5Bcolumn%5D=created_at&order%5Bdirection%5D=desc"
+[1,2,3]
+{"a":1}
+3
+true
+true
+["a","b"]
+[1,2]
+1
+"default"
+true
+false
+3
+1
+"none"
+4
+[2,4,6,8,10]
+{"a":"a1","b":"b2"}
+{"John":"Sales","Jane":"IT"}
+{"2":3,"3":4}
+{"0":1,"2":2,"4":3}
+[1,2]
+{"1":{"product":"Chair","price":100}}
+{"1":{"n":5},"2":{"n":3}}
+{"0":{"n":1},"2":{"n":3}}
+{"name":"Linda","age":14}
+{"name":"Diego","age":23}
+[{"product":"Desk","price":200}]
+{"0":{"name":"Desk"},"2":{"name":"Bookcase"}}
+["Desk","Chair"]
+{"prod-100":"Desk","prod-200":"Chair"}
+{"prod-100":{"product_id":"prod-100","name":"Desk"},"prod-200":{"product_id":"prod-200","name":"Chair"}}
+{"account-x10":[{"account_id":"account-x10","product":"Chair"},{"account_id":"account-x10","product":"Bookcase"}],"account-x11":[{"account_id":"account-x11","product":"Desk"}]}
+[{"name":"Chair","price":100},{"name":"Bookcase","price":150},{"name":"Desk","price":200}]
+[{"name":"Desk","price":200},{"name":"Bookcase","price":150},{"name":"Chair","price":100}]
+[{"name":"Chair","colors":["Black"]},{"name":"Desk","colors":["Black","Mahogany"]},{"name":"Bookcase","colors":["Red","Beige","Brown"]}]
+[1,2,3,4,5]
+{"2":1,"3":2,"1":3,"4":4,"0":5}
+[5,4,3,2,1]
+{"first":"John","id":22345,"last":"Doe"}
+{"b":1,"a":2}
+{"2":3,"1":2,"0":1}
+15
+1272
+3.5
+20
+2
+null
+2.5
+20
+5
+10
+1
+false
+true
+false
+false
+[1,2,3,4]
+[{"name":"iPhone 6","brand":"Apple"},{"name":"Galaxy S6","brand":"Samsung"}]
+[0,1,2]
+{"4":4,"5":5}
+[5,6,7,8,9,10]
+{"4":5,"5":6,"6":7,"7":8,"8":9,"9":10}
+{"4":5,"5":6}
+[[1,2,3,4],{"4":5,"5":6,"6":7}]
+["taylor","php","javascript"]
+[1,2,3,4,5,6,7,8,9]
+{"product_id":1,"price":200,"discount":false}
+["Desk","Chair","Bookcase","Door"]
+[1,2,3,4,5]
+{"product_id":1,"name":"Desk","price":100}
+[0,1,2,3,4,5]
+{"zero":0,"one":1,"two":2}
+"Desk, Chair"
+"1-2-3-4-5"
+"a, b and c"
+6
+10
+{"product_id":1,"name":"Desk"}
+{"product_id":1}
+{"taylor":"name","laravel":"framework"}
+1
+2
+false
+true
+[[1,2],{"2":3,"3":4,"4":5,"5":6}]
+{"1":1,"2":3,"3":1}
+{"gmail.com":2,"yahoo.com":1}
+6
+[1,2,3,4]
+[1,2,3]
+[1,2,3,5]
+"{\"a\":1}"
+"[[1],{\"x\":2}]"
+"b"
+100
+0
+["Desk 1","Desk 2"]

@@ -517,3 +517,36 @@ class ReflectionEnumUnitCase extends ReflectionClassConstant {
 class ReflectionEnumBackedCase extends ReflectionEnumUnitCase {
     public function getBackingValue(): int|string { return $this->getValue()->value; }
 }
+
+// ---- Support helpers (S1; the classes are in prelude_support.grd) ---------
+
+/** Laravel's `collect()`. */
+function collect(mixed $value = []): \OpenGrid\Support\Collection {
+    return new \OpenGrid\Support\Collection($value);
+}
+
+/** Laravel's `data_get()`: dot-notation read through arrays, ArrayAccess and objects; `*` maps over items. */
+function data_get(mixed $target, mixed $key, mixed $default = null): mixed {
+    if ($key === null) { return $target; }
+    $segments = is_array($key) ? $key : explode('.', (string) $key);
+    foreach ($segments as $i => $segment) {
+        if ($segment === '*') {
+            if ($target instanceof \OpenGrid\Support\Collection) { $target = $target->all(); }
+            if (!is_array($target)) { return $default instanceof Closure ? $default() : $default; }
+            $rest = array_slice($segments, $i + 1);
+            $out = [];
+            foreach ($target as $item) { $out[] = data_get($item, $rest); }
+            return in_array('*', $rest, true) ? \OpenGrid\Support\Arr::collapse($out) : $out;
+        }
+        if (is_array($target) && array_key_exists($segment, $target)) {
+            $target = $target[$segment];
+        } elseif ($target instanceof ArrayAccess && isset($target[$segment])) {
+            $target = $target[$segment];
+        } elseif (is_object($target) && isset($target->{$segment})) {
+            $target = $target->{$segment};
+        } else {
+            return $default instanceof Closure ? $default() : $default;
+        }
+    }
+    return $target;
+}
