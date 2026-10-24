@@ -1,0 +1,13 @@
+<?grd
+use Notes\Controllers\NoteController;
+use Notes\Http\Middleware\JsonWrites;
+use OpenGrid\Routing\Route;
+
+Route::aliasMiddleware('json-writes', JsonWrites::class);
+Route::group(['prefix' => '/notes', 'middleware' => ['json-writes']], function () {
+    Route::get('', [NoteController::class, 'index']);
+    Route::post('', [NoteController::class, 'store']);
+    Route::get('/{id}', [NoteController::class, 'show']);
+    Route::put('/{id}', [NoteController::class, 'update']);
+    Route::delete('/{id}', [NoteController::class, 'destroy']);
+});

@@ -1,0 +1,11 @@
+<?grd
+namespace Notes\Models;
+
+use OpenGrid\Database\Model;
+
+final class Note extends Model
+{
+    protected static string $table = 'notes';
+    protected array $fillable = ['title', 'body', 'done', 'priority'];
+    protected array $filterable = ['done', 'priority'];
+}

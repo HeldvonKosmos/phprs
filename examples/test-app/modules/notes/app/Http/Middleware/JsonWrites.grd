@@ -1,0 +1,22 @@
+<?grd
+namespace Notes\Http\Middleware;
+
+use OpenGrid\Http\Middleware;
+use OpenGrid\Http\Request;
+use OpenGrid\Http\Response;
+
+/** Writes must send JSON; every answer names the module. */
+final class JsonWrites extends Middleware
+{
+    public function handle(Request $request, \Closure $next): mixed
+    {
+        if ($request->method() != 'GET' && !$request->isJson()) {
+            abort(415, 'send application/json');
+        }
+        $response = $next($request);
+        if ($response instanceof Response) {
+            $response->header('X-Module', 'notes');
+        }
+        return $response;
+    }
+}

@@ -1,0 +1,49 @@
+<?grd
+namespace Notes\Controllers;
+
+use Notes\Models\Note;
+use OpenGrid\Http\Response;
+
+final class NoteController
+{
+    /** GET /notes?filters[done]=false&sort=priority */
+    public function index(): Response
+    {
+        return Response::json(Note::query()->filter()->sort()->get());
+    }
+
+    public function show(string $id): Response
+    {
+        return Response::json(Note::findOrFail($id));
+    }
+
+    public function store(): Response
+    {
+        $data = request()->validate([
+            'title' => 'required|string|max:120',
+            'body' => 'nullable|string',
+            'done' => 'nullable|boolean',
+            'priority' => 'nullable|integer|between:1,5',
+        ]);
+        return Response::json(Note::create($data), 201);
+    }
+
+    public function update(string $id): Response
+    {
+        $data = request()->validate([
+            'title' => 'string|max:120',
+            'body' => 'nullable|string',
+            'done' => 'boolean',
+            'priority' => 'integer|between:1,5',
+        ]);
+        $note = Note::findOrFail($id);
+        $note->update($data);
+        return Response::json($note);
+    }
+
+    public function destroy(string $id): Response
+    {
+        Note::findOrFail($id)->delete();
+        return Response::json(['deleted' => $id]);
+    }
+}

@@ -1,0 +1,5 @@
+<?grd
+use OpenGrid\Routing\Route;
+use Welcome\Controllers\WelcomeController;
+
+Route::get('/', [WelcomeController::class, 'index']);

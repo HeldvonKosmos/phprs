@@ -1,0 +1,12 @@
+<?grd
+namespace Welcome\Controllers;
+
+use OpenGrid\Support\Config;
+
+final class WelcomeController
+{
+    public function index(): array
+    {
+        return ['app' => Config::get('app.name', 'OpenGrid'), 'status' => 'ok'];
+    }
+}
