@@ -125,11 +125,19 @@ pub enum PoolError {
 }
 
 /// Build a worker VM: prelude, native classes, host context, project.
+/// JIT in the workers (DECISIONS D9): off by default; `OPENGRID_JIT=on`
+/// turns it on, `GRD_JIT=0` is the emergency switch that wins over
+/// everything. Off means: interpreter only, no machine code. The advanced
+/// JIT (tiers, background compiler) additionally needs `GRD_ADVANCED_JIT=on`.
+pub fn jit_enabled() -> bool {
+    matches!(std::env::var("OPENGRID_JIT").as_deref(), Ok("on" | "1")) && !grd_jit::disabled_by_env()
+}
+
 pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
     let mut vm = Vm::with_prelude().map_err(|t| format!("prelude: {}", t.message))?;
-    // JIT (unless GRD_JIT=0): tier 1 per worker, tier 2 on the process-wide
-    // background compiler, shared by all workers that run the same project
-    grd_jit::install(&mut vm);
+    if jit_enabled() {
+        vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
+    }
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
     for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
@@ -159,6 +167,7 @@ impl Pool {
             Some(cfg) => Some(Arc::new(Db::connect(cfg.clone())?)),
             None => None,
         };
+        tracing::info!(target: "opengrid", "JIT: {}", grd_jit::describe(jit_enabled()));
         for id in 0..options.workers {
             let rx = Arc::clone(&rx);
             let ready = ready_tx.clone();

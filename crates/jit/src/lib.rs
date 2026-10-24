@@ -16,6 +16,7 @@ mod service;
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -65,13 +66,30 @@ pub(crate) struct Req<'a> {
 /// program (module contents and function table) so that one background
 /// compiler can serve VMs whose module indices differ.
 pub(crate) struct Compiler {
-    module: JITModule,
+    /// Dropped by `Drop for Compiler`, which frees the code memory.
+    module: ManuallyDrop<JITModule>,
     fctx: FunctionBuilderContext,
     natives: HashMap<(u64, u32, u32), NativeFn>,
     failed: HashSet<(u64, u32, u32)>,
     prog: u64,
     tier: u8,
     log: bool,
+}
+
+impl Drop for Compiler {
+    fn drop(&mut self) {
+        // SAFETY: (1) `ManuallyDrop::take` runs once, here, and `self.module`
+        // is not used afterwards. (2) `free_memory` requires that none of the
+        // module's functions is executing or called later. A `Compiler` is
+        // dropped in two situations only: as tier 1 of a `CraneliftJit`,
+        // which the VM drops together with itself — the VM is
+        // single-threaded, so no compiled code of it runs during the drop,
+        // and the only holders of its code pointers are this backend's code
+        // slots and native table, dropped in the same step (the process-wide
+        // tier-2 cache stores only tier-2 pointers); or never, as the tier-2
+        // compiler, which lives until the process ends.
+        unsafe { ManuallyDrop::take(&mut self.module).free_memory() };
+    }
 }
 
 impl Compiler {
@@ -81,7 +99,7 @@ impl Compiler {
         let isa = cranelift_native::builder().expect("host isa").finish(settings::Flags::new(flags)).expect("isa");
         let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         Compiler {
-            module: JITModule::new(builder),
+            module: ManuallyDrop::new(JITModule::new(builder)),
             fctx: FunctionBuilderContext::new(),
             natives: HashMap::new(),
             failed: HashSet::new(),
@@ -105,7 +123,8 @@ impl Compiler {
             Some(h) => (entry, h),
         };
         let an = analyse(&cx, lo, hi, entry, tags, whole)?;
-        let func = self.module.declare_anonymous_function(&signature(&self.module)).ok()?;
+        let sig = signature(&*self.module);
+        let func = self.module.declare_anonymous_function(&sig).ok()?;
         if whole {
             // known before the body so that self-recursion calls itself natively
             let param_slots = unit.params.iter().map(|p| p.slot).collect();
@@ -140,7 +159,7 @@ impl Compiler {
             }
         }
         let mut ctx = self.module.make_context();
-        ctx.func.signature = signature(&self.module);
+        ctx.func.signature = signature(&*self.module);
         {
             let mut b = FunctionBuilder::new(&mut ctx.func, &mut self.fctx);
             let mut callees = HashMap::new();
@@ -254,10 +273,18 @@ impl CodeSlot {
 /// How the backend uses the tiers (environment, read once per backend).
 #[derive(Clone, Copy, Debug)]
 struct Tiers {
-    /// Background recompilation with `opt_level = "speed"` (`GRD_JIT_TIER2=0` turns it off).
+    /// Advanced JIT (`GRD_ADVANCED_JIT=on`, default off, D8/D9): tier 1 with
+    /// `opt_level = "none"`, background recompilation with `"speed"`, hot
+    /// swap, process-wide cache. Off: one synchronous compile with
+    /// `"speed"` on the VM thread.
     background: bool,
     /// Wait for tier 2 before running (`GRD_JIT_SYNC=1`; tests, benchmarks).
     sync: bool,
+}
+
+/// `GRD_ADVANCED_JIT=on` (or `1`) turns the advanced JIT on.
+pub fn advanced_from_env() -> bool {
+    matches!(std::env::var("GRD_ADVANCED_JIT").as_deref(), Ok("on" | "1"))
 }
 
 /// The JIT backend of one VM: tier-1 compiler, code slots, module snapshots
@@ -299,18 +326,20 @@ fn hash_of(x: impl Hash) -> u64 {
 }
 
 impl CraneliftJit {
-    /// Tiers from the environment: `GRD_JIT_TIER2=0` without background
-    /// recompilation, `GRD_JIT_SYNC=1` waits for tier 2.
+    /// Options from the environment: `GRD_ADVANCED_JIT=on` for the tiers
+    /// with background compiler, `GRD_JIT_SYNC=1` waits for tier 2.
     pub fn new() -> Self {
-        Self::with_tiers(std::env::var("GRD_JIT_TIER2").as_deref() != Ok("0"), std::env::var("GRD_JIT_SYNC").as_deref() == Ok("1"))
+        Self::with_tiers(advanced_from_env(), std::env::var("GRD_JIT_SYNC").as_deref() == Ok("1"))
     }
 
-    /// `background`: recompile hot code with `opt_level = "speed"` on the
-    /// process-wide thread; `sync`: wait for that before running it.
+    /// `background` (advanced JIT): compile quickly with `opt_level =
+    /// "none"` and recompile hot code with `"speed"` on the process-wide
+    /// thread; `sync`: wait for that before running it. Without
+    /// `background`: compile once with `"speed"`.
     pub fn with_tiers(background: bool, sync: bool) -> Self {
         let tiers = Tiers { background, sync };
         CraneliftJit {
-            tier1: Compiler::new("none", 1),
+            tier1: if background { Compiler::new("none", 1) } else { Compiler::new("speed", 1) },
             codes: Vec::new(),
             snapshots: HashMap::new(),
             tiers,
@@ -409,10 +438,25 @@ impl JitBackend for CraneliftJit {
     }
 }
 
-/// Install the JIT into a VM unless `GRD_JIT=0`.
+/// `GRD_JIT=0`: emergency switch, no JIT anywhere (interpreter only).
+pub fn disabled_by_env() -> bool {
+    matches!(std::env::var("GRD_JIT").as_deref(), Ok("0" | "off"))
+}
+
+/// Install the JIT into a VM unless `GRD_JIT=0` (the `grd` binary; the
+/// framework decides with `OPENGRID_JIT`, see `opengrid_framework::worker`).
 pub fn install(vm: &mut grd_vm::vm::Vm) {
-    if std::env::var("GRD_JIT").as_deref() == Ok("0") {
+    if disabled_by_env() {
         return;
     }
     vm.set_jit(Box::new(CraneliftJit::new()));
+}
+
+/// One line for logs: the effective JIT mode of a process.
+pub fn describe(enabled: bool) -> &'static str {
+    match (enabled && !disabled_by_env(), advanced_from_env()) {
+        (false, _) => "aus (nur Interpreter)",
+        (true, false) => "an (Stufe 1, synchron)",
+        (true, true) => "an (erweitert: Stufen, Hintergrund-Compiler)",
+    }
 }
