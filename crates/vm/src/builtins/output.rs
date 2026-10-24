@@ -57,18 +57,23 @@ fn dump_float(f: f64) -> String {
     if f.is_infinite() {
         return if f > 0.0 { "INF".into() } else { "-INF".into() };
     }
-    if f == f.trunc() && f.abs() < 1e15 {
-        return format!("{}", f as i64).replace("-0", if f.is_sign_negative() { "-0" } else { "0" });
+    if f == 0.0 {
+        return if f.is_sign_negative() { "-0".into() } else { "0".into() };
     }
-    // shortest round-trip representation, like serialize_precision = -1
-    let s = format!("{f}");
-    if s.contains('e') {
-        let (m, e) = s.split_once('e').unwrap();
-        let ev: i32 = e.parse().unwrap_or(0);
+    if f == f.trunc() && f.abs() < 1e15 {
+        return format!("{}", f as i64);
+    }
+    // shortest round-trip digits (serialize_precision = -1); like PHP's
+    // zend_gcvt with 17 digits, exponential form when the decimal exponent
+    // is below -4 or above 16, positional otherwise
+    let e = format!("{f:e}");
+    let (m, exp) = e.split_once('e').unwrap_or((&e, "0"));
+    let ev: i32 = exp.parse().unwrap_or(0);
+    if !(-4..=16).contains(&ev) {
         let m = if m.contains('.') { m.to_string() } else { format!("{m}.0") };
         return format!("{m}E{}{}", if ev < 0 { "-" } else { "+" }, ev.abs());
     }
-    s
+    format!("{f}")
 }
 
 pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) -> Result<(), Throw> {
