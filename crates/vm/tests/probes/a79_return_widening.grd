@@ -1,0 +1,9 @@
+<?grd
+function h(): float { return 5; }
+function k(int $a): float { return $a; }
+function viaFinally(): float { try { return 7; } finally { echo "finally\n"; } }
+function bad(): int { try { return "x"; } finally { } }
+class C { public function m(): float { return 2; } }
+$f = 'h';
+var_dump(h(), k(3), viaFinally(), $f(), (new C)->m(), 9223372036854775807 / 1, k(9223372036854775807));
+try { bad(); } catch (TypeError $e) { echo $e->getMessage(), "\n"; }

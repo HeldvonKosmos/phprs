@@ -1085,7 +1085,9 @@ impl Vm {
                     && !matches!(t, TypeHint::Mixed)
                     && !self.frames[fidx].generator.is_some()
                 {
-                    self.check_return(&v, t, module, fidx, unit)?;
+                    // the checked value: int widened to float for `: float`
+                    let v = self.check_return(v, t, module, fidx, unit)?;
+                    return Ok(self.do_return(v, base_depth));
                 }
                 return Ok(self.do_return(v, base_depth));
             }
@@ -1112,7 +1114,13 @@ impl Vm {
                             self.frames[fidx].pending = Pending::Return(v);
                             self.frames[fidx].ip = *l as usize;
                         }
-                        None => return Ok(self.do_return(v, base_depth)),
+                        None => {
+                            let v = match &unit.return_type {
+                                Some(t) if !matches!(t, TypeHint::Mixed) && self.frames[fidx].generator.is_none() => self.check_return(v, t, module, fidx, unit)?,
+                                _ => v,
+                            };
+                            return Ok(self.do_return(v, base_depth));
+                        }
                     },
                     Pending::Throw(e) => match outer {
                         Some(l) => {
@@ -1316,26 +1324,28 @@ impl Vm {
         }
     }
 
-    fn check_return(&mut self, v: &Val, t: &TypeHint, module: &Rc<Module>, fidx: usize, unit: &CodeUnit) -> Result<(), Throw> {
+    /// The return value after the type check (int → float widening for a
+    /// float return type, as in PHP), or the TypeError.
+    fn check_return(&mut self, v: Val, t: &TypeHint, module: &Rc<Module>, fidx: usize, unit: &CodeUnit) -> Result<Val, Throw> {
         let class_ctx = self.frames[fidx].class;
         let static_ctx = self.frames[fidx].static_class;
-        let ok = match t {
-            TypeHint::Void => v.is_null(),
-            TypeHint::Never => false,
-            TypeHint::Static => match v {
-                Val::Object(h) => static_ctx.is_some_and(|c| self.instance_of(self.objects.get(*h).class, c)),
-                _ => false,
+        let checked = match t {
+            TypeHint::Void => v.is_null().then(|| v.clone()),
+            TypeHint::Never => None,
+            TypeHint::Static => match &v {
+                Val::Object(h) if static_ctx.is_some_and(|c| self.instance_of(self.objects.get(*h).class, c)) => Some(v.clone()),
+                _ => None,
             },
-            _ => self.check_type(v, t, module, class_ctx).is_some(),
+            _ => self.check_type(&v, t, module, class_ctx),
         };
-        if ok {
-            Ok(())
+        if let Some(v) = checked {
+            Ok(v)
         } else {
             Err(Throw::type_error(format!(
                 "{}(): Return value must be of type {}, {} returned",
                 unit.name,
                 self.type_name_of(t, module),
-                self.value_type_name(v)
+                self.value_type_name(&v)
             )))
         }
     }
@@ -1343,7 +1353,7 @@ impl Vm {
 
 /// Arithmetic and comparison of two numbers without the generic path
 /// (PERF1): int/int, float/float and mixed, with PHP's results — int
-/// division that divides evenly stays int, overflow promotes to float via the
+/// division that divides evenly stays int, overflow goes to the generic path (float, or ArithmeticError in the strict dialect) via the
 /// generic path, `===` between int and float is false. `None` means: take the
 /// generic path (overflow, division by zero, other types or operators).
 #[inline(always)]
