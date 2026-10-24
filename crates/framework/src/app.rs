@@ -226,7 +226,14 @@ impl Task for SchemaTask {
             db.block_on(async {
                 let c = db.client();
                 match action {
-                    SchemaAction::Push => schema_ops::push(c, &root, SyncOptions::default()).await.map(|(_, w)| format!("schema in sync ({} skipped statements)", w.len())),
+                    SchemaAction::Push => schema_ops::push(c, &root, SyncOptions::default()).await.map(|(_, w)| {
+                        // R4h: every skipped statement with its file, not only the count
+                        let mut out = format!("schema in sync ({} skipped statements)", w.len());
+                        for x in &w {
+                            out.push_str(&format!("\n  skipped in {}: {}", x.source, x.message));
+                        }
+                        out
+                    }),
                     SchemaAction::Pull => schema_ops::pull(c).await,
                     SchemaAction::Fresh => schema_ops::fresh(c, &root, &database, keep_db).await.map(|_| "database emptied, schema pushed".to_string()),
                     SchemaAction::Rollout => match cmd.as_str() {
