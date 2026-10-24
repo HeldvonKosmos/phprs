@@ -4,7 +4,7 @@
 //! - `phprs run <file>`   — Execute a script
 //! - `phprs pkg <cmd>`    — Module manager
 
-mod pkg;
+use opengrid_pkg as pkg;
 
 use clap::{Parser, Subcommand};
 use env_logger::Env;

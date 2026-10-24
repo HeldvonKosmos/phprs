@@ -1,11 +1,12 @@
-//! Package manager module (Composer-compatible)
+//! OpenGrid module manager (Composer-compatible). Moved from the old
+//! `bin/phprs/src/pkg`; the class scan no longer needs the legacy lexer.
 
-mod commands;
-mod composer;
-mod config;
-mod error;
-mod registry;
-mod resolver;
+pub mod commands;
+pub mod composer;
+pub mod config;
+pub mod error;
+pub mod registry;
+pub mod resolver;
 
 use clap::Subcommand;
 use commands::{Build, Init, Install, Publish, Run, Update};

@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 # Core
 phprs = { path = "../../legacy/core" }
+opengrid-pkg = { path = "../../crates/pkg" }
 anyhow = "1.0"
 thiserror = "2.0"
 

@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use semver::{Version, VersionReq};
 
-use crate::pkg::error::{PkgError, Result};
-use crate::pkg::registry::{PackageMetadata, PackagistClient, VersionMetadata};
+use crate::error::{PkgError, Result};
+use crate::registry::{PackageMetadata, PackagistClient, VersionMetadata};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedPackage {

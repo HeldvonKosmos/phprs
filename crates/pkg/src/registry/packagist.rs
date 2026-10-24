@@ -120,7 +120,7 @@ impl PackagistClient {
         // Verify checksum if provided and non-empty
         if let Some(ref shasum) = dist.shasum {
             if !shasum.is_empty() {
-                let computed = format!("{:x}", Sha256::digest(&bytes));
+                let computed: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
                 if computed != *shasum {
                     return Err(super::super::error::PkgError::ChecksumMismatch {
                         package: package_name.to_string(),

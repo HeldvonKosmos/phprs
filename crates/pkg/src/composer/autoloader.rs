@@ -170,65 +170,32 @@ fn scan_directory_recursive(
     Ok(())
 }
 
-/// Extract class names from a PHP file
-#[allow(dead_code)]
+/// Extract class names from a PHP file (namespace-qualified).
+///
+/// A token-free scan: `namespace X\Y;` sets the current namespace, every
+/// `class`/`interface`/`trait`/`enum` declaration adds a name. Strings and
+/// comments are not skipped, which is good enough for a classmap; a scan
+/// over the mago CST is the planned replacement (STATUS.md).
 fn extract_classes_from_file(path: &Path) -> Result<Vec<String>> {
     let content =
         fs::read_to_string(path).map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
+    Ok(extract_classes(&content))
+}
 
-    use phprs::engine::lexer::{Lexer, TokenType};
-
-    let mut lexer = Lexer::new(&content);
+fn extract_classes(content: &str) -> Vec<String> {
+    let ns_re = regex::Regex::new(r"(?m)^\s*namespace\s+([A-Za-z_\\][A-Za-z0-9_\\]*)\s*[;{]").expect("static regex");
+    let class_re = regex::Regex::new(r"(?m)^\s*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)").expect("static regex");
+    // positions of namespace declarations, in order
+    let mut namespaces: Vec<(usize, String)> = ns_re.captures_iter(content).map(|c| (c.get(0).unwrap().start(), c[1].to_string())).collect();
+    namespaces.sort_by_key(|(pos, _)| *pos);
     let mut classes = Vec::new();
-    let mut current_namespace = String::new();
-    let mut in_namespace = false;
-
-    while let Ok(token) = lexer.next_token() {
-        if token.token_type == TokenType::T_EOF {
-            break;
-        }
-
-        match token.token_type {
-            TokenType::T_NAMESPACE => {
-                in_namespace = true;
-                current_namespace.clear();
-            }
-            TokenType::T_STRING => {
-                if let Some(value) = &token.value {
-                    let s = value.as_str();
-                    if in_namespace {
-                        if s == ";" {
-                            in_namespace = false;
-                        } else {
-                            if !current_namespace.is_empty() && s != "\\" {
-                                current_namespace.push('\\');
-                            }
-                            current_namespace.push_str(s);
-                        }
-                    }
-                }
-            }
-            TokenType::T_CLASS => {
-                let next_token = lexer.next_token()?;
-                if let Some(value) = &next_token.value {
-                    let class_name = value.as_str().to_string();
-                    let full_class_name = if current_namespace.is_empty() {
-                        class_name
-                    } else {
-                        format!("{}\\{}", current_namespace, class_name)
-                    };
-                    classes.push(full_class_name);
-                }
-            }
-            TokenType::T_OPEN_TAG => {
-                in_namespace = false;
-                current_namespace.clear();
-            }
-            _ => {}
-        }
+    for c in class_re.captures_iter(content) {
+        let pos = c.get(0).unwrap().start();
+        let ns = namespaces.iter().rev().find(|(p, _)| *p < pos).map(|(_, n)| n.as_str()).unwrap_or("");
+        let name = &c[1];
+        classes.push(if ns.is_empty() { name.to_string() } else { format!("{ns}\\{name}") });
     }
-
-    Ok(classes)
+    classes
 }
 
 #[cfg(test)]
