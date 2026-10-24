@@ -3,19 +3,30 @@
 //! loops are translated from VM bytecode to Cranelift IR and run as machine
 //! code. This crate is the only place with `unsafe`: calling the generated
 //! code (`CraneliftJit::run`).
+//!
+//! Tiers (DECISIONS D8): the interpreter counts calls and back-edges; a hot
+//! function or loop is compiled at once on the VM thread with
+//! `opt_level = "none"` (tier 1, low latency) and handed to the process-wide
+//! background compiler (`service`), which recompiles it with
+//! `opt_level = "speed"` (tier 2) and swaps the code pointer atomically.
 
 mod analysis;
 mod codegen;
+mod service;
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Module as _};
 
-use grd_vm::bytecode::Op;
-use grd_vm::vm::jit::{CompileRequest, JitBackend, JitCode, JitStatus};
+use grd_vm::bytecode::{Module, Op};
+use grd_vm::vm::jit::{Callee, CompileRequest, JitBackend, JitCode, JitStatus};
 
 use analysis::{analyse, declared_sig, Analysis, CallKind, Ctx, Sig};
 use codegen::{buf_words, signature, Gen, NativeCallee, ST_EXIT, ST_RETURN};
@@ -28,65 +39,67 @@ struct NativeFn {
     param_slots: Vec<u32>,
 }
 
-pub struct CraneliftJit {
+/// Layout facts of compiled code; both tiers must agree on them, because the
+/// VM fills the state buffer once and either tier's code may read it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Meta {
+    buf_words: usize,
+    guards: Vec<(u32, u64)>,
+    params: Vec<u64>,
+}
+
+/// A compile request with plain module references, so that the same
+/// translation runs on the VM thread (modules behind `Rc`) and on the
+/// background thread (modules behind `Arc`).
+pub(crate) struct Req<'a> {
+    modules: Vec<&'a Module>,
+    module: u32,
+    unit: u32,
+    entry_ip: usize,
+    end_ip: Option<usize>,
+    entry_tags: &'a [u64],
+    functions: &'a [Callee],
+}
+
+/// One Cranelift module at one optimisation level. `prog` identifies the
+/// program (module contents and function table) so that one background
+/// compiler can serve VMs whose module indices differ.
+pub(crate) struct Compiler {
     module: JITModule,
     fctx: FunctionBuilderContext,
-    /// Entry points by code id.
-    codes: Vec<*const u8>,
-    /// Natively callable whole functions by (module, unit).
-    natives: HashMap<(u32, u32), NativeFn>,
-    failed: HashSet<(u32, u32)>,
-    /// Count of compiled regions/functions (diagnostics).
-    pub compiled: usize,
+    natives: HashMap<(u64, u32, u32), NativeFn>,
+    failed: HashSet<(u64, u32, u32)>,
+    prog: u64,
+    tier: u8,
     log: bool,
-    /// With GRD_JIT_LOG: per code id, runs and (status, exit ip) counts.
-    stats: Vec<HashMap<(i64, u64), u64>>,
 }
 
-impl Drop for CraneliftJit {
-    fn drop(&mut self) {
-        if self.log {
-            for (id, st) in self.stats.iter().enumerate() {
-                let mut v: Vec<_> = st.iter().collect();
-                v.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
-                eprintln!("grd-jit: code {id}: {}", v.iter().take(4).map(|((s, ip), n)| format!("status {s} ip {ip} x{n}")).collect::<Vec<_>>().join(", "));
-            }
-        }
-    }
-}
-
-impl Default for CraneliftJit {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CraneliftJit {
-    pub fn new() -> Self {
+impl Compiler {
+    pub(crate) fn new(opt_level: &str, tier: u8) -> Self {
         let mut flags = settings::builder();
-        flags.set("opt_level", "speed").expect("opt_level");
+        flags.set("opt_level", opt_level).expect("opt_level");
         let isa = cranelift_native::builder().expect("host isa").finish(settings::Flags::new(flags)).expect("isa");
         let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        CraneliftJit {
+        Compiler {
             module: JITModule::new(builder),
             fctx: FunctionBuilderContext::new(),
-            codes: Vec::new(),
             natives: HashMap::new(),
             failed: HashSet::new(),
-            compiled: 0,
+            prog: 0,
+            tier,
             log: std::env::var("GRD_JIT_LOG").is_ok(),
-            stats: Vec::new(),
         }
     }
 
     /// Analyse and translate one whole function or loop region; `None` if it
     /// uses anything outside the supported subset. Callees are compiled first.
-    fn build(&mut self, req: &CompileRequest, module: u32, unit_id: u32, entry: usize, end: Option<usize>, tags: &[u64], in_progress: &mut Vec<(u32, u32)>) -> Option<(FuncId, Analysis)> {
-        let m = req.modules[module as usize].clone();
+    fn build(&mut self, req: &Req, module: u32, unit_id: u32, entry: usize, end: Option<usize>, tags: &[u64], in_progress: &mut Vec<(u32, u32)>) -> Option<(FuncId, Analysis)> {
+        let m: &Module = req.modules[module as usize];
         let unit = &m.units[unit_id as usize];
         let whole = end.is_none();
+        let prog = self.prog;
         let sig_of = |mi: u32, ui: u32| -> Option<Sig> { declared_sig(&req.modules[mi as usize].units[ui as usize]) };
-        let cx = Ctx { module: &m, unit, functions: req.functions, sig_of: &sig_of };
+        let cx = Ctx { module: m, unit, functions: req.functions, sig_of: &sig_of };
         let (lo, hi) = match end {
             None => (0, unit.ops.len().saturating_sub(1)),
             Some(h) => (entry, h),
@@ -96,18 +109,18 @@ impl CraneliftJit {
         if whole {
             // known before the body so that self-recursion calls itself natively
             let param_slots = unit.params.iter().map(|p| p.slot).collect();
-            self.natives.insert((module, unit_id), NativeFn { func, buf_words: buf_words(unit, &an), param_slots });
+            self.natives.insert((prog, module, unit_id), NativeFn { func, buf_words: buf_words(unit, &an), param_slots });
         }
         in_progress.push((module, unit_id));
         // callees first
         let mut callee_fns: HashMap<usize, NativeFn> = HashMap::new();
         for (ip, kind) in &an.calls {
             if let CallKind::User { module: cm, unit: cu, .. } = kind {
-                let key = (*cm, *cu);
+                let key = (prog, *cm, *cu);
                 let f = match self.natives.get(&key) {
                     Some(f) => f.clone(),
                     None => {
-                        if self.failed.contains(&key) || in_progress.contains(&key) {
+                        if self.failed.contains(&key) || in_progress.contains(&(*cm, *cu)) {
                             self.abandon(whole, module, unit_id, in_progress);
                             return None;
                         }
@@ -135,7 +148,7 @@ impl CraneliftJit {
                 let fref = self.module.declare_func_in_func(f.func, b.func);
                 callees.insert(*ip, NativeCallee { fref, buf_words: f.buf_words, param_slots: f.param_slots.clone() });
             }
-            let mut g = Gen::new(&mut b, &m, unit, &an, whole, callees);
+            let mut g = Gen::new(&mut b, m, unit, &an, whole, callees);
             g.emit(tags);
             b.seal_all_blocks();
             b.finalize(self.module.target_config());
@@ -147,26 +160,35 @@ impl CraneliftJit {
         }
         self.module.clear_context(&mut ctx);
         in_progress.retain(|k| *k != (module, unit_id));
-        self.compiled += 1;
         if self.log {
-            eprintln!("grd-jit: compiled {} {} ops {}..={} (stack {}, calls {})", if whole { "function" } else { "loop" }, unit.name, lo, hi, an.max_stack, an.calls.len());
+            eprintln!("grd-jit: tier {} compiled {} {} ops {}..={} (stack {}, calls {})", self.tier, if whole { "function" } else { "loop" }, unit.name, lo, hi, an.max_stack, an.calls.len());
         }
         Some((func, an))
     }
 
     fn abandon(&mut self, whole: bool, module: u32, unit: u32, in_progress: &mut Vec<(u32, u32)>) {
         if whole {
-            self.natives.remove(&(module, unit));
-            self.failed.insert((module, unit));
+            self.natives.remove(&(self.prog, module, unit));
+            self.failed.insert((self.prog, module, unit));
         }
         in_progress.retain(|k| *k != (module, unit));
     }
-}
 
-impl JitBackend for CraneliftJit {
-    fn compile(&mut self, req: &CompileRequest) -> Option<JitCode> {
+    /// Compile a request; returns the entry address and the layout facts.
+    pub(crate) fn compile(&mut self, req: &Req, prog: u64) -> Option<(usize, Meta)> {
+        let t0 = std::time::Instant::now();
+        let r = self.compile_inner(req, prog);
+        if self.log && r.is_some() {
+            eprintln!("grd-jit: tier {} took {} µs", self.tier, t0.elapsed().as_micros());
+        }
+        r
+    }
+
+    fn compile_inner(&mut self, req: &Req, prog: u64) -> Option<(usize, Meta)> {
+        self.prog = prog;
         let unit = &req.modules[req.module as usize].units[req.unit as usize];
-        if req.end_ip.is_none() && self.failed.contains(&(req.module, req.unit)) {
+        let key = (prog, req.module, req.unit);
+        if req.end_ip.is_none() && self.failed.contains(&key) {
             return None;
         }
         // a loop region must start at a loop header of this unit
@@ -175,25 +197,21 @@ impl JitBackend for CraneliftJit {
         {
             return None;
         }
+        // a whole function already compiled as a callee
+        if req.end_ip.is_none()
+            && let Some(f) = self.natives.get(&key).cloned()
+        {
+            let sig = declared_sig(unit)?;
+            self.module.finalize_definitions().ok()?;
+            let ptr = self.module.get_finalized_function(f.func) as usize;
+            return Some((ptr, Meta { buf_words: f.buf_words, guards: Vec::new(), params: sig.params.iter().map(|t| t.tag()).collect() }));
+        }
         let mut in_progress = Vec::new();
-        let (func, an) = match self.natives.get(&(req.module, req.unit)) {
-            Some(f) if req.end_ip.is_none() => {
-                let f = f.clone();
-                let cx_unit = unit;
-                let an_sig = declared_sig(cx_unit)?;
-                let id = self.codes.len() as u32;
-                self.module.finalize_definitions().ok()?;
-                self.codes.push(self.module.get_finalized_function(f.func));
-                return Some(JitCode { id, buf_words: f.buf_words, guards: Vec::new(), params: an_sig.params.iter().map(|t| t.tag()).collect() });
-            }
-            _ => self.build(req, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, &mut in_progress)?,
-        };
+        let (func, an) = self.build(req, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, &mut in_progress)?;
         if self.module.finalize_definitions().is_err() {
             return None;
         }
-        let ptr = self.module.get_finalized_function(func);
-        let id = self.codes.len() as u32;
-        self.codes.push(ptr);
+        let ptr = self.module.get_finalized_function(func) as usize;
         let words = buf_words(unit, &an);
         let (guards, params) = match &an.sig {
             Some(sig) => (Vec::new(), sig.params.iter().map(|t| t.tag()).collect()),
@@ -205,18 +223,176 @@ impl JitBackend for CraneliftJit {
                 (g, Vec::new())
             }
         };
-        Some(JitCode { id, buf_words: words, guards, params })
+        Some((ptr, Meta { buf_words: words, guards, params }))
+    }
+}
+
+/// The entry point of one compiled function or region. Tier 1 stores its
+/// code here first; the background compiler later replaces it with the tier-2
+/// code (hot swap). The VM loads the pointer on every call (`Acquire`), the
+/// background thread publishes with `Release`, so a call sees either the old
+/// or the new, fully finalized code. Old code stays valid: tier-1 code lives
+/// as long as the VM's backend, tier-2 code as long as the process.
+pub struct CodeSlot {
+    ptr: AtomicUsize,
+    tier: AtomicU8,
+}
+
+impl CodeSlot {
+    fn new(ptr: usize, tier: u8) -> Arc<Self> {
+        Arc::new(CodeSlot { ptr: AtomicUsize::new(ptr), tier: AtomicU8::new(tier) })
+    }
+    pub(crate) fn swap_in(&self, ptr: usize, tier: u8) {
+        self.ptr.store(ptr, Ordering::Release);
+        self.tier.store(tier, Ordering::Release);
+    }
+    pub fn tier(&self) -> u8 {
+        self.tier.load(Ordering::Acquire)
+    }
+}
+
+/// How the backend uses the tiers (environment, read once per backend).
+#[derive(Clone, Copy, Debug)]
+struct Tiers {
+    /// Background recompilation with `opt_level = "speed"` (`GRD_JIT_TIER2=0` turns it off).
+    background: bool,
+    /// Wait for tier 2 before running (`GRD_JIT_SYNC=1`; tests, benchmarks).
+    sync: bool,
+}
+
+/// The JIT backend of one VM: tier-1 compiler, code slots, module snapshots
+/// for the background compiler.
+pub struct CraneliftJit {
+    tier1: Compiler,
+    codes: Vec<Arc<CodeSlot>>,
+    /// Module snapshots for the background thread, by `Rc` address: the
+    /// `Arc` copy and a content hash (computed once per module).
+    snapshots: HashMap<usize, (Arc<Module>, u64)>,
+    tiers: Tiers,
+    log: bool,
+    /// With GRD_JIT_LOG: per code id, runs and (status, exit ip) counts.
+    stats: Vec<HashMap<(i64, u64), u64>>,
+}
+
+impl Drop for CraneliftJit {
+    fn drop(&mut self) {
+        if self.log {
+            for (id, st) in self.stats.iter().enumerate() {
+                let mut v: Vec<_> = st.iter().collect();
+                v.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+                eprintln!("grd-jit: code {id} (tier {}): {}", self.codes[id].tier(), v.iter().take(4).map(|((s, ip), n)| format!("status {s} ip {ip} x{n}")).collect::<Vec<_>>().join(", "));
+            }
+        }
+    }
+}
+
+impl Default for CraneliftJit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn hash_of(x: impl Hash) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    x.hash(&mut h);
+    h.finish()
+}
+
+impl CraneliftJit {
+    /// Tiers from the environment: `GRD_JIT_TIER2=0` without background
+    /// recompilation, `GRD_JIT_SYNC=1` waits for tier 2.
+    pub fn new() -> Self {
+        Self::with_tiers(std::env::var("GRD_JIT_TIER2").as_deref() != Ok("0"), std::env::var("GRD_JIT_SYNC").as_deref() == Ok("1"))
+    }
+
+    /// `background`: recompile hot code with `opt_level = "speed"` on the
+    /// process-wide thread; `sync`: wait for that before running it.
+    pub fn with_tiers(background: bool, sync: bool) -> Self {
+        let tiers = Tiers { background, sync };
+        CraneliftJit {
+            tier1: Compiler::new("none", 1),
+            codes: Vec::new(),
+            snapshots: HashMap::new(),
+            tiers,
+            log: std::env::var("GRD_JIT_LOG").is_ok(),
+            stats: Vec::new(),
+        }
+    }
+
+    /// `Arc` copies of all modules and the program fingerprint.
+    fn snapshot(&mut self, req: &CompileRequest) -> (Vec<Arc<Module>>, u64) {
+        let mut arcs = Vec::with_capacity(req.modules.len());
+        let mut hashes = Vec::with_capacity(req.modules.len());
+        for m in req.modules {
+            let (arc, h) = self.snapshots.entry(Rc::as_ptr(m) as usize).or_insert_with(|| {
+                let bytes = postcard::to_allocvec(&**m).unwrap_or_default();
+                (Arc::new((**m).clone()), hash_of(&bytes))
+            });
+            arcs.push(arc.clone());
+            hashes.push(*h);
+        }
+        let names: Vec<String> = req.functions.iter().map(|c| format!("{c:?}")).collect();
+        (arcs, hash_of((&hashes, &names)))
+    }
+
+    fn push_code(&mut self, slot: Arc<CodeSlot>, meta: Meta) -> JitCode {
+        let id = self.codes.len() as u32;
+        self.codes.push(slot);
+        JitCode { id, buf_words: meta.buf_words, guards: meta.guards, params: meta.params }
+    }
+}
+
+impl JitBackend for CraneliftJit {
+    fn compile(&mut self, req: &CompileRequest) -> Option<JitCode> {
+        let (arcs, prog) = if self.tiers.background { self.snapshot(req) } else { (Vec::new(), 0) };
+        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags));
+        // another worker (or an earlier VM) already has tier-2 code for it
+        if self.tiers.background
+            && let Some((ptr, meta)) = service::lookup(key)
+        {
+            return Some(self.push_code(CodeSlot::new(ptr, 2), meta));
+        }
+        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions };
+        let (ptr, meta) = self.tier1.compile(&r, prog)?;
+        let slot = CodeSlot::new(ptr, 1);
+        if self.tiers.background {
+            let job = service::Job {
+                key,
+                prog,
+                modules: arcs,
+                module: req.module,
+                unit: req.unit,
+                entry_ip: req.entry_ip,
+                end_ip: req.end_ip,
+                tags: req.entry_tags.to_vec(),
+                functions: req.functions.to_vec(),
+                meta: meta.clone(),
+                slot: slot.clone(),
+            };
+            let done = service::submit(job);
+            if self.tiers.sync {
+                let _ = done.recv();
+            }
+        }
+        Some(self.push_code(slot, meta))
+    }
+
+    fn tiers(&self) -> Vec<u8> {
+        self.codes.iter().map(|c| c.tier()).collect()
     }
 
     fn run(&mut self, id: u32, buf: &mut [u64]) -> JitStatus {
-        let ptr = self.codes[id as usize];
-        // SAFETY: `ptr` is a function finalized by `self.module` with the
-        // signature `extern "C" fn(*mut u64) -> i64` (codegen::signature, the
-        // ISA's default C calling convention). It reads and writes only words
-        // inside the state buffer, whose length the VM sized from
-        // `JitCode::buf_words` (all offsets are below that bound by
-        // construction in codegen), and the module — hence the code — lives as
-        // long as `self`.
+        let ptr = self.codes[id as usize].ptr.load(Ordering::Acquire);
+        // SAFETY: `ptr` is a function finalized by a `Compiler`'s JITModule
+        // with the signature `extern "C" fn(*mut u64) -> i64`
+        // (codegen::signature, the ISA's default C calling convention): the
+        // tier-1 module lives as long as `self`, the tier-2 module as long as
+        // the process (background thread, never dropped), and a slot only
+        // ever holds finalized code (published with Release, loaded with
+        // Acquire). Both tiers were translated from the same analysis, so the
+        // code reads and writes only words below `JitCode::buf_words`, the
+        // length the VM gave `buf` (the background compiler checks the layout
+        // before swapping).
         let f: extern "C" fn(*mut u64) -> i64 = unsafe { std::mem::transmute(ptr) };
         let status = f(buf.as_mut_ptr());
         if self.log {

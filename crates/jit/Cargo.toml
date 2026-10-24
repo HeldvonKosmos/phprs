@@ -24,3 +24,5 @@ cranelift-frontend = "=0.137.0"
 cranelift-jit = "=0.137.0"
 cranelift-module = "=0.137.0"
 cranelift-native = "=0.137.0"
+# content hash of modules for the process-wide tier-2 cache (same version as grd-vm)
+postcard = { version = "1", features = ["use-std"] }

@@ -89,6 +89,10 @@ pub enum JitStatus {
 pub trait JitBackend {
     fn compile(&mut self, req: &CompileRequest) -> Option<JitCode>;
     fn run(&mut self, id: u32, buf: &mut [u64]) -> JitStatus;
+    /// Current tier of every compiled code id (diagnostics, tests).
+    fn tiers(&self) -> Vec<u8> {
+        Vec::new()
+    }
 }
 
 /// Compilation state of a unit or a loop region in the VM.
@@ -155,6 +159,17 @@ impl Vm {
         if let Some(n) = std::env::var("GRD_JIT_HOT").ok().and_then(|v| v.parse::<u32>().ok()) {
             self.jit_hot = (n.max(1), n.max(1));
         }
+    }
+
+    /// Compile after `calls` calls of a function / `backedges` back-edges
+    /// in a unit (defaults `JIT_HOT_CALLS`, `JIT_HOT_BACKEDGES`).
+    pub fn set_jit_threshold(&mut self, calls: u32, backedges: u32) {
+        self.jit_hot = (calls.max(1), backedges.max(1));
+    }
+
+    /// Tier of every compiled function or loop (1 = quick, 2 = optimized).
+    pub fn jit_tiers(&self) -> Vec<u8> {
+        self.jit.as_ref().map(|j| j.tiers()).unwrap_or_default()
     }
 
     pub fn jit_enabled(&self) -> bool {
