@@ -5,9 +5,9 @@
 //! existing table the later file's DEFINE TABLE wins, but a placeholder
 //! (`DEFINE TABLE <t> TYPE NORMAL SCHEMAFULL PERMISSIONS NONE`) never
 //! replaces a definition (R4h; the original let a file that only adds a
-//! field reset the table to SCHEMAFULL) — and fields, indexes and events are combined like PHP's
-//! `array_merge`: names win by key, but integer-like names are renumbered
-//! and kept twice (finding R4h).
+//! field reset the table to SCHEMAFULL) — and fields, indexes and events
+//! are merged by name, the later file winning (R4h; the original's
+//! `array_merge` renumbered integer-like names and kept them twice).
 
 use indexmap::IndexMap;
 
@@ -15,26 +15,11 @@ use super::ast::{Kind, Schema, Statement, TableDef, Warning};
 
 pub const PLACEHOLDER_SUFFIX: &str = "TYPE NORMAL SCHEMAFULL PERMISSIONS NONE";
 
-/// PHP array key rule: a decimal integer string without leading zeros (and
-/// not `-0`) within i64 is an integer key.
-fn is_int_key(s: &str) -> bool {
-    let digits = s.strip_prefix('-').unwrap_or(s);
-    !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()) && (digits == "0" || !digits.starts_with('0')) && s != "-0" && s.parse::<i64>().is_ok()
-}
-
-/// `array_merge($a, $b)` for string-keyed maps whose keys may be integer-like.
-fn array_merge(a: &IndexMap<String, Statement>, b: IndexMap<String, Statement>) -> IndexMap<String, Statement> {
-    let mut out: IndexMap<String, Statement> = IndexMap::new();
-    let mut next = 0i64;
-    for (k, v) in a.iter().map(|(k, v)| (k.clone(), v.clone())).chain(b) {
-        if is_int_key(&k) {
-            out.insert(next.to_string(), v);
-            next += 1;
-        } else {
-            out.insert(k, v);
-        }
+/// Merge by name, `b` wins; new names are appended.
+fn merge_by_name(a: &mut IndexMap<String, Statement>, b: IndexMap<String, Statement>) {
+    for (k, v) in b {
+        a.insert(k, v);
     }
-    out
 }
 
 impl Schema {
@@ -90,9 +75,9 @@ impl Schema {
                         t.define = ot.define;
                         t.placeholder = false;
                     }
-                    t.fields = array_merge(&t.fields, ot.fields);
-                    t.indexes = array_merge(&t.indexes, ot.indexes);
-                    t.events = array_merge(&t.events, ot.events);
+                    merge_by_name(&mut t.fields, ot.fields);
+                    merge_by_name(&mut t.indexes, ot.indexes);
+                    merge_by_name(&mut t.events, ot.events);
                 }
             }
         }
@@ -160,12 +145,13 @@ mod tests {
     }
 
     #[test]
-    fn integer_like_names_are_renumbered_like_array_merge() {
-        // finding R4h: `DEFINE FIELD 1` from two files stays twice
+    fn integer_like_names_merge_by_name() {
+        // R4h: the original's array_merge kept `DEFINE FIELD 1` from two files twice
         let mut s = Schema::default();
         s.merge_source("DEFINE TABLE t;\nDEFINE FIELD 1 ON t TYPE int;\nDEFINE FIELD 2 ON t TYPE int;", "a");
         s.merge_source("DEFINE TABLE t;\nDEFINE FIELD 1 ON t TYPE string;", "b");
-        assert_eq!(s.tables["t"].fields.len(), 3);
+        assert_eq!(s.tables["t"].fields.len(), 2);
+        assert_eq!(s.tables["t"].fields["1"].text, "DEFINE FIELD 1 ON t TYPE string");
     }
 
     #[test]

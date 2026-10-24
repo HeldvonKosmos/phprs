@@ -29,7 +29,7 @@ pub fn split_statements(src: &str) -> Vec<String> {
     let len = content.len();
     let mut statements = Vec::new();
     let mut current: Vec<u8> = Vec::new();
-    let mut push = |current: &mut Vec<u8>, statements: &mut Vec<String>| {
+    let push = |current: &mut Vec<u8>, statements: &mut Vec<String>| {
         let t = php_trim(current);
         if !t.is_empty() {
             statements.push(String::from_utf8_lossy(t).into_owned());
