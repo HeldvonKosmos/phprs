@@ -4,9 +4,11 @@
 //! quotes only `''` escapes, in double quotes the backslash; statements are
 //! trimmed with PHP's `trim` (space, \t, \n, \r, \0, \x0B — not Unicode
 //! spaces); the classifier matches `^DEFINE\s+(TABLE|FIELD|INDEX|EVENT)`
-//! case-insensitively with ASCII `\w` names or backtick names, so
-//! non-ASCII names are read the way PHP reads them. Fixed findings (R4h):
-//! `OVERWRITE` and `IF NOT EXISTS` are modifiers, not names.
+//! case-insensitively. Fixed findings (R4h): `OVERWRITE` and `IF NOT
+//! EXISTS` are modifiers, not names; a name is a backtick or `⟨…⟩` name or
+//! any run of non-space characters (`address.city`, `tags.*`, `größe`) —
+//! the original allowed only ASCII `\w`, cut `café` to `caf` and dropped
+//! dotted field names.
 //! Unlike the original, every skipped statement is reported as a
 //! [`Warning`]; the output is unchanged by that.
 
@@ -116,10 +118,10 @@ pub fn split_statements(src: &str) -> Vec<String> {
 fn patterns() -> &'static [(Kind, Regex); 4] {
     static P: OnceLock<[(Kind, Regex); 4]> = OnceLock::new();
     P.get_or_init(|| {
-        let id = r"(`[^`]+`|\w+)";
+        let id = r"(`[^`]+`|⟨.+?⟩|[^\s`]+)";
         // R4h: the original read `IF`/`OVERWRITE` as the name
         let modifier = r"(?:OVERWRITE\s+|IF\s+NOT\s+EXISTS\s+)?";
-        let re = |s: String| Regex::new(&format!("(?i-u){s}")).expect("pattern");
+        let re = |s: String| Regex::new(&format!("(?is-u){s}")).expect("pattern");
         [
             (Kind::Table, re(format!(r"^DEFINE\s+TABLE\s+{modifier}{id}"))),
             (Kind::Field, re(format!(r"^DEFINE\s+FIELD\s+{modifier}{id}\s+ON\s+(?:TABLE\s+)?{id}"))),
@@ -129,8 +131,11 @@ fn patterns() -> &'static [(Kind, Regex); 4] {
     })
 }
 
-/// `trim($identifier, '`')`.
+/// `trim($identifier, '`')`, and `⟨name⟩` → `name` (R4h).
 fn unquote(id: &[u8]) -> String {
+    if let Some(inner) = id.strip_prefix("⟨".as_bytes()).and_then(|x| x.strip_suffix("⟩".as_bytes())) {
+        return String::from_utf8_lossy(inner).into_owned();
+    }
     let start = id.iter().position(|c| *c != b'`').unwrap_or(id.len());
     let end = id.iter().rposition(|c| *c != b'`').map_or(start, |e| e + 1);
     String::from_utf8_lossy(&id[start..end]).into_owned()
@@ -278,8 +283,13 @@ mod tests {
         assert_eq!((f.name.as_str(), f.table.as_str(), f.text.as_str()), ("b", "t", "DEFINE FIELD OVERWRITE b ON TABLE t TYPE int"));
         assert_eq!(p("DEFINE INDEX IF NOT EXISTS i ON t FIELDS a").name, "i");
         assert_eq!(p("DEFINE TABLE IF SCHEMALESS").name, "IF", "a table may be called IF");
-        // as in the original (finding R4h, open): a dotted name ends at the dot
-        assert!(parse_statement("DEFINE FIELD address.city ON t TYPE string", "f").is_err());
+        // R4h: names beyond ASCII \w
+        let f = p("DEFINE FIELD address.city ON t TYPE string");
+        assert_eq!((f.name.as_str(), f.table.as_str()), ("address.city", "t"));
+        assert_eq!(p("DEFINE FIELD tags.* ON TABLE t TYPE string").name, "tags.*");
+        assert_eq!(p("DEFINE TABLE café SCHEMAFULL").name, "café");
+        let f = p("DEFINE FIELD ⟨my field⟩ ON ⟨t-1⟩ TYPE int");
+        assert_eq!((f.name.as_str(), f.table.as_str()), ("my field", "t-1"));
         let i = p("DEFINE INDEX uniq ON tasks FIELDS title UNIQUE");
         assert_eq!((i.kind, i.table.as_str()), (Kind::Index, "tasks"));
         let e = p("DEFINE EVENT changed ON TABLE tasks WHEN $event = 'UPDATE' THEN {}");
