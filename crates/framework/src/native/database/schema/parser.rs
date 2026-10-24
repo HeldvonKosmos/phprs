@@ -1,8 +1,9 @@
 //! `.surql` file → statements: port of the platform's `SurqlFileParser`
 //! (R4b2, byte-identical to PHP 8.4 apart from the fixed findings, checked
 //! by the golden tests). Comments: `--`, `//`, `#` and `/* … */` (R4h; the
-//! original knew only `--`). In single quotes only `''` escapes, in double
-//! quotes the backslash; statements are
+//! original knew only `--`). In single quotes `''` and the backslash escape,
+//! in double quotes the backslash (R4h: the original took `\'` as the end
+//! of the string); statements are
 //! trimmed with PHP's `trim` (space, \t, \n, \r, \0, \x0B — not Unicode
 //! spaces); the classifier matches `^DEFINE\s+(TABLE|FIELD|INDEX|EVENT)`
 //! case-insensitively. Fixed findings (R4h): `OVERWRITE` and `IF NOT
@@ -60,7 +61,8 @@ pub fn split_statements(src: &str) -> Vec<String> {
             current.push(b' ');
             continue;
         }
-        // 'single quoted': '' is an escaped quote
+        // 'single quoted': '' is an escaped quote, a backslash escapes the
+        // next character (R4h)
         if c == b'\'' {
             current.push(c);
             i += 1;
@@ -68,6 +70,11 @@ pub fn split_statements(src: &str) -> Vec<String> {
                 let sc = content[i];
                 current.push(sc);
                 i += 1;
+                if sc == b'\\' && i < len {
+                    current.push(content[i]);
+                    i += 1;
+                    continue;
+                }
                 if sc == b'\'' {
                     if content.get(i) == Some(&b'\'') {
                         current.push(content[i]);
@@ -262,9 +269,9 @@ mod tests {
 
     #[test]
     fn escapes() {
-        // single quotes: only '' (finding R4h, open); double quotes: the backslash
+        // single quotes: '' and (R4h) the backslash; double quotes: the backslash
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it''s;x';"), vec!["DEFINE FIELD a ON t DEFAULT 'it''s;x'"]);
-        assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it\\'s;x';").len(), 2);
+        assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it\\'s;x';"), vec!["DEFINE FIELD a ON t DEFAULT 'it\\'s;x'"]);
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT \"q;\\\"r\" ;"), vec!["DEFINE FIELD a ON t DEFAULT \"q;\\\"r\""]);
     }
 
