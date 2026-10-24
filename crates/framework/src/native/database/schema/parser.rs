@@ -1,7 +1,8 @@
 //! `.surql` file → statements: port of the platform's `SurqlFileParser`
-//! (R4b2, byte-identical to PHP 8.4, checked by the golden tests). Kept as in
-//! the original, including its findings (R4h): only `--` comments; in single
-//! quotes only `''` escapes, in double quotes the backslash; statements are
+//! (R4b2, byte-identical to PHP 8.4 apart from the fixed findings, checked
+//! by the golden tests). Comments: `--`, `//`, `#` and `/* … */` (R4h; the
+//! original knew only `--`). In single quotes only `''` escapes, in double
+//! quotes the backslash; statements are
 //! trimmed with PHP's `trim` (space, \t, \n, \r, \0, \x0B — not Unicode
 //! spaces); the classifier matches `^DEFINE\s+(TABLE|FIELD|INDEX|EVENT)`
 //! case-insensitively. Fixed findings (R4h): `OVERWRITE` and `IF NOT
@@ -42,11 +43,21 @@ pub fn split_statements(src: &str) -> Vec<String> {
     let mut i = 0;
     while i < len {
         let c = content[i];
-        // -- single-line comment: skip to end of line
-        if c == b'-' && content.get(i + 1) == Some(&b'-') {
+        // `--`, `//` and `#` comments to the end of the line (R4h: `//`, `#`)
+        if (c == b'-' && content.get(i + 1) == Some(&b'-')) || (c == b'/' && content.get(i + 1) == Some(&b'/')) || c == b'#' {
             while i < len && content[i] != b'\n' {
                 i += 1;
             }
+            continue;
+        }
+        // `/* … */` comment (R4h); it separates words like a space
+        if c == b'/' && content.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i < len && !(content[i] == b'*' && content.get(i + 1) == Some(&b'/')) {
+                i += 1;
+            }
+            i = (i + 2).min(len);
+            current.push(b' ');
             continue;
         }
         // 'single quoted': '' is an escaped quote
@@ -250,17 +261,21 @@ mod tests {
     }
 
     #[test]
-    fn escapes_as_in_the_original() {
-        // single quotes: '' escapes, \' does not (finding R4h); double quotes: backslash
+    fn escapes() {
+        // single quotes: only '' (finding R4h, open); double quotes: the backslash
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it''s;x';"), vec!["DEFINE FIELD a ON t DEFAULT 'it''s;x'"]);
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT 'it\\'s;x';").len(), 2);
         assert_eq!(split_statements("DEFINE FIELD a ON t DEFAULT \"q;\\\"r\" ;"), vec!["DEFINE FIELD a ON t DEFAULT \"q;\\\"r\""]);
     }
 
     #[test]
-    fn only_dash_comments_are_known() {
-        // known finding: `//`, `#` and `/* */` are not comments for the splitter
-        assert_eq!(split_statements("// a; b\nDEFINE TABLE t;").len(), 2);
+    fn all_comment_forms() {
+        // R4h: the original knew only `--`
+        assert_eq!(split_statements("// a; b\nDEFINE TABLE t;"), vec!["DEFINE TABLE t"]);
+        assert_eq!(split_statements("# a; b\nDEFINE TABLE t;"), vec!["DEFINE TABLE t"]);
+        assert_eq!(split_statements("/* a;\n b */DEFINE TABLE t;"), vec!["DEFINE TABLE t"]);
+        assert_eq!(split_statements("DEFINE FIELD a/* x */ON t TYPE int;"), vec!["DEFINE FIELD a ON t TYPE int"]);
+        assert_eq!(split_statements("DEFINE FIELD a ON t VALUE '# // /* not comments';"), vec!["DEFINE FIELD a ON t VALUE '# // /* not comments'"]);
     }
 
     #[test]
