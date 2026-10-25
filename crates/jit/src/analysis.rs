@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use grd_vm::bytecode::{BinOp, CodeUnit, Const, Init, Module, Op, TypeHint, UnOp, WriteMode};
-use grd_vm::vm::jit::{Callee, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_OTHER, TAG_UNSET};
+use grd_vm::vm::jit::{Callee, KIND_ARRAY, KIND_BOOL, KIND_FLOAT, KIND_INT, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_OTHER, TAG_UNSET};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Ty {
@@ -16,11 +16,17 @@ pub enum Ty {
     Bool,
     /// Int or float, decided at run time.
     Num,
+    /// JIT2b: an array, read only in compiled code (the address of its
+    /// `PhpArray`, borrowed from a slot, a parameter or an outer array).
+    Arr,
 }
 
 impl Ty {
     pub fn numeric(self) -> bool {
-        !matches!(self, Ty::Bool)
+        !matches!(self, Ty::Bool | Ty::Arr)
+    }
+    pub fn scalar(self) -> bool {
+        !matches!(self, Ty::Arr)
     }
     pub fn join(self, o: Ty) -> Option<Ty> {
         if self == o {
@@ -37,6 +43,7 @@ impl Ty {
             Ty::Float => TAG_FLOAT,
             Ty::Bool => TAG_BOOL,
             Ty::Num => TAG_OTHER,
+            Ty::Arr => TAG_ARRAY,
         }
     }
     pub fn from_tag(t: u64) -> Option<Ty> {
@@ -44,6 +51,17 @@ impl Ty {
             TAG_INT => Some(Ty::Int),
             TAG_FLOAT => Some(Ty::Float),
             TAG_BOOL => Some(Ty::Bool),
+            TAG_ARRAY => Some(Ty::Arr),
+            _ => None,
+        }
+    }
+    /// The element type a dim fetch saw (profile byte); only one kind counts.
+    pub fn from_kinds(k: u8) -> Option<Ty> {
+        match k as u64 {
+            KIND_INT => Some(Ty::Int),
+            KIND_FLOAT => Some(Ty::Float),
+            KIND_BOOL => Some(Ty::Bool),
+            KIND_ARRAY => Some(Ty::Arr),
             _ => None,
         }
     }
@@ -52,6 +70,7 @@ impl Ty {
             TypeHint::Int => Some(Ty::Int),
             TypeHint::Float => Some(Ty::Float),
             TypeHint::Bool => Some(Ty::Bool),
+            TypeHint::Array => Some(Ty::Arr),
             _ => None,
         }
     }
@@ -102,6 +121,8 @@ pub enum CallKind {
     Max,
     Min,
     Abs,
+    /// `count($array)` (JIT2b)
+    Count,
     User { module: u32, unit: u32, sig: Sig },
 }
 
@@ -117,6 +138,8 @@ pub struct Analysis {
     pub needs_flag: Vec<bool>,
     pub max_stack: usize,
     pub calls: HashMap<usize, CallKind>,
+    /// Element type of each dim fetch (JIT2b).
+    pub dim_ty: HashMap<usize, Ty>,
     /// For whole functions: parameter and return types.
     pub sig: Option<Sig>,
 }
@@ -127,6 +150,9 @@ pub struct Ctx<'a> {
     pub functions: &'a [Callee],
     /// Signature of a callable user function, if it is eligible.
     pub sig_of: &'a dyn Fn(u32, u32) -> Option<Sig>,
+    /// Profile of the unit: element kinds seen at dim fetches (JIT2b);
+    /// empty for callees compiled along (their reads then stay uncompiled).
+    pub types: &'a [u8],
 }
 
 /// Signature from declared types: all parameters int/float/bool, a declared
@@ -138,7 +164,8 @@ pub fn declared_sig(module: &Module, unit: &CodeUnit) -> Option<Sig> {
         return None;
     }
     let params = unit.params.iter().map(|p| p.ty.as_ref().and_then(Ty::from_hint)).collect::<Option<Vec<_>>>()?;
-    let ret = unit.return_type.as_ref().and_then(Ty::from_hint)?;
+    // arrays only as parameters: compiled code returns scalars
+    let ret = unit.return_type.as_ref().and_then(Ty::from_hint).filter(|t| t.scalar())?;
     let defaults = unit
         .params
         .iter()
@@ -161,6 +188,9 @@ type Fail = ();
 
 fn num_result(op: BinOp, a: Ty, b: Ty) -> Result<Ty, Fail> {
     use BinOp::*;
+    if !a.scalar() || !b.scalar() {
+        return Err(());
+    }
     if !a.numeric() || !b.numeric() {
         return match op {
             Identical | NotIdentical => Ok(Ty::Bool),
@@ -229,6 +259,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
         states[entry] = Some(State { def: entry_def.clone(), stack: Vec::new() });
         let mut work = vec![entry];
         let mut calls = HashMap::new();
+        let mut dim_ty = HashMap::new();
         let mut max_stack = 0usize;
         // slots the region touches: they must not be "other" at entry
         while let Some(ip) = work.pop() {
@@ -259,6 +290,10 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                         return None;
                     }
                     let t: Ty = $t;
+                    // arrays are read only: a slot keeps the array it had at entry
+                    if !t.scalar() {
+                        return None;
+                    }
                     // GRD021 (D10): a local keeps its type; a store of another
                     // type raises in the interpreter, so such code is not compiled
                     slot_ty[sl] = Some(match slot_ty[sl] {
@@ -333,15 +368,22 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     falls = false;
                 }
                 Op::JumpIfFalse(l) | Op::JumpIfTrue(l) => {
-                    pop!();
+                    if !pop!().scalar() {
+                        return None;
+                    }
                     succ.push(*l as usize);
                 }
                 Op::ToBool => {
-                    pop!();
+                    if !pop!().scalar() {
+                        return None;
+                    }
                     s.stack.push(Ty::Bool);
                 }
                 Op::Un(u) => {
                     let x = pop!();
+                    if !x.scalar() {
+                        return None;
+                    }
                     s.stack.push(match u {
                         UnOp::Neg | UnOp::Plus if x.numeric() => x,
                         UnOp::Not => Ty::Bool,
@@ -390,6 +432,36 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     }
                     falls = false;
                 }
+                // JIT2b: `$a[$i]` with an int key on an array; the element type
+                // is the one kind the interpreter saw here, any other value
+                // leaves compiled code at this op
+                Op::FetchDimSS { a, k } => {
+                    let (x, key) = (load!(*a), load!(*k));
+                    if x != Ty::Arr || key != Ty::Int {
+                        return None;
+                    }
+                    let t = Ty::from_kinds(*cx.types.get(ip)?)?;
+                    dim_ty.insert(ip, t);
+                    s.stack.push(t);
+                }
+                Op::FetchDimS(k) => {
+                    let key = load!(*k);
+                    if pop!() != Ty::Arr || key != Ty::Int {
+                        return None;
+                    }
+                    let t = Ty::from_kinds(*cx.types.get(ip)?)?;
+                    dim_ty.insert(ip, t);
+                    s.stack.push(t);
+                }
+                Op::FetchDim => {
+                    let key = pop!();
+                    if pop!() != Ty::Arr || key != Ty::Int {
+                        return None;
+                    }
+                    let t = Ty::from_kinds(*cx.types.get(ip)?)?;
+                    dim_ty.insert(ip, t);
+                    s.stack.push(t);
+                }
                 Op::CallFuncId { id, spec } => {
                     let aspec = cx.unit.arg_specs.get(*spec as usize)?;
                     if !aspec.is_simple() {
@@ -409,6 +481,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                             ("min", [Ty::Float, Ty::Float]) => (CallKind::Min, Ty::Float),
                             ("abs", [Ty::Int]) => (CallKind::Abs, Ty::Int),
                             ("abs", [Ty::Float]) => (CallKind::Abs, Ty::Float),
+                            ("count", [Ty::Arr]) => (CallKind::Count, Ty::Int),
                             _ => return None,
                         },
                         Callee::User { module, unit } => {
@@ -419,7 +492,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                             }
                             for (p, a) in sig.params.iter().zip(&args) {
                                 let ok = match (p, a) {
-                                    (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Float, Ty::Float | Ty::Int) => true,
+                                    (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Float, Ty::Float | Ty::Int) | (Ty::Arr, Ty::Arr) => true,
                                     _ => false,
                                 };
                                 if !ok {
@@ -491,7 +564,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     needs_flag[i] = true;
                 }
             }
-            return Some(Analysis { lo, hi, entry, states, slot_ty, needs_flag, max_stack, calls, sig });
+            return Some(Analysis { lo, hi, entry, states, slot_ty, needs_flag, max_stack, calls, dim_ty, sig });
         }
     }
     None

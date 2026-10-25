@@ -32,6 +32,8 @@ pub(crate) struct Job {
     pub end_ip: Option<usize>,
     pub tags: Vec<u64>,
     pub functions: Vec<Callee>,
+    /// Element kinds seen at the unit's dim fetches (JIT2b).
+    pub types: Vec<Vec<Vec<u8>>>,
     /// Layout of the tier-1 code; tier 2 must match it to be swapped in.
     pub meta: Meta,
     pub slot: Arc<CodeSlot>,
@@ -121,6 +123,7 @@ fn worker(rx: Receiver<(Job, SyncSender<()>)>) {
                     end_ip: job.end_ip,
                     entry_tags: &job.tags,
                     functions: &job.functions,
+                    types: &job.types,
                 };
                 // a Cranelift panic must not take the service down
                 let r = catch_unwind(AssertUnwindSafe(|| compiler.compile(&req, job.prog))).ok().flatten();

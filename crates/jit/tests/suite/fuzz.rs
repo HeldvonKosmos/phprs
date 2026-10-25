@@ -228,3 +228,83 @@ fn interpreter_and_jit_agree_on_random_programs() {
     assert!(compiled_programs > cases * 3 / 4, "only {compiled_programs} of {cases} programs had compiled code");
     assert!(exceptions > cases / 20, "only {exceptions} of {cases} programs raised an exception");
 }
+
+/// An array literal: mostly ints, sometimes one element of another kind
+/// (float, string, null, nested array) or a hole at the end.
+fn int_list(rng: &mut Rng, len: u64) -> String {
+    let odd = if rng.below(3) == 0 { Some(rng.below(len.max(1))) } else { None };
+    let items: Vec<String> = (0..len)
+        .map(|i| {
+            if Some(i) == odd {
+                rng.pick(&["0.5", "'x'", "null", "[1]", "true", "9223372036854775807"]).to_string()
+            } else {
+                rng.pick(INT_SMALL).to_string()
+            }
+        })
+        .collect();
+    format!("[{}]", items.join(", "))
+}
+
+/// JIT2b: programs that read arrays in compiled loops and functions.
+fn array_program(rng: &mut Rng) -> String {
+    let mut src = String::from("<?php\n");
+    let n = 1 + rng.below(12);
+    src.push_str(&format!("$A = {};\n", int_list(rng, n)));
+    let rows = 1 + rng.below(5);
+    let m: Vec<String> = (0..rows).map(|_| { let l = 1 + rng.below(6); int_list(rng, l) }).collect();
+    src.push_str(&format!("$M = [{}];\n", m.join(", ")));
+    let fl: Vec<&str> = (0..1 + rng.below(8)).map(|_| rng.pick(FLOAT_SMALL)).collect();
+    src.push_str(&format!("$F = [{}];\n", fl.join(", ")));
+    // functions with array parameters; the bound may run past the end
+    let bound = rng.pick(&["count($a)", "count($a)", "$n", "$n + 1"]);
+    let mut g = Gen { rng: &mut *rng, ints: vec!["$a[$k]".into(), "$k".into(), "$s".into()], floats: vec![] };
+    let e = g.int(2);
+    src.push_str(&format!("function s(array $a, int $n): int {{ $s = 0; for ($k = 0; $k < {bound}; $k++) {{ $s = ($s + {e}) % 1000003; }} return $s; }}\n"));
+    src.push_str("function fs(array $a): float { $s = 0.0; $c = count($a); for ($k = 0; $k < $c; $k++) { $s = $s + $a[$k] * 0.5; } return $s; }\n");
+    src.push_str("function cell(array $m, int $r, int $c): int { return $m[$r][$c]; }\n");
+    let loops = 1 + rng.below(3);
+    for l in 0..loops {
+        let iters = 2 + rng.below(25);
+        let body = match rng.below(5) {
+            0 => format!("$t = ($t + s($A, {})) % 1000003;", rng.below(n + 2)),
+            1 => "$u = $u + fs($F);".to_string(),
+            2 => format!("$t = ($t + $M[$i % {rows}][$i % {}]) % 1000003;", 1 + rng.below(6)),
+            3 => format!("$t = ($t + cell($M, $i % {rows}, {})) % 1000003;", rng.below(3)),
+            _ => "$t = ($t + $A[$i % count($A)] * 3 + count($M)) % 1000003;".to_string(),
+        };
+        src.push_str(&format!(
+            "try {{ $t = 0; $u = 0.0;\n  for ($i = 0; $i < {iters}; $i++) {{ {body} }}\n  echo \"L{l} \", $t, ' ', $u, \"\\n\";\n}} catch (Throwable $e) {{ echo \"L{l} \", get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n"
+        ));
+    }
+    src
+}
+
+#[test]
+fn interpreter_and_jit_agree_on_array_programs() {
+    let seed: u64 = std::env::var("GRD_FUZZ_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0xA77A_2026_1025);
+    let cases: u64 = std::env::var("GRD_FUZZ_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(300);
+    eprintln!("array differential test: GRD_FUZZ_SEED={seed} GRD_FUZZ_CASES={cases}");
+    let mut rng = Rng(seed.max(1));
+    let (mut exceptions, mut compiled_programs) = (0u64, 0u64);
+    for case in 0..cases {
+        let src = array_program(&mut rng);
+        let (want, _) = run(&src, None);
+        exceptions += want.contains("Error") as u64;
+        if let Ok(pat) = std::env::var("GRD_FUZZ_DUMP")
+            && want.contains(&pat)
+        {
+            eprintln!("--- case {case} ---\n{src}\n--- output ---\n{want}");
+            return;
+        }
+        for advanced in [false, true] {
+            let (got, compiled) = run(&src, Some(advanced));
+            assert_eq!(got, want, "seed {seed}, case {case}, advanced JIT {advanced}\n--- program ---\n{src}");
+            if !advanced {
+                compiled_programs += (compiled > 0) as u64;
+            }
+        }
+    }
+    eprintln!("array differential test: {exceptions} programs with exceptions, {compiled_programs} with compiled code");
+    assert!(compiled_programs > cases / 2, "only {compiled_programs} of {cases} programs had compiled code");
+    assert!(exceptions > cases / 20, "only {exceptions} of {cases} programs raised an exception");
+}

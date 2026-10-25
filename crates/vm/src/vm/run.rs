@@ -347,6 +347,9 @@ impl Vm {
                                 _ => None,
                             };
                             if let Some(v) = found {
+                                // JIT2b: element kinds seen here type the compiled read (out of line:
+                                // inline, the update made the whole dispatch loop dearer, c3 +3 % Ir)
+                                note_kind(&mut self.profiles, icx, ip, v);
                                 let v = v.clone();
                                 self.stack.push(v);
                                 ip += 1;
@@ -362,6 +365,7 @@ impl Vm {
                                 _ => None,
                             };
                             if let Some(v) = found {
+                                note_kind(&mut self.profiles, icx, ip, v);
                                 let v = v.clone();
                                 *self.stack.last_mut().expect("container") = v;
                                 ip += 1;
@@ -380,6 +384,7 @@ impl Vm {
                             if let Some(k) = key
                                 && let Some(v) = a.get(&k)
                             {
+                                note_kind(&mut self.profiles, icx, ip, v);
                                 let v = v.clone();
                                 self.stack.pop();
                                 self.stack[n - 2] = v;
@@ -1883,3 +1888,8 @@ impl Vm {
     }
 }
 
+/// JIT2b: element kind seen at a dim fetch (see `run_frames`).
+#[inline(never)]
+fn note_kind(profiles: &mut [super::CodeProfile], icx: usize, ip: usize, v: &Val) {
+    profiles[icx].types[ip] |= super::jit::elem_kind(v);
+}

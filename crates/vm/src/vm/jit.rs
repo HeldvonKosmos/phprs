@@ -27,8 +27,45 @@ pub const TAG_INT: u64 = 1;
 pub const TAG_FLOAT: u64 = 2;
 /// Bits 0 or 1.
 pub const TAG_BOOL: u64 = 3;
-/// Any other value (array, object, string, null) — only in entry tags.
+/// An array (JIT2b): the bits are `Rc::as_ptr` of its `Rc<PhpArray>`. The VM
+/// only hands out the address; reading through it is the backend's job.
+pub const TAG_ARRAY: u64 = 4;
+/// Any other value (object, string, null) — only in entry tags.
 pub const TAG_OTHER: u64 = u64::MAX;
+
+/// Kinds of array elements, as recorded in `CodeProfile::types` at the
+/// dim-fetch ops and returned by `dim_int`.
+pub const KIND_NONE: u64 = 0;
+pub const KIND_INT: u64 = 1;
+pub const KIND_FLOAT: u64 = 2;
+pub const KIND_BOOL: u64 = 4;
+pub const KIND_ARRAY: u64 = 8;
+pub const KIND_OTHER: u64 = 16;
+
+#[inline]
+pub fn elem_kind(v: &crate::value::Val) -> u8 {
+    (match v {
+        crate::value::Val::Int(_) => KIND_INT,
+        crate::value::Val::Float(_) => KIND_FLOAT,
+        crate::value::Val::Bool(_) => KIND_BOOL,
+        crate::value::Val::Array(_) => KIND_ARRAY,
+        _ => KIND_OTHER,
+    }) as u8
+}
+
+/// JIT2b runtime read `$a[$key]` with an int key: (kind, bits). Scalars as in
+/// the state buffer, nested arrays as their address (borrowed: valid while
+/// `a` is alive and unchanged), anything else or a missing key `KIND_NONE`.
+pub fn dim_int(a: &crate::value::PhpArray, key: i64) -> (u64, u64) {
+    use crate::value::{ArrayKey, Val};
+    match a.get(&ArrayKey::Int(key)) {
+        Some(Val::Int(i)) => (KIND_INT, *i as u64),
+        Some(Val::Float(f)) => (KIND_FLOAT, f.to_bits()),
+        Some(Val::Bool(b)) => (KIND_BOOL, *b as u64),
+        Some(Val::Array(inner)) => (KIND_ARRAY, Rc::as_ptr(inner) as u64),
+        _ => (KIND_NONE, 0),
+    }
+}
 
 /// Buffer layout in `u64` words: `[0]` exit ip, `[1]` operand-stack depth,
 /// `[2]` return tag, `[3]` return bits, then two words (tag, bits) per slot
@@ -61,6 +98,9 @@ pub struct CompileRequest<'a> {
     /// Function table of the VM, indexed by function id.
     pub functions: &'a [Callee],
     pub profile: &'a CodeProfile,
+    /// JIT2b: element kinds at the dim fetches of every unit,
+    /// `[module][unit][ip]`, so that callees compiled along are typed too.
+    pub unit_types: &'a [Vec<Vec<u8>>],
 }
 
 /// A compiled unit or region.
@@ -92,6 +132,11 @@ pub trait JitBackend {
     /// Current tier of every compiled code id (diagnostics, tests).
     fn tiers(&self) -> Vec<u8> {
         Vec::new()
+    }
+    /// A reference value the compiled code left in the buffer (`TAG_ARRAY`
+    /// on the operand stack at an exit), as a VM value.
+    fn ref_val(&self, _tag: u64, _bits: u64) -> Option<Val> {
+        None
     }
 }
 
@@ -128,6 +173,7 @@ pub(crate) fn tag_of(v: Option<&Val>) -> u64 {
         Some(Val::Int(_)) => TAG_INT,
         Some(Val::Float(_)) => TAG_FLOAT,
         Some(Val::Bool(_)) => TAG_BOOL,
+        Some(Val::Array(_)) => TAG_ARRAY,
         Some(_) => TAG_OTHER,
     }
 }
@@ -137,6 +183,7 @@ fn bits_of(v: &Val) -> u64 {
         Val::Int(i) => *i as u64,
         Val::Float(f) => f.to_bits(),
         Val::Bool(b) => *b as u64,
+        Val::Array(a) => Rc::as_ptr(a) as u64,
         _ => 0,
     }
 }
@@ -190,7 +237,8 @@ impl Vm {
         let functions = self.callee_table();
         let modules = self.modules.clone();
         let profile = self.profiles[ic].clone();
-        let req = CompileRequest { modules: &modules, module, unit, entry_ip, end_ip, entry_tags, functions: &functions, profile: &profile };
+        let unit_types: Vec<Vec<Vec<u8>>> = self.modules.iter().enumerate().map(|(mi, m)| (0..m.units.len()).map(|u| self.profiles[self.ic_base[mi] + u].types.clone()).collect()).collect();
+        let req = CompileRequest { modules: &modules, module, unit, entry_ip, end_ip, entry_tags, functions: &functions, profile: &profile, unit_types: &unit_types };
         self.jit.as_mut()?.compile(&req)
     }
 
@@ -295,8 +343,12 @@ impl Vm {
                 let depth = buf[1] as usize;
                 let sbase = slot_word(num_slots);
                 for d in 0..depth {
-                    let v = val_of(buf[sbase + 2 * d], buf[sbase + 2 * d + 1]).unwrap_or(Val::Null);
-                    self.stack.push(v);
+                    let (tag, bits) = (buf[sbase + 2 * d], buf[sbase + 2 * d + 1]);
+                    let v = match tag {
+                        TAG_ARRAY => self.jit.as_ref().and_then(|j| j.ref_val(tag, bits)),
+                        _ => val_of(tag, bits),
+                    };
+                    self.stack.push(v.unwrap_or(Val::Null));
                 }
                 LoopOutcome::Resume(buf[0] as usize)
             }

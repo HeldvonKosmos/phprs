@@ -11,7 +11,7 @@ use cranelift_codegen::ir::{types, AbiParam, Block, BlockArg, InstBuilder, MemFl
 use cranelift_frontend::{FunctionBuilder, Variable};
 
 use grd_vm::bytecode::{BinOp, CodeUnit, Const, Module, Op, UnOp, WriteMode};
-use grd_vm::vm::jit::{slot_word, HDR, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_UNSET};
+use grd_vm::vm::jit::{slot_word, HDR, KIND_ARRAY, KIND_BOOL, KIND_FLOAT, KIND_INT, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_UNSET};
 
 use crate::analysis::{Analysis, CallKind, Ty};
 
@@ -27,6 +27,8 @@ pub enum V {
     B(Value),
     /// kind (i8: 0 int, 1 float), int payload, float payload
     N(Value, Value, Value),
+    /// JIT2b: address of a `PhpArray` (i64), read only
+    A(Value),
 }
 
 #[derive(Clone, Copy)]
@@ -35,6 +37,16 @@ enum SV {
     F(Variable),
     B(Variable),
     N(Variable, Variable, Variable),
+    A(Variable),
+}
+
+/// Runtime functions of the VM callable from compiled code (JIT2b).
+#[derive(Clone, Copy)]
+pub struct Runtime {
+    /// `grd_rt_dim(arr, key, out) -> kind`
+    pub dim: cranelift_codegen::ir::FuncRef,
+    /// `grd_rt_count(arr) -> int`
+    pub count: cranelift_codegen::ir::FuncRef,
 }
 
 /// Native callee available to calls: Cranelift function reference and the
@@ -56,6 +68,7 @@ pub struct Gen<'a, 'b> {
     flags: Vec<Option<Variable>>,
     blocks: HashMap<usize, Block>,
     pub callees: HashMap<usize, NativeCallee>,
+    rt: Runtime,
 }
 
 fn mf() -> MemFlagsData {
@@ -63,12 +76,12 @@ fn mf() -> MemFlagsData {
 }
 
 impl<'a, 'b> Gen<'a, 'b> {
-    pub fn new(b: &'a mut FunctionBuilder<'b>, module: &'a Module, unit: &'a CodeUnit, an: &'a Analysis, whole: bool, callees: HashMap<usize, NativeCallee>) -> Self {
+    pub fn new(b: &'a mut FunctionBuilder<'b>, module: &'a Module, unit: &'a CodeUnit, an: &'a Analysis, whole: bool, callees: HashMap<usize, NativeCallee>, rt: Runtime) -> Self {
         let entry = b.create_block();
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
         let buf = b.block_params(entry)[0];
-        let mut g = Gen { b, module, unit, an, whole, buf, slots: Vec::new(), flags: Vec::new(), blocks: HashMap::new(), callees };
+        let mut g = Gen { b, module, unit, an, whole, buf, slots: Vec::new(), flags: Vec::new(), blocks: HashMap::new(), callees, rt };
         g.declare_slots();
         g
     }
@@ -84,6 +97,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 Ty::Float => SV::F(self.b.declare_var(types::F64)),
                 Ty::Bool => SV::B(self.b.declare_var(types::I8)),
                 Ty::Num => SV::N(self.b.declare_var(types::I8), self.b.declare_var(types::I64), self.b.declare_var(types::F64)),
+                Ty::Arr => SV::A(self.b.declare_var(types::I64)),
             };
             self.slots[i] = Some(sv);
             if self.an.needs_flag[i] {
@@ -111,7 +125,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let fi = self.b.ins().fcvt_from_sint(types::F64, i);
                 self.b.ins().select(k, f, fi)
             }
-            V::B(_) => unreachable!("bool as float"),
+            V::B(_) | V::A(_) => unreachable!("not a number"),
         }
     }
     /// (kind, int, float) of a numeric value.
@@ -128,12 +142,12 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let i = self.ic(0);
                 (k, i, f)
             }
-            V::B(_) => unreachable!("bool as number"),
+            V::B(_) | V::A(_) => unreachable!("not a number"),
         }
     }
     fn coerce(&mut self, v: V, t: Ty) -> V {
         match (v, t) {
-            (V::I(_), Ty::Int) | (V::F(_), Ty::Float) | (V::B(_), Ty::Bool) | (V::N(..), Ty::Num) => v,
+            (V::I(_), Ty::Int) | (V::F(_), Ty::Float) | (V::B(_), Ty::Bool) | (V::N(..), Ty::Num) | (V::A(_), Ty::Arr) => v,
             (V::I(i), Ty::Float) => V::F(self.b.ins().fcvt_from_sint(types::F64, i)),
             (V::I(_) | V::F(_), Ty::Num) => {
                 let (k, i, f) = self.parts(v);
@@ -148,6 +162,7 @@ impl<'a, 'b> Gen<'a, 'b> {
             V::F(_) => Ty::Float,
             V::B(_) => Ty::Bool,
             V::N(..) => Ty::Num,
+            V::A(_) => Ty::Arr,
         }
     }
     fn truthy(&mut self, v: V) -> Value {
@@ -164,6 +179,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let tf = self.b.ins().fcmp(FloatCC::NotEqual, f, z);
                 self.b.ins().select(k, tf, ti)
             }
+            V::A(_) => unreachable!("analysis rejects arrays as conditions"),
         }
     }
 
@@ -175,13 +191,14 @@ impl<'a, 'b> Gen<'a, 'b> {
             SV::F(v) => V::F(self.b.use_var(v)),
             SV::B(v) => V::B(self.b.use_var(v)),
             SV::N(k, i, f) => V::N(self.b.use_var(k), self.b.use_var(i), self.b.use_var(f)),
+            SV::A(v) => V::A(self.b.use_var(v)),
         }
     }
     fn write_slot(&mut self, s: u32, v: V) {
         let t = self.an.slot_ty[s as usize].expect("analysed slot");
         let v = self.coerce(v, t);
         match (self.slots[s as usize].expect("analysed slot"), v) {
-            (SV::I(var), V::I(x)) | (SV::F(var), V::F(x)) | (SV::B(var), V::B(x)) => self.b.def_var(var, x),
+            (SV::I(var), V::I(x)) | (SV::F(var), V::F(x)) | (SV::B(var), V::B(x)) | (SV::A(var), V::A(x)) => self.b.def_var(var, x),
             (SV::N(kv, iv, fv), V::N(k, i, f)) => {
                 self.b.def_var(kv, k);
                 self.b.def_var(iv, i);
@@ -202,7 +219,7 @@ impl<'a, 'b> Gen<'a, 'b> {
             let defined = if self.whole {
                 self.unit.params.iter().any(|p| p.slot as usize == i)
             } else {
-                matches!(entry_tags.get(i), Some(&TAG_INT | &TAG_FLOAT | &TAG_BOOL))
+                matches!(entry_tags.get(i), Some(&TAG_INT | &TAG_FLOAT | &TAG_BOOL | &TAG_ARRAY))
             };
             let off = (slot_word(i) as i32 + 1) * 8;
             let entry_ty = if self.whole {
@@ -216,6 +233,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                     Ty::Int => V::I(bits),
                     Ty::Float => V::F(self.b.ins().bitcast(types::F64, MemFlagsData::new(), bits)),
                     Ty::Bool => V::B(self.b.ins().ireduce(types::I8, bits)),
+                    Ty::Arr => V::A(bits),
                     Ty::Num => unreachable!(),
                 }
             } else {
@@ -224,6 +242,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                     SV::I(_) => V::I(self.ic(0)),
                     SV::F(_) => V::F(self.fc(0.0)),
                     SV::B(_) => V::B(self.i8c(0)),
+                    SV::A(_) => V::A(self.ic(0)),
                     SV::N(..) => {
                         let (k, i0, f0) = (self.i8c(0), self.ic(0), self.fc(0.0));
                         V::N(k, i0, f0)
@@ -233,7 +252,7 @@ impl<'a, 'b> Gen<'a, 'b> {
             let t = self.an.slot_ty[i].expect("typed");
             let v = self.coerce(v, t);
             match (sv, v) {
-                (SV::I(var), V::I(x)) | (SV::F(var), V::F(x)) | (SV::B(var), V::B(x)) => self.b.def_var(var, x),
+                (SV::I(var), V::I(x)) | (SV::F(var), V::F(x)) | (SV::B(var), V::B(x)) | (SV::A(var), V::A(x)) => self.b.def_var(var, x),
                 (SV::N(kv, iv, fv), V::N(k, iq, f)) => {
                     self.b.def_var(kv, k);
                     self.b.def_var(iv, iq);
@@ -262,6 +281,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let fb = self.b.ins().bitcast(types::I64, MemFlagsData::new(), f);
                 (tag, self.b.ins().select(k, fb, i))
             }
+            V::A(p) => (self.ic(TAG_ARRAY as i64), p),
         };
         self.b.ins().store(mf(), tag, self.buf, (word * 8) as i32);
         self.b.ins().store(mf(), bits, self.buf, (word * 8 + 8) as i32);
@@ -342,6 +362,9 @@ impl<'a, 'b> Gen<'a, 'b> {
                     self.b.append_block_param(blk, types::I64);
                     self.b.append_block_param(blk, types::F64);
                 }
+                Ty::Arr => {
+                    self.b.append_block_param(blk, types::I64);
+                }
             }
         }
         self.blocks.insert(ip, blk);
@@ -353,7 +376,7 @@ impl<'a, 'b> Gen<'a, 'b> {
         let mut out = Vec::new();
         for (v, t) in stack.iter().zip(want) {
             match self.coerce(*v, t) {
-                V::I(x) | V::F(x) | V::B(x) => out.push(x.into()),
+                V::I(x) | V::F(x) | V::B(x) | V::A(x) => out.push(x.into()),
                 V::N(k, i, f) => {
                     out.push(k.into());
                     out.push(i.into());
@@ -374,6 +397,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 Ty::Int => out.push(V::I(params[k])),
                 Ty::Float => out.push(V::F(params[k])),
                 Ty::Bool => out.push(V::B(params[k])),
+                Ty::Arr => out.push(V::A(params[k])),
                 Ty::Num => {
                     out.push(V::N(params[k], params[k + 1], params[k + 2]));
                     k += 2;
@@ -603,7 +627,36 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let one = V::I(self.ic(1));
                 self.bin(if up { BinOp::Add } else { BinOp::Sub }, v, one, ip, pre)
             }
-            V::B(_) => unreachable!(),
+            V::B(_) | V::A(_) => unreachable!(),
+        }
+    }
+
+    /// JIT2b: `arr[key]` through the runtime; any element other than the
+    /// analysed type (or a missing key) leaves compiled code before the op,
+    /// so the interpreter reads it (and warns or throws) itself.
+    fn dim(&mut self, arr: V, key: V, ip: usize, pre: &[V]) -> V {
+        let (V::A(a), V::I(k)) = (arr, key) else { unreachable!("analysed dim fetch") };
+        let want = self.an.dim_ty[&ip];
+        let ss = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+        let out = self.b.ins().stack_addr(types::I64, ss, 0);
+        let call = self.b.ins().call(self.rt.dim, &[a, k, out]);
+        let kind = self.b.inst_results(call)[0];
+        let expect = match want {
+            Ty::Int => KIND_INT,
+            Ty::Float => KIND_FLOAT,
+            Ty::Bool => KIND_BOOL,
+            Ty::Arr => KIND_ARRAY,
+            Ty::Num => unreachable!(),
+        };
+        let bad = self.b.ins().icmp_imm_s(IntCC::NotEqual, kind, expect as i64);
+        self.guard(bad, ip, pre);
+        let bits = self.b.ins().load(types::I64, mf(), out, 0);
+        match want {
+            Ty::Int => V::I(bits),
+            Ty::Float => V::F(self.b.ins().bitcast(types::F64, MemFlagsData::new(), bits)),
+            Ty::Bool => V::B(self.b.ins().ireduce(types::I8, bits)),
+            Ty::Arr => V::A(bits),
+            Ty::Num => unreachable!(),
         }
     }
 
@@ -802,6 +855,23 @@ impl<'a, 'b> Gen<'a, 'b> {
                     stack.push(v);
                 }
             }
+            Op::FetchDimSS { a, k } => {
+                let (x, key) = (self.read_slot(*a), self.read_slot(*k));
+                let r = self.dim(x, key, ip, &pre);
+                stack.push(r);
+            }
+            Op::FetchDimS(k) => {
+                let x = stack.pop().expect("array");
+                let key = self.read_slot(*k);
+                let r = self.dim(x, key, ip, &pre);
+                stack.push(r);
+            }
+            Op::FetchDim => {
+                let key = stack.pop().expect("key");
+                let x = stack.pop().expect("array");
+                let r = self.dim(x, key, ip, &pre);
+                stack.push(r);
+            }
             Op::Return => {
                 if !self.whole {
                     self.emit_exit(ip, stack);
@@ -852,6 +922,11 @@ impl<'a, 'b> Gen<'a, 'b> {
                             _ => unreachable!(),
                         }
                     }
+                    CallKind::Count => {
+                        let V::A(a) = args[0] else { unreachable!() };
+                        let call = self.b.ins().call(self.rt.count, &[a]);
+                        V::I(self.b.inst_results(call)[0])
+                    }
                     CallKind::Abs => match args[0] {
                         V::I(a) => {
                             let mn = self.b.ins().icmp_imm_s(IntCC::Equal, a, i64::MIN);
@@ -884,6 +959,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                                 V::I(i) => (self.ic(TAG_INT as i64), i),
                                 V::F(f) => (self.ic(TAG_FLOAT as i64), self.b.ins().bitcast(types::I64, MemFlagsData::new(), f)),
                                 V::B(x) => (self.ic(TAG_BOOL as i64), self.b.ins().uextend(types::I64, x)),
+                                V::A(p) => (self.ic(TAG_ARRAY as i64), p),
                                 V::N(..) => unreachable!(),
                             };
                             self.b.ins().store(mf(), tag, addr, (w * 8) as i32);
@@ -898,7 +974,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                             Ty::Int => V::I(bits),
                             Ty::Float => V::F(self.b.ins().bitcast(types::F64, MemFlagsData::new(), bits)),
                             Ty::Bool => V::B(self.b.ins().ireduce(types::I8, bits)),
-                            Ty::Num => unreachable!(),
+                            Ty::Num | Ty::Arr => unreachable!(),
                         }
                     }
                 };

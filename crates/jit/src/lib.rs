@@ -28,7 +28,52 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Module as _};
 
 use grd_vm::bytecode::{Module, Op};
-use grd_vm::vm::jit::{Callee, CompileRequest, JitBackend, JitCode, JitStatus};
+use grd_vm::value::{PhpArray, Val};
+use grd_vm::vm::jit::{Callee, CompileRequest, JitBackend, JitCode, JitStatus, TAG_ARRAY};
+
+// ---- runtime functions (JIT2b) ----------------------------------------------
+//
+// Compiled code holds arrays as the address of their `PhpArray` (`TAG_ARRAY`
+// bits, `Rc::as_ptr`). Such an address comes from the VM (a slot or an
+// argument, alive for the whole run and not changed by it: the analysis
+// admits no op that writes an array or calls back into the VM) or from these
+// functions (an element of such an array, alive as long as its container).
+
+/// `$a[$key]`: element kind (`KIND_*`), bits written to `out`.
+extern "C" fn grd_rt_dim(arr: u64, key: i64, out: *mut u64) -> u64 {
+    // SAFETY: `arr` is the address of a live, unchanged `PhpArray` (see
+    // above) and `out` points at an 8-byte stack slot of the calling code.
+    let a = unsafe { &*(arr as *const PhpArray) };
+    let (kind, bits) = grd_vm::vm::jit::dim_int(a, key);
+    unsafe { *out = bits };
+    kind
+}
+
+/// `count($a)`
+extern "C" fn grd_rt_count(arr: u64) -> i64 {
+    // SAFETY: as in `grd_rt_dim`.
+    let a = unsafe { &*(arr as *const PhpArray) };
+    a.len() as i64
+}
+
+/// The runtime functions, imported into the function being built.
+fn runtime(module: &mut JITModule, b: &mut FunctionBuilder) -> Option<codegen::Runtime> {
+    use cranelift_codegen::ir::{types, AbiParam};
+    let mut dim = module.make_signature();
+    dim.params.extend([AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)]);
+    dim.returns.push(AbiParam::new(types::I64));
+    let mut count = module.make_signature();
+    count.params.push(AbiParam::new(types::I64));
+    count.returns.push(AbiParam::new(types::I64));
+    let fd = module.declare_function("grd_rt_dim", cranelift_module::Linkage::Import, &dim).ok()?;
+    let fc = module.declare_function("grd_rt_count", cranelift_module::Linkage::Import, &count).ok()?;
+    Some(codegen::Runtime { dim: module.declare_func_in_func(fd, b.func), count: module.declare_func_in_func(fc, b.func) })
+}
+
+fn runtime_symbols(b: &mut JITBuilder) {
+    b.symbol("grd_rt_dim", grd_rt_dim as *const u8);
+    b.symbol("grd_rt_count", grd_rt_count as *const u8);
+}
 
 use analysis::{analyse, declared_sig, Analysis, CallKind, Ctx, Sig};
 use codegen::{buf_words, signature, Gen, NativeCallee, ST_EXIT, ST_RETURN};
@@ -61,6 +106,8 @@ pub(crate) struct Req<'a> {
     end_ip: Option<usize>,
     entry_tags: &'a [u64],
     functions: &'a [Callee],
+    /// Element kinds at the dim fetches, `[module][unit][ip]`.
+    types: &'a [Vec<Vec<u8>>],
 }
 
 /// One Cranelift module at one optimisation level. `prog` identifies the
@@ -98,7 +145,8 @@ impl Compiler {
         let mut flags = settings::builder();
         flags.set("opt_level", opt_level).expect("opt_level");
         let isa = cranelift_native::builder().expect("host isa").finish(settings::Flags::new(flags)).expect("isa");
-        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        runtime_symbols(&mut builder);
         Compiler {
             module: ManuallyDrop::new(JITModule::new(builder)),
             fctx: FunctionBuilderContext::new(),
@@ -118,7 +166,8 @@ impl Compiler {
         let whole = end.is_none();
         let prog = self.prog;
         let sig_of = |mi: u32, ui: u32| -> Option<Sig> { declared_sig(&req.modules[mi as usize], &req.modules[mi as usize].units[ui as usize]) };
-        let cx = Ctx { module: m, unit, functions: req.functions, sig_of: &sig_of };
+        let types: &[u8] = req.types.get(module as usize).and_then(|m| m.get(unit_id as usize)).map(Vec::as_slice).unwrap_or(&[]);
+        let cx = Ctx { module: m, unit, functions: req.functions, sig_of: &sig_of, types };
         let (lo, hi) = match end {
             None => (0, unit.ops.len().saturating_sub(1)),
             Some(h) => (entry, h),
@@ -168,7 +217,8 @@ impl Compiler {
                 let fref = self.module.declare_func_in_func(f.func, b.func);
                 callees.insert(*ip, NativeCallee { fref, buf_words: f.buf_words, param_slots: f.param_slots.clone() });
             }
-            let mut g = Gen::new(&mut b, m, unit, &an, whole, callees);
+            let rt = runtime(&mut self.module, &mut b)?;
+            let mut g = Gen::new(&mut b, m, unit, &an, whole, callees, rt);
             g.emit(tags);
             b.seal_all_blocks();
             b.finalize(self.module.target_config());
@@ -375,14 +425,14 @@ impl CraneliftJit {
 impl JitBackend for CraneliftJit {
     fn compile(&mut self, req: &CompileRequest) -> Option<JitCode> {
         let (arcs, prog) = if self.tiers.background { self.snapshot(req) } else { (Vec::new(), 0) };
-        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags));
+        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, &req.profile.types));
         // another worker (or an earlier VM) already has tier-2 code for it
         if self.tiers.background
             && let Some((ptr, meta)) = service::lookup(key)
         {
             return Some(self.push_code(CodeSlot::new(ptr, 2), meta));
         }
-        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions };
+        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions, types: req.unit_types };
         let (ptr, meta) = self.tier1.compile(&r, prog)?;
         let slot = CodeSlot::new(ptr, 1);
         // JIT5: past the process budget, hot code stays at tier 1
@@ -397,6 +447,7 @@ impl JitBackend for CraneliftJit {
                 end_ip: req.end_ip,
                 tags: req.entry_tags.to_vec(),
                 functions: req.functions.to_vec(),
+                types: req.unit_types.to_vec(),
                 meta: meta.clone(),
                 slot: slot.clone(),
             };
@@ -410,6 +461,23 @@ impl JitBackend for CraneliftJit {
 
     fn tiers(&self) -> Vec<u8> {
         self.codes.iter().map(|c| c.tier()).collect()
+    }
+
+    fn ref_val(&self, tag: u64, bits: u64) -> Option<Val> {
+        if tag != TAG_ARRAY || bits == 0 {
+            return None;
+        }
+        let p = bits as *const PhpArray;
+        // SAFETY: compiled code leaves only addresses it got from the VM or
+        // from `grd_rt_dim` in the buffer: `Rc::as_ptr` of an `Rc<PhpArray>`
+        // that is still alive (held by a slot or by an element of such an
+        // array; the VM converts the exit stack before it changes anything).
+        // Incrementing the count first makes `from_raw` produce a new owner.
+        let rc = unsafe {
+            std::rc::Rc::increment_strong_count(p);
+            std::rc::Rc::from_raw(p)
+        };
+        Some(Val::Array(rc))
     }
 
     fn run(&mut self, id: u32, buf: &mut [u64]) -> JitStatus {
