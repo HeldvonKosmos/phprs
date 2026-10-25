@@ -17,6 +17,8 @@ use crate::native::ctx;
 
 pub const TABLE: &str = "_opengrid_sessions";
 const FLASH_KEY: &str = "_flash_new";
+/// SES1: serialized objects of `Session::remember`, key → `serialize()` form.
+pub const OBJECTS_KEY: &str = "_objects";
 
 #[derive(Clone, Debug)]
 pub struct SessionConfig {
@@ -150,6 +152,9 @@ pub struct SessionState {
     pub flash_new: Vec<String>,
     pub dirty: bool,
     pub destroyed: bool,
+    /// SES1: objects of `Session::remember` in this request; serialized
+    /// again at the end, so changes made during the request are kept.
+    pub remembered: Vec<(String, grd_vm::value::ObjHandle)>,
 }
 
 pub fn new_id() -> String {
@@ -202,7 +207,7 @@ pub fn ensure(vm: &mut Vm) -> Result<&mut SessionState, Throw> {
                 flash_old = keys.values().filter_map(|k| k.to_php_string().ok()).map(|s| s.to_string_lossy()).collect();
             }
         }
-        let state = SessionState { id, is_new, data, flash_old, flash_new: Vec::new(), dirty: false, destroyed: false };
+        let state = SessionState { id, is_new, data, flash_old, flash_new: Vec::new(), dirty: false, destroyed: false, remembered: Vec::new() };
         ctx(vm).request.as_mut().expect("request").session = Some(state);
     }
     Ok(ctx(vm).request.as_mut().expect("request").session.as_mut().expect("session"))
@@ -217,7 +222,7 @@ pub fn finish(vm: &mut Vm, resp: &mut HttpResponse) -> Result<(), Throw> {
         resp.headers.push(("set-cookie".into(), format!("{}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", store.config.cookie)));
         return Ok(());
     }
-    if !(state.dirty || state.is_new || !state.flash_old.is_empty()) {
+    if !(state.dirty || state.is_new || !state.flash_old.is_empty() || !state.remembered.is_empty()) {
         return Ok(());
     }
     // consumed flash data goes; re-flashed keys stay
@@ -225,6 +230,17 @@ pub fn finish(vm: &mut Vm, resp: &mut HttpResponse) -> Result<(), Throw> {
         if !state.flash_new.contains(k) {
             state.data.remove(&ArrayKey::from_str(k));
         }
+    }
+    if !state.remembered.is_empty() {
+        let mut objects = match state.data.get(&ArrayKey::from_str(OBJECTS_KEY)) {
+            Some(Val::Array(a)) => (**a).clone(),
+            _ => PhpArray::new(),
+        };
+        for (key, h) in std::mem::take(&mut state.remembered) {
+            let form = vm.call_value(&Val::str("serialize"), vec![Val::Object(h)])?;
+            objects.insert(ArrayKey::from_str(&key), form);
+        }
+        state.data.insert(ArrayKey::from_str(OBJECTS_KEY), Val::array(objects));
     }
     let mut data = state.data.clone();
     data.insert(ArrayKey::from_str(FLASH_KEY), Val::array(PhpArray::from_values(state.flash_new.iter().map(|k| Val::str(k)))));

@@ -186,6 +186,7 @@ fn trace_host(host: &dyn std::any::Any, out: &mut Vec<Val>) {
         out.extend(r.user.iter().cloned());
         if let Some(s) = &r.session {
             out.extend(s.data.values().cloned());
+            out.extend(s.remembered.iter().map(|(_, h)| Val::Object(*h)));
         }
     }
 }

@@ -26,4 +26,6 @@ Route::get('/session', [SessionController::class, 'show']);
 Route::get('/session/flash', [SessionController::class, 'flash']);
 Route::get('/session/token', [SessionController::class, 'token']);
 Route::post('/session/protected', [SessionController::class, 'protectedPost'])->middleware('csrf');
+Route::get('/session/cart', [SessionController::class, 'cart']);
+Route::get('/session/cart/clear', [SessionController::class, 'cartClear']);
 Route::get('/session/logout', [SessionController::class, 'logout']);

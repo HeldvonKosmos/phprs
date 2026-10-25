@@ -67,6 +67,18 @@ fn exercise(pool: &Pool) {
     assert_eq!(json(&r)["hits"], 1);
     assert!(cookie_of(&r).is_some());
 
+    // SES1: an object coupled to the session, rebuilt from its stored form
+    let r = send(pool, with_cookie(HttpRequest::get("/session/cart?item=apple"), &cookie));
+    assert_eq!(json(&r), serde_json::json!({"items": ["apple"], "owner": "guest", "builds": 1, "same": true}), "{}", r.body_str());
+    let r = send(pool, with_cookie(HttpRequest::get("/session/cart?item=pear"), &cookie));
+    assert_eq!(json(&r)["items"], serde_json::json!(["apple", "pear"]), "changes of the last request kept");
+    assert_eq!(json(&r)["builds"], 1, "restored, not built again");
+    let r = send(pool, HttpRequest::get("/session/cart"));
+    assert_eq!(json(&r)["items"], serde_json::json!([]), "another session, another cart");
+    send(pool, with_cookie(HttpRequest::get("/session/cart/clear"), &cookie));
+    let r = send(pool, with_cookie(HttpRequest::get("/session/cart"), &cookie));
+    assert_eq!((json(&r)["items"].clone(), json(&r)["builds"].clone()), (serde_json::json!([]), serde_json::json!(2)), "forget drops the object");
+
     // CSRF
     let r = send(pool, with_cookie(HttpRequest::post("/session/protected", "application/json", b"{}"), &cookie));
     assert_eq!(r.status, 419, "{}", r.body_str());

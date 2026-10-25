@@ -3,6 +3,7 @@ namespace Tasks\Controllers;
 
 use OpenGrid\Http\Response;
 use OpenGrid\Support\Session;
+use Tasks\Support\Cart;
 
 final class SessionController
 {
@@ -35,6 +36,26 @@ final class SessionController
     public function protectedPost(): array
     {
         return ['ok' => true];
+    }
+
+    public function cart(): array
+    {
+        $cart = Session::remember('cart', function (): Cart {
+            Session::put('cart_builds', Session::get('cart_builds', 0) + 1);
+            return new Cart('guest');
+        });
+        if (request()->query('item') != null) {
+            $cart->add(request()->query('item'));
+        }
+        // the same object within one request
+        $same = Session::remember('cart', fn (): Cart => new Cart('other')) === $cart;
+        return ['items' => $cart->items(), 'owner' => $cart->owner, 'builds' => Session::get('cart_builds'), 'same' => $same];
+    }
+
+    public function cartClear(): array
+    {
+        Session::forget('cart');
+        return ['cleared' => true];
     }
 
     public function logout(): array

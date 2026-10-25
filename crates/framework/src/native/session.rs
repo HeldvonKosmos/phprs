@@ -5,7 +5,15 @@ use grd_vm::value::{ArrayKey, Val};
 use grd_vm::vm::{NativeClassDef, Vm};
 
 use super::string_arg;
-use crate::session::{ensure, new_id, token};
+use crate::session::{OBJECTS_KEY, ensure, new_id, token};
+
+/// SES1: drop a remembered object (this request's handle and its stored form).
+fn forget_object(s: &mut crate::session::SessionState, key: &str) {
+    s.remembered.retain(|(k, _)| k != key);
+    if let Some(Val::Array(objects)) = s.data.get_mut(&ArrayKey::from_str(OBJECTS_KEY)) {
+        std::rc::Rc::make_mut(objects).remove(&ArrayKey::from_str(key));
+    }
+}
 
 pub const CLASS: &str = "OpenGrid\\Support\\Session";
 
@@ -28,6 +36,38 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             s.data.insert(ArrayKey::from_str(&key), c.arg(1));
             s.dirty = true;
             Ok(Val::Null)
+        })
+        // SES1: an object coupled to the session. Stored in its serialized form
+        // (`__serialize`/`__unserialize` if the class has them) and built
+        // fresh in each request, so no handle outlives its request; changes
+        // during the request are written back at its end. A stored form that
+        // no longer fits (class gone) is rebuilt with the callback.
+        .static_method("remember", |vm, c| {
+            let key = string_arg(&c, 0, "Session::remember")?;
+            let build = c.arg(1);
+            let s = ensure(vm)?;
+            if let Some((_, h)) = s.remembered.iter().find(|(k, _)| *k == key) {
+                return Ok(Val::Object(*h));
+            }
+            let stored = match s.data.get(&ArrayKey::from_str(OBJECTS_KEY)) {
+                Some(Val::Array(objects)) => objects.get(&ArrayKey::from_str(&key)).cloned(),
+                _ => None,
+            };
+            let restored = match stored {
+                Some(form @ Val::Str(_)) => vm.call_value(&Val::str("unserialize"), vec![form])?,
+                _ => Val::Null,
+            };
+            let obj = match restored {
+                Val::Object(h) => h,
+                _ => match vm.call_value(&build, Vec::new())? {
+                    Val::Object(h) => h,
+                    other => return Err(Throw::type_error(format!("Session::remember(): the callback must return an object, {} returned", other.type_name()))),
+                },
+            };
+            let s = ensure(vm)?;
+            s.remembered.push((key, obj));
+            s.dirty = true;
+            Ok(Val::Object(obj))
         })
         .static_method("flash", |vm, c| {
             let key = string_arg(&c, 0, "Session::flash")?;
@@ -61,7 +101,9 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             let s = ensure(vm)?;
             for a in &c.args {
                 if let Val::Str(k) = a {
-                    s.data.remove(&ArrayKey::from_str(&k.to_string_lossy()));
+                    let k = k.to_string_lossy();
+                    s.data.remove(&ArrayKey::from_str(&k));
+                    forget_object(s, &k);
                 }
             }
             s.dirty = true;
@@ -75,6 +117,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             let s = ensure(vm)?;
             s.data.clear();
             s.flash_new.clear();
+            s.remembered.clear();
             s.dirty = true;
             Ok(Val::Null)
         })
