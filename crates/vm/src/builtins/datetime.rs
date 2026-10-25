@@ -103,7 +103,7 @@ pub fn register(vm: &mut Vm) {
         // monotonic, arbitrary origin (as in PHP): unaffected by changes of the system clock
         static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
         let d = ORIGIN.get_or_init(std::time::Instant::now).elapsed();
-        if args::boolean(a, 0, false) {
+        if args::boolean(a, 0, false)? {
             Ok(Val::Float(d.as_secs_f64()))
         } else {
             Ok(Val::from(format!("{:.8} {}", d.subsec_nanos() as f64 / 1e9, d.as_secs())))
@@ -111,7 +111,7 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("hrtime", |_, a| {
         let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-        if args::boolean(a, 0, false) {
+        if args::boolean(a, 0, false)? {
             Ok(Val::Int(d.as_nanos() as i64))
         } else {
             Ok(Val::array(PhpArray::from_values([Val::Int(d.as_secs() as i64), Val::Int(d.subsec_nanos() as i64)])))

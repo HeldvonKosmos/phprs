@@ -74,6 +74,8 @@ attempt('abs(str)', function () { return abs('-3'); });
 attempt('max(int, float)', function () { return max(1, 2.5); });
 attempt('date(fmt, float)', function () { return date('Y', 0.0); });
 attempt('json_encode(obj)', function () { return json_encode(['a' => 1]); });
+attempt('array_slice preserve 1', function () { return array_slice([1, 2], 1, null, 1); });
+attempt('hrtime(1)', function () { return hrtime(1); });
 attempt('round(int)', function () { return round(5); });
 attempt('array_sum mixed', function () { return array_sum([1, '2', 3.5]); });
 attempt('in_array arg', function () { return in_array(1, 'x'); });

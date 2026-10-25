@@ -18,7 +18,7 @@ pub fn register(vm: &mut Vm) {
         args::count(a, 1, "print_r")?;
         let mut out = Vec::new();
         print_r(vm, &a[0], 0, &mut out)?;
-        if args::boolean(a, 1, false) {
+        if args::boolean(a, 1, false)? {
             Ok(Val::bytes(&out))
         } else {
             vm.output.extend_from_slice(&out);
@@ -29,7 +29,7 @@ pub fn register(vm: &mut Vm) {
         args::count(a, 1, "var_export")?;
         let mut out = Vec::new();
         var_export(vm, &a[0], 0, &mut out)?;
-        if args::boolean(a, 1, false) {
+        if args::boolean(a, 1, false)? {
             Ok(Val::bytes(&out))
         } else {
             vm.output.extend_from_slice(&out);

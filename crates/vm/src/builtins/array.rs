@@ -103,7 +103,7 @@ pub fn register(vm: &mut Vm) {
         let arr = args::array(a, 0, "array_slice")?;
         let offset = args::int(a, 1, "array_slice")?;
         let len = match a.get(2) { None | Some(Val::Null) => None, _ => Some(args::int(a, 2, "array_slice")?) };
-        let preserve = args::boolean(a, 3, false);
+        let preserve = args::boolean(a, 3, false)?;
         let (from, to) = super::string::substr_range(arr.len(), offset, len);
         let mut out = PhpArray::new();
         for i in from..to {
@@ -268,7 +268,7 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("array_reverse", |_, a| {
         let arr = args::array(a, 0, "array_reverse")?;
-        let preserve = args::boolean(a, 1, false);
+        let preserve = args::boolean(a, 1, false)?;
         let mut out = PhpArray::new();
         for i in (0..arr.len()).rev() {
             let (k, v) = arr.entry_at(i).expect("in range");
@@ -323,7 +323,7 @@ pub fn register(vm: &mut Vm) {
         if size < 1 {
             return Err(Throw::value_error("array_chunk(): Argument #2 ($length) must be greater than 0"));
         }
-        let preserve = args::boolean(a, 2, false);
+        let preserve = args::boolean(a, 2, false)?;
         let mut out = PhpArray::new();
         let mut cur = PhpArray::new();
         for (k, v) in arr.iter() {

@@ -190,7 +190,7 @@ pub fn register(vm: &mut Vm) {
         let text = args::string(a, 0, "wordwrap")?;
         let width = args::int_opt(a, 1, "wordwrap", 75)?;
         let brk = match a.get(2) { Some(_) => args::string(a, 2, "wordwrap")?.as_bytes().to_vec(), None => b"\n".to_vec() };
-        let cut = args::boolean(a, 3, false);
+        let cut = args::boolean(a, 3, false)?;
         if text.is_empty() {
             return Ok(Val::str(""));
         }
@@ -366,7 +366,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("strstr", |_, a| {
         let h = args::string(a, 0, "strstr")?;
         let n = args::string(a, 1, "strstr")?;
-        let before = args::boolean(a, 2, false);
+        let before = args::boolean(a, 2, false)?;
         Ok(match find(h.as_bytes(), n.as_bytes(), 0) {
             Some(p) => Val::bytes(if before { &h.as_bytes()[..p] } else { &h.as_bytes()[p..] }),
             None => Val::Bool(false),

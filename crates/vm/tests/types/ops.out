@@ -51,6 +51,8 @@ abs(str) TypeError
 max(int, float) ok float 2.5
 date(fmt, float) TypeError
 json_encode(obj) ok string "{\"a\":1}"
+array_slice preserve 1 TypeError
+hrtime(1) TypeError
 round(int) ok float 5
 array_sum mixed ok float 6.5
 in_array arg TypeError

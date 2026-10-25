@@ -102,7 +102,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("spl_object_hash", |_, a| match a.first() { Some(Val::Object(h)) => Ok(Val::from(format!("{:032x}", h.0))), _ => Err(Throw::type_error("spl_object_hash(): Argument #1 ($object) must be of type object")) });
     vm.register_native("iterator_to_array", |vm, a| {
         args::count(a, 1, "iterator_to_array")?;
-        let preserve = args::boolean(a, 1, true);
+        let preserve = args::boolean(a, 1, true)?;
         let items = vm.iterate_to_vec(a[0].clone())?;
         let mut arr = PhpArray::new();
         for (k, v) in items {
@@ -282,7 +282,7 @@ fn property_exists(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
 }
 
 fn is_a(vm: &mut Vm, a: &[Val], strict_sub: bool) -> Result<Val, Throw> {
-    let allow_string = args::boolean(a, 2, strict_sub);
+    let allow_string = args::boolean(a, 2, strict_sub)?;
     let class = match a.first() {
         Some(Val::Object(h)) => Some(vm.objects.get(*h).class),
         Some(Val::Str(s)) if allow_string => vm.lookup_class(s.as_bytes()),

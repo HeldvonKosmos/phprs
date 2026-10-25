@@ -57,20 +57,20 @@ fn output(bytes: Vec<u8>, binary: bool) -> Val {
 }
 
 pub fn register(vm: &mut Vm) {
-    vm.register_native("md5", |_, a| Ok(output(digest("md5", args::string(a, 0, "md5")?.as_bytes()).expect("md5"), args::boolean(a, 1, false))));
-    vm.register_native("sha1", |_, a| Ok(output(digest("sha1", args::string(a, 0, "sha1")?.as_bytes()).expect("sha1"), args::boolean(a, 1, false))));
+    vm.register_native("md5", |_, a| Ok(output(digest("md5", args::string(a, 0, "md5")?.as_bytes()).expect("md5"), args::boolean(a, 1, false)?)));
+    vm.register_native("sha1", |_, a| Ok(output(digest("sha1", args::string(a, 0, "sha1")?.as_bytes()).expect("sha1"), args::boolean(a, 1, false)?)));
     vm.register_native("hash", |_, a| {
         let algo = args::string(a, 0, "hash")?.to_string_lossy().to_lowercase();
         let data = args::string(a, 1, "hash")?;
         let bytes = digest(&algo, data.as_bytes()).ok_or_else(|| Throw::value_error(format!("hash(): Argument #1 ($algo) must be a valid hashing algorithm")))?;
-        Ok(output(bytes, args::boolean(a, 2, false)))
+        Ok(output(bytes, args::boolean(a, 2, false)?))
     });
     vm.register_native("hash_hmac", |_, a| {
         let algo = args::string(a, 0, "hash_hmac")?.to_string_lossy().to_lowercase();
         let data = args::string(a, 1, "hash_hmac")?;
         let key = args::string(a, 2, "hash_hmac")?;
         let bytes = hmac_raw(&algo, key.as_bytes(), data.as_bytes()).ok_or_else(|| Throw::value_error("hash_hmac(): Argument #1 ($algo) must be a valid cryptographic hashing algorithm"))?;
-        Ok(output(bytes, args::boolean(a, 3, false)))
+        Ok(output(bytes, args::boolean(a, 3, false)?))
     });
     // constant time, so the comparison of secrets does not leak where they differ
     vm.register_native("hash_equals", |_, a| {

@@ -169,7 +169,12 @@ pub(crate) mod args {
             None => Err(Throw::argument_count(format!("{name}(): Argument #{} is required", i + 1))),
         }
     }
-    pub fn boolean(args: &[Val], i: usize, default: bool) -> bool {
-        args.get(i).map(Val::to_bool).unwrap_or(default)
+    /// Optional bool argument: missing or null gives the default.
+    pub fn boolean(args: &[Val], i: usize, default: bool) -> Result<bool, Throw> {
+        match args.get(i) {
+            None | Some(Val::Null) => Ok(default),
+            Some(Val::Bool(b)) => Ok(*b),
+            Some(other) => Err(Throw::type_error(format!("Argument #{} must be of type bool, {} given", i + 1, other.type_name()))),
+        }
     }
 }
