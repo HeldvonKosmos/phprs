@@ -144,8 +144,8 @@ impl Vm {
                         if fits {
                             let v = self.stack.pop().expect("return value");
                             let frame = self.frames.pop().expect("frame");
-                            self.stack.truncate(frame.stack_base);
-                            self.slot_stack.truncate(frame.slot_base);
+                            super::path::shrink(&mut self.stack, frame.stack_base);
+                            super::path::shrink(&mut self.slot_stack, frame.slot_base);
                             let v = frame.return_override.unwrap_or(v);
                             if self.frames.len() <= base_depth {
                                 return Ok(v);
@@ -1093,7 +1093,7 @@ impl Vm {
                     let tunit = &tmod.units[tu as usize];
                     if !tunit.is_generator && n <= tunit.params.len() && !tunit.params.iter().any(|p| p.variadic) {
                         let base = self.slot_stack.len();
-                        self.slot_stack.resize(base + tunit.num_slots as usize, None);
+                        super::path::grow_slots(&mut self.slot_stack, tunit.num_slots as usize);
                         let at = self.stack.len() - n;
                         for i in 0..n {
                             let v = std::mem::take(&mut self.stack[at + i]);
@@ -1107,7 +1107,7 @@ impl Vm {
                                 }
                             }
                         }
-                        self.stack.truncate(at);
+                        super::path::shrink(&mut self.stack, at);
                         if tunit.params[n..].iter().any(|p| !p.has_default) {
                             self.slot_stack.truncate(base);
                             return Err(Throw::argument_count(format!(

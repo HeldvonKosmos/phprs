@@ -150,11 +150,20 @@ impl Vm {
         Ok(present)
     }
 
+    #[inline(always)]
     pub(crate) fn coerce_param(&mut self, module: &Rc<Module>, unit: &CodeUnit, p: &Param, v: Val, class_ctx: Option<ClassId>) -> Result<Val, Throw> {
         match &p.ty {
             None => Ok(v),
             // FRAME1: the common case (int to int, …) needs neither a clone nor the full check
             Some(t) if super::path::scalar_type_matches(t, &v) => Ok(v),
+            Some(_) => self.coerce_param_slow(module, unit, p, v, class_ctx),
+        }
+    }
+
+    #[inline(never)]
+    fn coerce_param_slow(&mut self, module: &Rc<Module>, unit: &CodeUnit, p: &Param, v: Val, class_ctx: Option<ClassId>) -> Result<Val, Throw> {
+        match &p.ty {
+            None => Ok(v),
             Some(t) => match self.check_type(&v, t, module, class_ctx) {
                 Some(v) => Ok(v),
                 None => Err(Throw::type_error(format!(
@@ -298,7 +307,7 @@ impl Vm {
         }
         let num_slots = unit.num_slots;
         let base = self.slot_stack.len();
-        self.slot_stack.resize(base + num_slots as usize, None);
+        super::path::grow_slots(&mut self.slot_stack, num_slots as usize);
         let at = self.stack.len() - n;
         for i in 0..n {
             let v = std::mem::take(&mut self.stack[at + i]);
@@ -312,7 +321,7 @@ impl Vm {
                 }
             }
         }
-        self.stack.truncate(at - drop_below);
+        super::path::shrink(&mut self.stack, at - drop_below);
         if unit.params[n..].iter().any(|p| !p.has_default) {
             self.slot_stack.truncate(base);
             return Err(Throw::argument_count(format!("Too few arguments to function {}(), {} passed and at least {} expected", unit.name, n, unit.required_params)));

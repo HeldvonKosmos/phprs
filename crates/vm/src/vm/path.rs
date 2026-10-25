@@ -663,6 +663,25 @@ impl Vm {
 
 
 /// Cheap exact-type check for the common scalar cases (no coercion needed).
+/// FRAME1: `Vec::truncate` and `Vec::resize` are out-of-line generic calls
+/// (≈40–55 Ir for a frame of two slots); frames are small, so an inlined
+/// loop is cheaper.
+#[inline(always)]
+pub(crate) fn shrink<T>(v: &mut Vec<T>, len: usize) {
+    while v.len() > len {
+        v.pop();
+    }
+}
+
+#[inline(always)]
+pub(crate) fn grow_slots(v: &mut Vec<Option<Val>>, n: usize) {
+    v.reserve(n);
+    for _ in 0..n {
+        v.push(None);
+    }
+}
+
+#[inline(always)]
 pub(crate) fn scalar_type_matches(t: &TypeHint, v: &Val) -> bool {
     matches!(
         (t, v),
