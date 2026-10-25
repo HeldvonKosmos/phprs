@@ -1,0 +1,9 @@
+<?php
+// Typed static properties are checked on assignment like instance properties.
+final class T { public static int $i = 1; public static ?string $s = null; }
+T::$i += 2;
+echo T::$i, "\n";
+try { T::$i = [1]; } catch (TypeError $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+try { T::$s = [1]; } catch (TypeError $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+T::$s = 'x';
+echo T::$i, T::$s, "\n";

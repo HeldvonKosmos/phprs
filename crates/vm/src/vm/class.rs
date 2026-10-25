@@ -55,6 +55,7 @@ pub struct StaticPropInfo {
     pub visibility: Visibility,
     pub init: Option<Init>,
     pub module: u32,
+    pub ty: Option<TypeHint>,
 }
 
 #[derive(Debug)]
@@ -298,7 +299,7 @@ impl Vm {
         for p in &decl.props {
             let pname = module.str(p.name).to_vec();
             if p.is_static {
-                rt.static_props.insert(pname, StaticPropInfo { declaring: id, visibility: p.visibility, init: p.default.clone(), module: midx });
+                rt.static_props.insert(pname, StaticPropInfo { declaring: id, visibility: p.visibility, init: p.default.clone(), module: midx, ty: p.ty.clone() });
             } else {
                 let info = PropInfo {
                     name: pname.clone(),
@@ -710,7 +711,7 @@ impl Vm {
     }
 
     pub(crate) fn static_prop_set(&mut self, class: ClassId, name: &[u8], v: Val) -> Result<(), Throw> {
-        let (owner, _) = self.static_prop_owner(class, name).ok_or_else(|| {
+        let (owner, info) = self.static_prop_owner(class, name).ok_or_else(|| {
             Throw::error(format!("Access to undeclared static property {}::${}", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(name)))
         })?;
         // DIALECT §5.4: statics outlive the request, objects do not (enum cases are engine singletons)
@@ -722,6 +723,25 @@ impl Vm {
                 String::from_utf8_lossy(name)
             )));
         }
+        // typed static properties are checked like instance properties (strict, int -> float)
+        let v = match &info.ty {
+            Some(t) if !super::path::scalar_type_matches(t, &v) => {
+                let module = self.modules[info.module as usize].clone();
+                match self.check_type(&v, t, &module, Some(owner)) {
+                    Some(v) => v,
+                    None => {
+                        return Err(Throw::type_error(format!(
+                            "Cannot assign {} to property {}::${} of type {}",
+                            self.value_type_name(&v),
+                            String::from_utf8_lossy(&self.class(owner).name),
+                            String::from_utf8_lossy(name),
+                            self.type_name_of(t, &module)
+                        )));
+                    }
+                }
+            }
+            _ => v,
+        };
         self.static_values[owner.0 as usize].insert(name.to_vec(), v);
         Ok(())
     }

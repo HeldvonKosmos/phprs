@@ -1,0 +1,4 @@
+3
+TypeError: Cannot assign array to property T::$i of type int
+TypeError: Cannot assign array to property T::$s of type ?string
+3x
