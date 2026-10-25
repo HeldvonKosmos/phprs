@@ -109,8 +109,15 @@ pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) ->
                 out.extend_from_slice(format!("enum({cname}::{name})\n").as_bytes());
                 return Ok(());
             }
+            // an object already being dumped (a cycle) prints as in PHP
+            if vm.dump_visiting.contains(h) {
+                out.extend_from_slice(b"*RECURSION*\n");
+                return Ok(());
+            }
             let props = object_props(vm, *h);
             out.extend_from_slice(format!("object({cname})#{} ({}) {{\n", h.0, props.len()).as_bytes());
+            vm.dump_visiting.push(*h);
+            let r = (|| -> Result<(), Throw> {
             for (label, val) in props {
                 indent(out, depth + 2);
                 out.extend_from_slice(format!("[{label}]=>\n").as_bytes());
@@ -120,6 +127,10 @@ pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) ->
                     None => out.extend_from_slice(b"uninitialized(mixed)\n"),
                 }
             }
+            Ok(())
+            })();
+            vm.dump_visiting.pop();
+            r?;
             indent(out, depth);
             out.extend_from_slice(b"}\n");
         }
@@ -179,6 +190,10 @@ pub(crate) fn print_r(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) -> 
                 return Ok(());
             }
             out.extend_from_slice(format!("{cname} Object\n").as_bytes());
+            if vm.dump_visiting.contains(h) {
+                out.extend_from_slice(b" *RECURSION*");
+                return Ok(());
+            }
             indent(out, depth);
             out.extend_from_slice(b"(\n");
             let obj = vm.objects.get(*h);
@@ -191,14 +206,20 @@ pub(crate) fn print_r(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) -> 
                 };
                 (label, obj.slots[i].clone())
             }).chain(obj.dynamic.iter().map(|(k, v)| (k.to_string(), Some(v.clone())))).collect();
-            for (label, val) in props {
-                indent(out, depth + 4);
-                out.extend_from_slice(format!("[{label}] => ").as_bytes());
-                if let Some(v) = val {
-                    print_r(vm, &v, depth + 8, out)?;
+            vm.dump_visiting.push(*h);
+            let r = (|| -> Result<(), Throw> {
+                for (label, val) in props {
+                    indent(out, depth + 4);
+                    out.extend_from_slice(format!("[{label}] => ").as_bytes());
+                    if let Some(v) = val {
+                        print_r(vm, &v, depth + 8, out)?;
+                    }
+                    out.push(b'\n');
                 }
-                out.push(b'\n');
-            }
+                Ok(())
+            })();
+            vm.dump_visiting.pop();
+            r?;
             indent(out, depth);
             out.extend_from_slice(b")\n");
         }
@@ -265,9 +286,15 @@ pub(crate) fn var_export(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) 
                 out.extend_from_slice(format!("\\{cname}::{name}").as_bytes());
                 return Ok(());
             }
+            // PHP warns and exports NULL; in the dialect the warning is an Error (§5)
+            if vm.dump_visiting.contains(h) {
+                return Err(Throw::error("var_export does not handle circular references"));
+            }
             out.extend_from_slice(format!("\\{cname}::__set_state(array(\n").as_bytes());
             let props = vm.object_to_array(*h);
-            for (k, val) in props.iter() {
+            vm.dump_visiting.push(*h);
+            let r = (|| -> Result<(), Throw> {
+                for (k, val) in props.iter() {
                 indent(out, depth + 3);
                 match k {
                     ArrayKey::Int(i) => out.extend_from_slice(format!("{i} => ").as_bytes()),
@@ -283,6 +310,10 @@ pub(crate) fn var_export(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) 
                 var_export(vm, val, depth + 2, out)?;
                 out.extend_from_slice(b",\n");
             }
+                Ok(())
+            })();
+            vm.dump_visiting.pop();
+            r?;
             indent(out, depth);
             out.extend_from_slice(b"))");
         }

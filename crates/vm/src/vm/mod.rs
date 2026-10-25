@@ -179,6 +179,10 @@ pub struct Vm {
     pub(crate) nested_runs: u32,
     /// Running magic property methods: (object, property, kind) — PHP's guards.
     pub(crate) magic_guards: Vec<(ObjHandle, Vec<u8>, u8)>,
+    /// Objects json_encode is encoding right now (recursion detection).
+    pub(crate) json_visiting: Vec<ObjHandle>,
+    /// Objects var_dump/print_r/var_export are printing right now (cycles).
+    pub(crate) dump_visiting: Vec<ObjHandle>,
     /// Built string and array constants per module (`const_to_val`).
     pub(crate) const_cache: Vec<Vec<Option<Val>>>,
     pub output: Vec<u8>,
@@ -239,6 +243,8 @@ impl Vm {
             consts_in_progress: Vec::new(),
             nested_runs: 0,
             magic_guards: Vec::new(),
+            json_visiting: Vec::new(),
+            dump_visiting: Vec::new(),
             const_cache: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),

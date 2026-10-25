@@ -1,0 +1,44 @@
+object(Node)#1 (2) {
+  ["next"]=>
+  object(Node)#2 (2) {
+    ["next"]=>
+    *RECURSION*
+    ["name"]=>
+    string(1) "b"
+  }
+  ["name"]=>
+  string(1) "a"
+}
+Node Object
+(
+    [next] => Node Object
+        (
+            [next] => Node Object
+ *RECURSION*
+            [name] => b
+        )
+
+    [name] => a
+)
+
+Array
+(
+    [list] => Node Object
+        (
+            [next] => Node Object
+                (
+                    [next] => Node Object
+ *RECURSION*
+                    [name] => b
+                )
+
+            [name] => a
+        )
+
+)
+bool(false)
+int(6)
+string(18) "Recursion detected"
+bool(false)
+string(7) "{"a":1}"
+string(34) "{"x":{"next":null,"name":"plain"}}"

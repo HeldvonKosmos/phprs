@@ -163,35 +163,56 @@ fn encode(vm: &mut Vm, v: &Val, flags: i64, depth: usize, max_depth: usize, out:
             }
         }
         Val::Object(h) => {
-            let class = vm.objects.get(*h).class;
-            if vm.instance_of(class, vm.wk().json_serializable) {
-                let r = vm.call_method_sync(*h, b"jsonSerialize", Vec::new())?;
-                return encode(vm, &r, flags, depth, max_depth, out);
+            // an object being encoded is protected, as in PHP: meeting it again
+            // (a cycle, or json_encode($this) inside jsonSerialize) is an error
+            if vm.json_visiting.contains(h) {
+                return Err(JsonErr::Json(6, "Recursion detected".into()));
             }
-            if vm.class(class).is_enum() {
-                return match vm.get_prop_raw(*h, b"value") {
-                    Some(v) => encode(vm, &v, flags, depth, max_depth, out),
-                    None => Err(JsonErr::Json(11, "Non-backed enums have no default serialization".into())),
-                };
-            }
-            // public properties only
-            let obj = vm.objects.get(*h);
-            let rt = vm.class(class);
-            let mut entries: Vec<(Vec<u8>, Val)> = Vec::new();
-            for (i, p) in rt.props.iter().enumerate() {
-                if p.visibility == crate::bytecode::Visibility::Public
-                    && let Some(val) = &obj.slots[i]
-                {
-                    entries.push((p.name.clone(), val.clone()));
-                }
-            }
-            for (k, val) in &obj.dynamic {
-                entries.push((k.as_bytes().to_vec(), val.clone()));
-            }
-            encode_map(vm, entries, flags, depth, max_depth, out)?;
+            vm.json_visiting.push(*h);
+            let r = encode_object(vm, *h, flags, depth, max_depth, out);
+            vm.json_visiting.pop();
+            r?;
         }
     }
     Ok(())
+}
+
+fn encode_object(vm: &mut Vm, h: ObjHandle, flags: i64, depth: usize, max_depth: usize, out: &mut Vec<u8>) -> Result<(), JsonErr> {
+    let class = vm.objects.get(h).class;
+    if vm.instance_of(class, vm.wk().json_serializable) {
+        let r = vm.call_method_sync(h, b"jsonSerialize", Vec::new())?;
+        // `return $this;` encodes the object's properties (PHP does the same)
+        if matches!(r, Val::Object(o) if o == h) {
+            return encode_props(vm, h, flags, depth, max_depth, out);
+        }
+        return encode(vm, &r, flags, depth, max_depth, out);
+    }
+    if vm.class(class).is_enum() {
+        return match vm.get_prop_raw(h, b"value") {
+            Some(v) => encode(vm, &v, flags, depth, max_depth, out),
+            None => Err(JsonErr::Json(11, "Non-backed enums have no default serialization".into())),
+        };
+    }
+    encode_props(vm, h, flags, depth, max_depth, out)
+}
+
+/// Public properties only.
+fn encode_props(vm: &mut Vm, h: ObjHandle, flags: i64, depth: usize, max_depth: usize, out: &mut Vec<u8>) -> Result<(), JsonErr> {
+    let class = vm.objects.get(h).class;
+    let obj = vm.objects.get(h);
+    let rt = vm.class(class);
+    let mut entries: Vec<(Vec<u8>, Val)> = Vec::new();
+    for (i, p) in rt.props.iter().enumerate() {
+        if p.visibility == crate::bytecode::Visibility::Public
+            && let Some(val) = &obj.slots[i]
+        {
+            entries.push((p.name.clone(), val.clone()));
+        }
+    }
+    for (k, val) in &obj.dynamic {
+        entries.push((k.as_bytes().to_vec(), val.clone()));
+    }
+    encode_map(vm, entries, flags, depth, max_depth, out)
 }
 
 fn key_bytes(k: &ArrayKey) -> Vec<u8> {

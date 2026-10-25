@@ -1,0 +1,29 @@
+<?grd
+// Objects that contain themselves: var_dump and print_r print *RECURSION*,
+// json_encode reports "Recursion detected" (false), and a jsonSerialize that
+// returns $this encodes the object's properties; nothing recurses endlessly.
+final class Node
+{
+    public ?Node $next = null;
+    public function __construct(public string $name) {}
+}
+final class Selfish implements JsonSerializable
+{
+    public int $a = 1;
+    public function jsonSerialize(): mixed
+    {
+        var_dump(json_encode($this));
+        return $this;
+    }
+}
+$a = new Node('a');
+$b = new Node('b');
+$a->next = $b;
+$b->next = $a;
+var_dump($a);
+print_r($a);
+echo "\n";
+print_r(['list' => $a]);
+var_dump(json_encode($a), json_last_error(), json_last_error_msg());
+var_dump(json_encode(new Selfish()));
+var_dump(json_encode(['x' => new Node('plain')]));

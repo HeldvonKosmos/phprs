@@ -128,7 +128,7 @@ fn allowed_constructs_compile() {
     compiles("<?php $o->items[$k]->v = 1; $this_is_fine = 1; $a['x']['y'][] = 2; $o->n++; ++$a['k'];");
 }
 
-/// Endless recursion through Rust (callbacks, magic methods, `jsonSerialize`)
+/// Endless recursion through Rust (callbacks, magic methods, `__toString`)
 /// throws Error at the nesting limit instead of overflowing the native stack
 /// and aborting the process; the script goes on after catching it.
 #[test]
@@ -136,8 +136,8 @@ fn native_recursion_throws_instead_of_aborting() {
     let src = r#"<?grd
 function f(int $n): int { return array_map(fn (int $x): int => f($x + 1), [$n])[0]; }
 try { f(0); } catch (Error $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
-final class Loop implements JsonSerializable { public function jsonSerialize(): mixed { return json_encode($this); } }
-try { json_encode(new Loop()); } catch (Error $e) { echo 'json: ', $e->getMessage(), "\n"; }
+final class Loop { public function __toString(): string { return 'x' . $this; } }
+try { echo (string) new Loop(); } catch (Error $e) { echo 'toString: ', $e->getMessage(), "\n"; }
 echo array_sum(array_map(fn (int $x): int => $x * 2, [1, 2, 3])), "\n";
 "#;
     // a thread with a small stack, so the limit must hold well below 8 MB
@@ -155,5 +155,15 @@ echo array_sum(array_map(fn (int $x): int => $x * 2, [1, 2, 3])), "\n";
         .unwrap()
         .join()
         .expect("no stack overflow");
-    assert_eq!(out, "Error: Maximum call stack size reached. Infinite recursion?\njson: Maximum call stack size reached. Infinite recursion?\n12\n");
+    assert_eq!(out, "Error: Maximum call stack size reached. Infinite recursion?\ntoString: Maximum call stack size reached. Infinite recursion?\n12\n");
+}
+
+/// var_export of an object that contains itself: PHP warns and exports NULL;
+/// in the dialect the warning is an Error (DIALECT §5).
+#[test]
+fn var_export_of_a_cycle_is_an_error() {
+    let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+    let src = "<?grd final class N { public ?N $n = null; } $a = new N(); $a->n = $a; try { var_export($a); } catch (Error $e) { echo $e->getMessage(); }";
+    vm.run_file("t.grd", src.as_bytes()).expect("runs");
+    assert!(String::from_utf8_lossy(&vm.output).ends_with("var_export does not handle circular references"));
 }
