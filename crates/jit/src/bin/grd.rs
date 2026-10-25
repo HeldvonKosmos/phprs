@@ -2,6 +2,11 @@
 
 use std::process::ExitCode;
 
+/// mimalloc instead of the system allocator: the VM allocates many small
+/// values (strings, arrays, frames); PERF2 measurement in BENCHMARKS.md.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {

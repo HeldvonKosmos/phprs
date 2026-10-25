@@ -5,6 +5,11 @@
 use loco_rs::cli;
 use opengrid_framework::app::OpenGridApp;
 
+/// mimalloc instead of the system allocator: the VM allocates many small
+/// values (strings, arrays, frames); PERF2 measurement in BENCHMARKS.md.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> loco_rs::Result<()> {
     // `opengrid new <dir> [--name <Name>]` runs before Loco, which needs a project

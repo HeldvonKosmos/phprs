@@ -40,6 +40,7 @@ getrandom = "0.4"
 rust_decimal = "1"
 geo = "0.32"
 uuid = "1"
+mimalloc = "0.1.52"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
