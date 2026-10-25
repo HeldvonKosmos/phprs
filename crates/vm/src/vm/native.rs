@@ -384,17 +384,17 @@ impl Vm {
             module: NATIVE_MODULE,
             consts: IndexMap::new(),
             props: Vec::new(),
-            prop_index: HashMap::new(),
+            prop_index: Default::default(),
             static_props: IndexMap::new(),
-            methods: HashMap::new(),
+            methods: Default::default(),
             cases: Vec::new(),
             enum_backing: None,
             attributes: Vec::new(),
             line: 0,
             default_slots: None,
             native: Some(NativeInfo { payload: def.payload, handlers: def.handlers }),
-            methods_by_sel: HashMap::new(),
-            props_by_sel: HashMap::new(),
+            methods_by_sel: Default::default(),
+            props_by_sel: Default::default(),
         };
         if let Some(p) = parent {
             let pc = self.class(p);
@@ -442,7 +442,7 @@ impl Vm {
         }
         self.build_sel_tables(&mut rt);
         self.classes.push(rt);
-        self.static_values.push(HashMap::new());
+        self.static_values.push(Default::default());
         self.class_by_name.insert(lname, id);
         Ok(id)
     }

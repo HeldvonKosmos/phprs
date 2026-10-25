@@ -65,6 +65,10 @@ pub(crate) fn type_tag(v: &Val) -> u8 {
     }
 }
 
+/// Hash map for the VM's own tables (names, selectors, classes): foldhash
+/// instead of SipHash (HASH1). Keys come from code, not from requests.
+pub type FastMap<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
+
 /// `IcEntry::b` of a method site whose target is a native handler; `a` is
 /// then the index into `Vm::method_table` (CALL1).
 pub(crate) const IC_NATIVE: u32 = u32::MAX;
@@ -155,19 +159,19 @@ pub struct Vm {
     pub classes: Vec<RtClass>,
     /// Objects the host supplies for constructor injection (I1).
     pub(crate) injector: Option<inject::Injector>,
-    pub class_by_name: HashMap<Vec<u8>, ClassId>,
-    pub functions: HashMap<Vec<u8>, FuncRef>,
+    pub class_by_name: FastMap<Vec<u8>, ClassId>,
+    pub functions: FastMap<Vec<u8>, FuncRef>,
     /// Link-step ids: function name → index into `function_table`.
-    pub function_ids: HashMap<Vec<u8>, FunctionId>,
+    pub function_ids: FastMap<Vec<u8>, FunctionId>,
     pub function_table: Vec<FuncRef>,
     /// Selectors for method (case-insensitive) and property (case-sensitive) names.
-    pub method_sels: HashMap<Vec<u8>, SelId>,
-    pub prop_sels: HashMap<Vec<u8>, SelId>,
+    pub method_sels: FastMap<Vec<u8>, SelId>,
+    pub prop_sels: FastMap<Vec<u8>, SelId>,
     pub sel_names: Vec<Vec<u8>>,
     /// All methods of all classes; classes map selectors to indices here.
     pub method_table: Vec<MethodInfo>,
     pub natives: Vec<(String, NativeFn)>,
-    pub constants: HashMap<Vec<u8>, Val>,
+    pub constants: FastMap<Vec<u8>, Val>,
     pub objects: ObjectStore,
     /// MEM1a: most live request objects before `new` throws (0 = no limit).
     pub object_limit: usize,
@@ -220,18 +224,18 @@ pub struct Vm {
     /// Whole-function JIT state per code unit (indexed like `profiles`).
     pub(crate) jit_funcs: Vec<jit::JitSlotState>,
     /// Loop-region JIT state per (unit index, loop header ip).
-    pub(crate) jit_loops: HashMap<(usize, usize), jit::JitSlotState>,
+    pub(crate) jit_loops: FastMap<(usize, usize), jit::JitSlotState>,
     /// Reused state buffer for JIT calls.
     pub(crate) jit_buf: Vec<u64>,
     /// (calls, back-edges) before compiling.
     pub(crate) jit_hot: (u32, u32),
-    pub(crate) enum_cases: HashMap<(ClassId, Vec<u8>), ObjHandle>,
-    pub(crate) static_values: Vec<HashMap<Vec<u8>, Val>>,
+    pub(crate) enum_cases: FastMap<(ClassId, Vec<u8>), ObjHandle>,
+    pub(crate) static_values: Vec<FastMap<Vec<u8>, Val>>,
     pub well_known: Option<WellKnown>,
     pub json_error: Option<(i64, String)>,
     /// `strtok` state: the string and the position to continue from.
     pub strtok: Option<(Vec<u8>, usize)>,
-    pub regex_cache: HashMap<Vec<u8>, Rc<fancy_regex::Regex>>,
+    pub regex_cache: FastMap<Vec<u8>, Rc<fancy_regex::Regex>>,
     pub default_timezone: String,
     /// Opaque host context (framework request context).
     pub host: Option<Box<dyn std::any::Any>>,
@@ -249,16 +253,16 @@ impl Vm {
             modules: Vec::new(),
             classes: Vec::new(),
             injector: None,
-            class_by_name: HashMap::new(),
-            functions: HashMap::new(),
-            function_ids: HashMap::new(),
+            class_by_name: Default::default(),
+            functions: Default::default(),
+            function_ids: Default::default(),
             function_table: Vec::new(),
-            method_sels: HashMap::new(),
-            prop_sels: HashMap::new(),
+            method_sels: Default::default(),
+            prop_sels: Default::default(),
             sel_names: Vec::new(),
             method_table: Vec::new(),
             natives: Vec::new(),
-            constants: HashMap::new(),
+            constants: Default::default(),
             objects: ObjectStore::new(),
             object_limit: default_object_limit(),
             gc_threshold: gc::default_gc_threshold(),
@@ -287,15 +291,15 @@ impl Vm {
             profiles: Vec::new(),
             jit: None,
             jit_funcs: Vec::new(),
-            jit_loops: HashMap::new(),
+            jit_loops: Default::default(),
             jit_buf: Vec::new(),
             jit_hot: (jit::JIT_HOT_CALLS, jit::JIT_HOT_BACKEDGES),
-            enum_cases: HashMap::new(),
+            enum_cases: Default::default(),
             static_values: Vec::new(),
             well_known: None,
             json_error: None,
             strtok: None,
-            regex_cache: HashMap::new(),
+            regex_cache: Default::default(),
             default_timezone: "UTC".to_string(),
             host: None,
         };

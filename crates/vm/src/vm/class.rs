@@ -70,9 +70,9 @@ pub struct RtClass {
     pub module: u32,
     pub consts: IndexMap<Vec<u8>, ConstInfo>,
     pub props: Vec<PropInfo>,
-    pub prop_index: HashMap<Vec<u8>, usize>,
+    pub prop_index: super::FastMap<Vec<u8>, usize>,
     pub static_props: IndexMap<Vec<u8>, StaticPropInfo>,
-    pub methods: HashMap<Vec<u8>, MethodInfo>,
+    pub methods: super::FastMap<Vec<u8>, MethodInfo>,
     pub cases: Vec<(Vec<u8>, Option<Init>)>,
     pub enum_backing: Option<TypeHint>,
     pub attributes: Vec<AttributeDecl>,
@@ -82,8 +82,8 @@ pub struct RtClass {
     /// Set for native classes (payload factory, handlers).
     pub native: Option<super::native::NativeInfo>,
     /// Link-step tables: selector → method table index / property slot.
-    pub methods_by_sel: HashMap<SelId, u32>,
-    pub props_by_sel: HashMap<SelId, u32>,
+    pub methods_by_sel: super::FastMap<SelId, u32>,
+    pub props_by_sel: super::FastMap<SelId, u32>,
 }
 
 impl RtClass {
@@ -185,17 +185,17 @@ impl Vm {
             module: midx,
             consts: IndexMap::new(),
             props: Vec::new(),
-            prop_index: HashMap::new(),
+            prop_index: Default::default(),
             static_props: IndexMap::new(),
-            methods: HashMap::new(),
+            methods: Default::default(),
             cases: Vec::new(),
             enum_backing: decl.enum_backing.clone(),
             attributes: decl.attributes.clone(),
             line: decl.line,
             default_slots: None,
             native: None,
-            methods_by_sel: HashMap::new(),
-            props_by_sel: HashMap::new(),
+            methods_by_sel: Default::default(),
+            props_by_sel: Default::default(),
         };
         // inherit
         if let Some(p) = parent {
@@ -372,7 +372,7 @@ impl Vm {
         }
         self.build_sel_tables(&mut rt);
         self.classes.push(rt);
-        self.static_values.push(HashMap::new());
+        self.static_values.push(Default::default());
         self.class_by_name.insert(lname, id);
         Ok(())
     }
