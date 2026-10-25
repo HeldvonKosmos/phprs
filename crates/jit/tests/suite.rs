@@ -86,5 +86,5 @@ fn tier2_is_swapped_in_asynchronously() {
     let mut second = vm_with(true, false, 1000);
     second.run_file("hot.grd", HOT).expect("run");
     assert_eq!(second.output, expected);
-    assert!(!second.jit_tiers().is_empty() && second.jit_tiers().iter().all(|t| *t == 2), "second VM starts on tier 2: {:?}", second.jit_tiers());
+    assert!(!second.jit_tiers().is_empty() && second.jit_tiers().iter().all(|t| *t == 2), "second VM starts on tier 2: {:?} (tier-2 admitted, budget, cache: {:?})", second.jit_tiers(), grd_jit::tier2_stats());
 }

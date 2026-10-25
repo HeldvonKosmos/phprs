@@ -425,7 +425,10 @@ impl CraneliftJit {
 impl JitBackend for CraneliftJit {
     fn compile(&mut self, req: &CompileRequest) -> Option<JitCode> {
         let (arcs, prog) = if self.tiers.background { self.snapshot(req) } else { (Vec::new(), 0) };
-        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, &req.profile.types));
+        // element kinds of the profile are not part of the key: compiled reads
+        // check them at run time, so shared code stays correct for any profile
+        // (with them in the key, workers missed each other's tier-2 code)
+        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags));
         // another worker (or an earlier VM) already has tier-2 code for it
         if self.tiers.background
             && let Some((ptr, meta)) = service::lookup(key)
