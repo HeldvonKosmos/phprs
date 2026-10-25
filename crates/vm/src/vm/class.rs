@@ -450,7 +450,17 @@ impl Vm {
         if let Some(v) = info.value {
             return Ok(v);
         }
-        let v = self.eval_init(&info.init, info.module, Some(info.declaring))?;
+        // a constant that needs itself (`A = [...self::B]; B = [...self::A]`) is an
+        // Error as in PHP, not an endless recursion that overflows the native stack
+        if self.consts_in_progress.iter().any(|(c, n)| *c == class && n == name) {
+            let (top_class, top_name) = self.consts_in_progress.last().cloned().expect("in progress");
+            let owner = if top_class == class { "self".to_string() } else { String::from_utf8_lossy(&self.class(top_class).name).into_owned() };
+            return Err(Throw::error(format!("Cannot declare self-referencing constant {owner}::{}", String::from_utf8_lossy(&top_name))));
+        }
+        self.consts_in_progress.push((class, name.to_vec()));
+        let v = self.eval_init(&info.init, info.module, Some(info.declaring));
+        self.consts_in_progress.pop();
+        let v = v?;
         if let Some(slot) = self.class_mut(class).consts.get_mut(name) {
             slot.value = Some(v.clone());
         }

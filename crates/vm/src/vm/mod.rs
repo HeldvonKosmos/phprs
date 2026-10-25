@@ -173,6 +173,8 @@ pub struct Vm {
     /// Native ids of `intdiv`, `abs`, `max`, `min`: integer calls run inline in the
     /// interpreter (PERF2), everything else through the native function.
     pub(crate) fast_natives: [u32; 4],
+    /// Class constants being evaluated (detects self-referencing constants).
+    pub(crate) consts_in_progress: Vec<(ClassId, Vec<u8>)>,
     /// Built string and array constants per module (`const_to_val`).
     pub(crate) const_cache: Vec<Vec<Option<Val>>>,
     pub output: Vec<u8>,
@@ -230,6 +232,7 @@ impl Vm {
             stack: Vec::new(),
             arg_scratch: Vec::new(),
             fast_natives: [u32::MAX; 4],
+            consts_in_progress: Vec::new(),
             const_cache: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),

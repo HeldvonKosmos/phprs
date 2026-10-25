@@ -1,0 +1,18 @@
+<?grd
+// A class constant that needs itself is an Error (as in PHP), not an endless
+// recursion that overflows the native stack and aborts the process.
+final class Limits
+{
+    public const LOW = [1, 2];
+    public const ALL = [...self::LOW, 3];
+    public const LOOP = self::LOOP;
+}
+final class Ring
+{
+    public const FIRST = [...self::SECOND];
+    public const SECOND = [...self::FIRST];
+}
+echo implode(',', Limits::ALL), "\n";
+try { echo Limits::LOOP; } catch (Error $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+try { echo count(Ring::FIRST); } catch (Error $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+try { echo count(Ring::FIRST); } catch (Error $e) { echo 'again: ', $e->getMessage(), "\n"; }

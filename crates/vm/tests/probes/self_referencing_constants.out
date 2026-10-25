@@ -1,0 +1,4 @@
+1,2,3
+Error: Cannot declare self-referencing constant self::LOOP
+Error: Cannot declare self-referencing constant self::SECOND
+again: Cannot declare self-referencing constant self::SECOND
