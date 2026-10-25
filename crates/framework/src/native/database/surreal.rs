@@ -11,6 +11,14 @@ use surrealdb::method::Transaction;
 use surrealdb::opt::auth::Root;
 use surrealdb::types::{Object, Value};
 
+/// How often a retriable write conflict is retried (see [`Db::query`]).
+const MAX_CONFLICT_RETRIES: u32 = 20;
+
+/// SurrealDB marks optimistic transaction conflicts as retriable.
+fn is_retriable(error: &str) -> bool {
+    error.contains("can be retried")
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DbConfig {
     /// `mem://`, `surrealkv://path` (embedded, persistent), `ws://host:port`,
@@ -257,10 +265,33 @@ impl Db {
     }
 
     /// Run a query; one `Value` per statement, the first failing statement
-    /// is the error.
+    /// is the error. Outside an explicit transaction a write conflict that
+    /// SurrealDB reports as retriable (optimistic transactions, e.g. two
+    /// requests updating the same token's `last_used_at`) is retried when it
+    /// hit the first statement, so nothing has been committed yet.
     pub fn query(&self, txn: Option<&Transaction<Any>>, sql: &str, vars: BTreeMap<String, Value>) -> Result<Vec<Value>, String> {
         let started = Instant::now();
-        let result = self.rt.block_on(async {
+        let mut attempt = 0u32;
+        let result = loop {
+            match self.query_once(txn, sql, vars.clone()) {
+                Err((0, e)) if txn.is_none() && attempt < MAX_CONFLICT_RETRIES && is_retriable(&e) => {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_micros(200 * u64::from(attempt)));
+                }
+                other => break other.map_err(|(_, e)| e),
+            }
+        };
+        let ms = started.elapsed().as_secs_f64() * 1000.0;
+        match &result {
+            Ok(_) => tracing::debug!(target: "opengrid", sql, ms, retries = attempt, "surreal.query"),
+            Err(e) => tracing::warn!(target: "opengrid", sql, ms, retries = attempt, error = %e, "surreal.query failed"),
+        }
+        result
+    }
+
+    /// One attempt; the error carries the index of the failing statement.
+    fn query_once(&self, txn: Option<&Transaction<Any>>, sql: &str, vars: BTreeMap<String, Value>) -> Result<Vec<Value>, (usize, String)> {
+        self.rt.block_on(async {
             let mut obj = Object::new();
             for (k, v) in vars {
                 obj.insert(k, v);
@@ -269,21 +300,15 @@ impl Db {
                 Some(t) => t.query(sql).bind(obj).await,
                 None => self.client.query(sql).bind(obj).await,
             }
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| (0, e.to_string()))?;
             let n = resp.num_statements();
             let mut out = Vec::with_capacity(n);
             for i in 0..n {
-                let v: Value = resp.take(i).map_err(|e| e.to_string())?;
+                let v: Value = resp.take(i).map_err(|e| (i, e.to_string()))?;
                 out.push(v);
             }
-            Ok::<_, String>(out)
-        });
-        let ms = started.elapsed().as_secs_f64() * 1000.0;
-        match &result {
-            Ok(_) => tracing::debug!(target: "opengrid", sql, ms, "surreal.query"),
-            Err(e) => tracing::warn!(target: "opengrid", sql, ms, error = %e, "surreal.query failed"),
-        }
-        result
+            Ok(out)
+        })
     }
 
     pub fn begin(&self) -> Result<Transaction<Any>, String> {
@@ -307,4 +332,31 @@ fn is_locked(message: &str) -> bool {
 /// Major version of `surrealdb-3.3.4`, `3.3.4` or `v3.3.4`.
 fn major(v: &str) -> Option<u64> {
     v.trim_start_matches(|c: char| !c.is_ascii_digit()).split('.').next()?.parse().ok()
+}
+
+#[cfg(test)]
+mod conflict_tests {
+    use super::*;
+
+    /// Concurrent writes to one record (as concurrent requests with one
+    /// bearer token do with `last_used_at`) all succeed.
+    #[test]
+    fn concurrent_updates_of_one_record_are_retried() {
+        let dir = std::env::temp_dir().join(format!("og-conflict-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = DbConfig { url: format!("surrealkv://{}", dir.display()), ..DbConfig::mem("t", "t") };
+        let db = std::sync::Arc::new(Db::connect(cfg).expect("connect"));
+        db.query(None, "CREATE t:1 SET n = 0", BTreeMap::new()).expect("create");
+        let threads: Vec<_> = (0..8)
+            .map(|w| {
+                let db = db.clone();
+                std::thread::spawn(move || {
+                    (0..40).filter(|i| db.query(None, "UPDATE t:1 MERGE { n: $n }", BTreeMap::from([("n".to_string(), Value::from_t(w * 100 + i))])).is_err()).count()
+                })
+            })
+            .collect();
+        let failed: usize = threads.into_iter().map(|t| t.join().unwrap()).sum();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(failed, 0, "write conflicts reached the caller");
+    }
 }
