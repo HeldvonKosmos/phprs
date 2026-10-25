@@ -131,6 +131,29 @@ impl Vm {
                             continue;
                         }
                     }
+                    // FRAME1: return from a plain frame whose value already has the
+                    // declared type; generators and conversions go through `exec`
+                    Op::Return if self.frames[fidx].generator.is_none() => {
+                        let v = self.stack.last().expect("return value");
+                        let fits = match &unit.return_type {
+                            None | Some(TypeHint::Mixed) => true,
+                            Some(TypeHint::Void) => v.is_null(),
+                            Some(TypeHint::Nullable(t)) => v.is_null() || super::path::scalar_type_matches(t, v),
+                            Some(t) => super::path::scalar_type_matches(t, v),
+                        };
+                        if fits {
+                            let v = self.stack.pop().expect("return value");
+                            let frame = self.frames.pop().expect("frame");
+                            self.stack.truncate(frame.stack_base);
+                            self.slot_stack.truncate(frame.slot_base);
+                            let v = frame.return_override.unwrap_or(v);
+                            if self.frames.len() <= base_depth {
+                                return Ok(v);
+                            }
+                            self.stack.push(v);
+                            continue 'frames;
+                        }
+                    }
                     // scalar constants and built strings/arrays already in the cache
                     Op::PushConst(c) => {
                         let v = match &module.consts[*c as usize] {
