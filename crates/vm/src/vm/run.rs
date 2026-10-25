@@ -131,6 +131,39 @@ impl Vm {
                             continue;
                         }
                     }
+                    // scalar constants and built strings/arrays already in the cache
+                    Op::PushConst(c) => {
+                        let v = match &module.consts[*c as usize] {
+                            Const::Null => Some(Val::Null),
+                            Const::Bool(b) => Some(Val::Bool(*b)),
+                            Const::Int(n) => Some(Val::Int(*n)),
+                            Const::Float(f) => Some(Val::Float(*f)),
+                            Const::Str(_) | Const::Array(_) => self.const_cache.get(midx as usize).and_then(|c2| c2.get(*c as usize)).cloned().flatten(),
+                        };
+                        if let Some(v) = v {
+                            self.stack.push(v);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::ToBool => {
+                        let v = self.stack.pop().expect("operand").to_bool();
+                        self.stack.push(Val::Bool(v));
+                        ip += 1;
+                        continue;
+                    }
+                    // promoted constructor parameter through the inline cache filled by `exec`
+                    Op::PromoteParam { slot, .. } => {
+                        if let Some(this) = self.frames[fidx].this {
+                            let e = self.ics[icx][ip];
+                            if e.class == Some(self.objects.get(this).class) {
+                                let v = self.slot_stack[slot_base + *slot as usize].clone().unwrap_or(Val::Null);
+                                self.objects.get_mut(this).slots[e.a as usize] = Some(v);
+                                ip += 1;
+                                continue;
+                            }
+                        }
+                    }
                     // property read through the inline cache filled by `exec` (FetchPropSel)
                     Op::FetchPropSel(_) | Op::FetchPropSelQuiet(_) => {
                         if let Some(Val::Object(h)) = self.stack.last() {
@@ -1553,7 +1586,13 @@ impl Vm {
             Op::PromoteParam { slot, prop } => {
                 let this = self.frames[fidx].this.expect("promotion needs $this");
                 let v = self.slot_stack[self.frames[fidx].slot_base + *slot as usize].clone().unwrap_or(Val::Null);
-                let name = module.str(*prop).to_vec();
+                let name = module.str(*prop);
+                let class = self.objects.get(this).class;
+                if let Some(&idx) = self.class(class).prop_index.get(name) {
+                    let icx = self.frames[fidx].ic;
+                    self.ics[icx][ip] = IcEntry { class: Some(class), a: idx as u32, b: 0, c: 0, flag: false };
+                }
+                let name = name.to_vec();
                 self.set_prop_raw(this, &name, v);
             }
         }
