@@ -173,8 +173,10 @@ impl Vm {
                         if let Some(r) = num_fast(*bop, &self.stack[n - 2], &self.stack[n - 1]) {
                             let tags = super::type_tag(&self.stack[n - 2]) | (super::type_tag(&self.stack[n - 1]) << 4);
                             self.profiles[icx].types[ip] |= tags;
-                            self.stack.truncate(n - 2);
-                            self.stack.push(r);
+                            // both operands are numbers: pop and overwrite instead of
+                            // truncate (an out-of-line drop loop)
+                            self.stack.pop();
+                            self.stack[n - 2] = r;
                             ip += 1;
                             continue;
                         }
@@ -240,8 +242,8 @@ impl Vm {
                                 && let Some(v) = a.get(&k)
                             {
                                 let v = v.clone();
-                                self.stack.truncate(n - 2);
-                                self.stack.push(v);
+                                self.stack.pop();
+                                self.stack[n - 2] = v;
                                 ip += 1;
                                 continue;
                             }
