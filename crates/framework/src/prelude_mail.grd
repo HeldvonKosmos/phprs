@@ -1,0 +1,104 @@
+<?grd
+namespace OpenGrid\Mail;
+
+/**
+ * A mail (MS1, Laravel's Mailable). Subclasses set it up in `build()`:
+ *
+ *     final class WelcomeMail extends Mailable
+ *     {
+ *         public function __construct(private User $user) {}
+ *         public function build(): void
+ *         {
+ *             $this->subject('Welcome')->view('welcome', ['name' => $this->user->name]);
+ *         }
+ *     }
+ *
+ * `view('welcome', $data)` renders `modules/<module>/resources/mail/welcome/`
+ * (`subject.t`, `html.t`, `text.t`, Tera templates as in Loco); `html()` and
+ * `text()` set the bodies directly. An explicit `subject()` wins over the
+ * template's subject.
+ */
+abstract class Mailable
+{
+    public array $to = [];
+    public array $cc = [];
+    public array $bcc = [];
+    public ?string $from = null;
+    public ?string $replyTo = null;
+    public string $subject = '';
+    public ?string $view = null;
+    public array $viewData = [];
+    public string $html = '';
+    public string $text = '';
+
+    public function build(): void {}
+
+    public function to(string|array $address): static { $this->to = array_merge($this->to, (array) $address); return $this; }
+    public function cc(string|array $address): static { $this->cc = array_merge($this->cc, (array) $address); return $this; }
+    public function bcc(string|array $address): static { $this->bcc = array_merge($this->bcc, (array) $address); return $this; }
+    public function from(string $address): static { $this->from = $address; return $this; }
+    public function replyTo(string $address): static { $this->replyTo = $address; return $this; }
+    public function subject(string $subject): static { $this->subject = $subject; return $this; }
+    public function view(string $view, array $data = []): static { $this->view = $view; $this->viewData = array_merge($this->viewData, $data); return $this; }
+    public function with(string|array $key, mixed $value = null): static
+    {
+        if (is_array($key)) {
+            $this->viewData = array_merge($this->viewData, $key);
+        } else {
+            $this->viewData[$key] = $value;
+        }
+        return $this;
+    }
+    public function html(string $html): static { $this->html = $html; return $this; }
+    public function text(string $text): static { $this->text = $text; return $this; }
+
+    /** The message as the native sender takes it (after build()). */
+    public function message(): array
+    {
+        $this->build();
+        $subject = $this->subject;
+        $html = $this->html;
+        $text = $this->text;
+        if ($this->view !== null) {
+            [$s, $h, $t] = \opengrid_mail_render($this->view, $this->viewData);
+            $subject = $subject !== '' ? $subject : $s;
+            $html = $html !== '' ? $html : $h;
+            $text = $text !== '' ? $text : $t;
+        }
+        return ['to' => $this->to, 'cc' => $this->cc, 'bcc' => $this->bcc, 'from' => $this->from, 'reply_to' => $this->replyTo, 'subject' => $subject, 'html' => $html, 'text' => $text];
+    }
+}
+
+/** `Mail::to(...)` with its recipients until `send()`. */
+final class PendingMail
+{
+    private array $cc = [];
+    private array $bcc = [];
+
+    public function __construct(private array $to) {}
+
+    public function cc(string|array $address): static { $this->cc = array_merge($this->cc, (array) $address); return $this; }
+    public function bcc(string|array $address): static { $this->bcc = array_merge($this->bcc, (array) $address); return $this; }
+
+    public function send(Mailable $mail): void
+    {
+        $mail->to($this->to)->cc($this->cc)->bcc($this->bcc);
+        \opengrid_mail_send($mail->message());
+    }
+}
+
+/**
+ * Laravel's `Mail` facade: `Mail::to($user->email)->send(new WelcomeMail($user))`.
+ * Without `settings.mailer.smtp` mails are only logged and kept for
+ * `Mail::sent()` (tests, development).
+ */
+final class Mail
+{
+    public static function to(string|array $address): PendingMail { return new PendingMail((array) $address); }
+
+    /** A mail that names its recipients itself. */
+    public static function send(Mailable $mail): void { \opengrid_mail_send($mail->message()); }
+
+    /** Mails sent (or, without SMTP, logged) by this process, oldest first. */
+    public static function sent(): array { return \opengrid_mail_sent(); }
+}

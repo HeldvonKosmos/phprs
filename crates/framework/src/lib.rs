@@ -10,6 +10,7 @@ pub mod http;
 pub mod native;
 pub mod routes;
 pub mod scaffold;
+pub mod services;
 pub mod session;
 pub mod worker;
 

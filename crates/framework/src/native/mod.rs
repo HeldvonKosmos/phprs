@@ -4,11 +4,13 @@
 pub mod config;
 pub mod database;
 pub mod log;
+pub mod mail;
 pub mod rate_limiter;
 pub mod request;
 pub mod response;
 pub mod route;
 pub mod session;
+pub mod storage;
 pub mod validation;
 
 use grd_vm::error::Throw;
@@ -27,6 +29,8 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     validation::register(vm)?;
     session::register(vm)?;
     rate_limiter::register(vm)?;
+    mail::register(vm);
+    storage::register(vm)?;
     vm.register_native("opengrid_run_controller", |vm, _| crate::dispatch::run_controller(vm));
     // I1: `opengrid_resolve(Foo::class)` creates an object with constructor injection
     vm.register_native("opengrid_resolve", |vm, a| {

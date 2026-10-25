@@ -41,6 +41,9 @@ rust_decimal = "1"
 geo = "0.32"
 uuid = "1"
 mimalloc = "0.1.52"
+# MS1: mail templates (the Tera Loco uses) and storage contents
+tera = "2.4"
+bytes = "1"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

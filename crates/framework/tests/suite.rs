@@ -15,6 +15,8 @@ mod errors;
 mod http;
 #[path = "suite/inject.rs"]
 mod inject;
+#[path = "suite/mail_storage.rs"]
+mod mail_storage;
 #[path = "suite/middleware.rs"]
 mod middleware;
 #[path = "suite/relations.rs"]

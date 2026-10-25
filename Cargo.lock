@@ -4295,6 +4295,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "bytes",
  "chrono",
  "geo",
  "getrandom 0.4.3",
@@ -4311,6 +4312,7 @@ dependencies = [
  "serde_json",
  "surrealdb",
  "surrealkit",
+ "tera 2.4.0",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
  "tower",

@@ -21,6 +21,7 @@ use crate::native::database::surreal::{Db, DbConfig};
 use crate::http::HttpRequest;
 use crate::routes::{Handler, RouteTable};
 use crate::native::rate_limiter::RateLimits;
+use crate::services::Services;
 use crate::session::{SessionConfig, SessionState, SessionStore};
 
 /// Host context of a worker VM: lives as long as the VM; `request` is
@@ -47,6 +48,8 @@ pub struct WorkerCtx {
     pub sessions: Arc<SessionStore>,
     /// Rate-limit counters shared by all workers of the pool (AU2).
     pub limits: Arc<RateLimits>,
+    /// Mail and storage (MS1), shared by all workers of the pool.
+    pub services: Arc<Services>,
     /// Set when a hot reload failed: the worker keeps the old code and
     /// answers every request with this error until the next good reload.
     pub stale_error: Option<String>,
@@ -110,6 +113,7 @@ pub const FRAMEWORK_PRELUDE_HTTP: &str = include_str!("prelude_http.grd");
 pub const FRAMEWORK_PRELUDE_VALIDATION: &str = include_str!("prelude_validation.grd");
 pub const FRAMEWORK_PRELUDE_DATABASE: &str = include_str!("prelude_database.grd");
 pub const FRAMEWORK_PRELUDE_AUTH: &str = include_str!("prelude_auth.grd");
+pub const FRAMEWORK_PRELUDE_MAIL: &str = include_str!("prelude_mail.grd");
 
 type Job = Box<dyn FnOnce(&mut Vm) + Send>;
 
@@ -139,16 +143,16 @@ pub fn jit_enabled() -> bool {
     matches!(std::env::var("OPENGRID_JIT").as_deref(), Ok("on" | "1")) && !grd_jit::disabled_by_env()
 }
 
-pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, limits: Arc<RateLimits>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
+pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, limits: Arc<RateLimits>, services: Arc<Services>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
     let mut vm = Vm::with_prelude().map_err(|t| format!("prelude: {}", t.message))?;
     if jit_enabled() {
         vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
     }
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
-    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH)] {
+    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
-    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, debug: options.debug, stale_error: None }));
+    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, services, debug: options.debug, stale_error: None }));
     // default middleware aliases
     if let Some(c) = vm.host::<WorkerCtx>() {
         c.routes.aliases.insert("csrf".into(), "OpenGrid\\Http\\Middleware\\VerifyCsrfToken".into());
@@ -189,6 +193,7 @@ impl Pool {
         let generation = Arc::new(AtomicU64::new(0));
         let sessions = Arc::new(SessionStore::new(options.session.clone()));
         let limits = Arc::new(RateLimits::new());
+        let services = Arc::new(Services::new(&options.root, &options.settings)?);
         // One connection for all workers: the SDK client multiplexes, and an
         // in-memory database must be the same for every worker.
         let db = match &options.database {
@@ -204,10 +209,11 @@ impl Pool {
             let generation = Arc::clone(&generation);
             let sessions = Arc::clone(&sessions);
             let limits = Arc::clone(&limits);
+            let services = Arc::clone(&services);
             std::thread::Builder::new()
                 .name(format!("grd-worker-{id}"))
                 .stack_size(64 * 1024 * 1024)
-                .spawn(move || worker_main(id, opts, db, sessions, limits, rx, ready, generation))
+                .spawn(move || worker_main(id, opts, db, sessions, limits, services, rx, ready, generation))
                 .map_err(|e| format!("spawn worker: {e}"))?;
         }
         drop(ready_tx);
@@ -275,9 +281,9 @@ impl Pool {
     }
 }
 
-fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, limits: Arc<RateLimits>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
+fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, limits: Arc<RateLimits>, services: Arc<Services>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
     let mut my_generation = generation.load(Ordering::SeqCst);
-    let mut vm = match build_vm(&options, db.clone(), sessions.clone(), limits.clone()) {
+    let mut vm = match build_vm(&options, db.clone(), sessions.clone(), limits.clone(), services.clone()) {
         Ok((vm, summary)) => {
             tracing::info!(target: "opengrid", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
             let _ = ready.send(Ok(id));
@@ -300,7 +306,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
         let current = generation.load(Ordering::SeqCst);
         if current != my_generation {
             my_generation = current;
-            match build_vm(&options, db.clone(), sessions.clone(), limits.clone()) {
+            match build_vm(&options, db.clone(), sessions.clone(), limits.clone(), services.clone()) {
                 Ok((fresh, summary)) => {
                     tracing::info!(target: "opengrid", worker = id, classes = summary.class_files, routes = summary.route_files, "reloaded");
                     vm = fresh;
@@ -317,7 +323,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
             // RUNTIME_ARCHITECTURE §11: the worker catches the panic; the
             // VM state is suspect afterwards, so rebuild it.
             tracing::error!(target: "opengrid", worker = id, "panic in worker; rebuilding VM");
-            match build_vm(&options, db.clone(), sessions.clone(), limits.clone()) {
+            match build_vm(&options, db.clone(), sessions.clone(), limits.clone(), services.clone()) {
                 Ok((fresh, _)) => vm = fresh,
                 Err(e) => {
                     tracing::error!(target: "opengrid", worker = id, error = %e, "cannot rebuild VM; worker exits");
