@@ -3,9 +3,12 @@
 
 use std::path::Path;
 
-fn run(path: &Path) -> String {
+fn run(path: &Path, gc_threshold: Option<usize>) -> String {
     let source = std::fs::read(path).expect("read probe");
     let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+    if let Some(t) = gc_threshold {
+        vm.set_gc_threshold(t);
+    }
     let result = vm.run_file(path.to_string_lossy().as_ref(), &source);
     let mut out = String::from_utf8_lossy(&vm.output).into_owned();
     if let Err(e) = result {
@@ -16,6 +19,18 @@ fn run(path: &Path) -> String {
 
 #[test]
 fn frozen_probes_match_php_output() {
+    check_probes(None);
+}
+
+/// MEM1b: the same probes with a collection whenever the live objects have
+/// doubled from one: a missing GC root shows up as a wrong result or a
+/// dangling handle.
+#[test]
+fn frozen_probes_survive_constant_collection() {
+    check_probes(Some(1));
+}
+
+fn check_probes(gc_threshold: Option<usize>) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/probes");
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
         .expect("probes dir")
@@ -28,7 +43,7 @@ fn frozen_probes_match_php_output() {
     let mut failures = Vec::new();
     for probe in &entries {
         let expected = std::fs::read_to_string(probe.with_extension("out")).expect("expected output");
-        let got = run(probe);
+        let got = run(probe, gc_threshold);
         if got.trim_end() != expected.trim_end() {
             failures.push(format!(
                 "{}\n  expected: {:?}\n  got:      {:?}",
