@@ -20,6 +20,7 @@ use crate::native::database::surreal::{Db, DbConfig};
 
 use crate::http::HttpRequest;
 use crate::routes::{Handler, RouteTable};
+use crate::native::rate_limiter::RateLimits;
 use crate::session::{SessionConfig, SessionState, SessionStore};
 
 /// Host context of a worker VM: lives as long as the VM; `request` is
@@ -44,6 +45,8 @@ pub struct WorkerCtx {
     pub debug: bool,
     /// Session store shared by all workers of the pool.
     pub sessions: Arc<SessionStore>,
+    /// Rate-limit counters shared by all workers of the pool (AU2).
+    pub limits: Arc<RateLimits>,
     /// Set when a hot reload failed: the worker keeps the old code and
     /// answers every request with this error until the next good reload.
     pub stale_error: Option<String>,
@@ -117,6 +120,7 @@ pub struct Pool {
     /// Bumped on reload; a worker whose VM is older rebuilds it before its next job.
     generation: Arc<AtomicU64>,
     sessions: Arc<SessionStore>,
+    limits: Arc<RateLimits>,
     /// The pool's one database connection (shared by all workers).
     db: Option<Arc<Db>>,
 }
@@ -136,7 +140,7 @@ pub fn jit_enabled() -> bool {
     matches!(std::env::var("OPENGRID_JIT").as_deref(), Ok("on" | "1")) && !grd_jit::disabled_by_env()
 }
 
-pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
+pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, limits: Arc<RateLimits>) -> Result<(Vm, grd_vm::vm::project::ProjectSummary), String> {
     let mut vm = Vm::with_prelude().map_err(|t| format!("prelude: {}", t.message))?;
     if jit_enabled() {
         vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
@@ -145,11 +149,12 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
     for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
-    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, debug: options.debug, stale_error: None }));
+    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, debug: options.debug, stale_error: None }));
     // default middleware aliases
     if let Some(c) = vm.host::<WorkerCtx>() {
         c.routes.aliases.insert("csrf".into(), "OpenGrid\\Http\\Middleware\\VerifyCsrfToken".into());
         c.routes.aliases.insert("auth".into(), "OpenGrid\\Auth\\Authenticate".into());
+        c.routes.aliases.insert("throttle".into(), "OpenGrid\\Http\\Middleware\\ThrottleRequests".into());
     }
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
@@ -165,6 +170,7 @@ impl Pool {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<usize, String>>();
         let generation = Arc::new(AtomicU64::new(0));
         let sessions = Arc::new(SessionStore::new(options.session.clone()));
+        let limits = Arc::new(RateLimits::new());
         // One connection for all workers: the SDK client multiplexes, and an
         // in-memory database must be the same for every worker.
         let db = match &options.database {
@@ -179,10 +185,11 @@ impl Pool {
             let db = db.clone();
             let generation = Arc::clone(&generation);
             let sessions = Arc::clone(&sessions);
+            let limits = Arc::clone(&limits);
             std::thread::Builder::new()
                 .name(format!("grd-worker-{id}"))
                 .stack_size(64 * 1024 * 1024)
-                .spawn(move || worker_main(id, opts, db, sessions, rx, ready, generation))
+                .spawn(move || worker_main(id, opts, db, sessions, limits, rx, ready, generation))
                 .map_err(|e| format!("spawn worker: {e}"))?;
         }
         drop(ready_tx);
@@ -197,7 +204,7 @@ impl Pool {
         if options.watch {
             start_watcher(options.root.clone(), Arc::clone(&generation));
         }
-        Ok(Pool { tx, workers: options.workers, options, generation, sessions, db })
+        Ok(Pool { tx, workers: options.workers, options, generation, sessions, limits, db })
     }
 
     /// Ask every worker to rebuild its VM before its next job (hot reload).
@@ -250,9 +257,9 @@ impl Pool {
     }
 }
 
-fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
+fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: Arc<SessionStore>, limits: Arc<RateLimits>, rx: Arc<Mutex<mpsc::Receiver<Job>>>, ready: mpsc::Sender<Result<usize, String>>, generation: Arc<AtomicU64>) {
     let mut my_generation = generation.load(Ordering::SeqCst);
-    let mut vm = match build_vm(&options, db.clone(), sessions.clone()) {
+    let mut vm = match build_vm(&options, db.clone(), sessions.clone(), limits.clone()) {
         Ok((vm, summary)) => {
             tracing::info!(target: "opengrid", worker = id, modules = summary.modules.len(), classes = summary.class_files, routes = summary.route_files, "worker ready");
             let _ = ready.send(Ok(id));
@@ -275,7 +282,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
         let current = generation.load(Ordering::SeqCst);
         if current != my_generation {
             my_generation = current;
-            match build_vm(&options, db.clone(), sessions.clone()) {
+            match build_vm(&options, db.clone(), sessions.clone(), limits.clone()) {
                 Ok((fresh, summary)) => {
                     tracing::info!(target: "opengrid", worker = id, classes = summary.class_files, routes = summary.route_files, "reloaded");
                     vm = fresh;
@@ -292,7 +299,7 @@ fn worker_main(id: usize, options: PoolOptions, db: Option<Arc<Db>>, sessions: A
             // RUNTIME_ARCHITECTURE §11: the worker catches the panic; the
             // VM state is suspect afterwards, so rebuild it.
             tracing::error!(target: "opengrid", worker = id, "panic in worker; rebuilding VM");
-            match build_vm(&options, db.clone(), sessions.clone()) {
+            match build_vm(&options, db.clone(), sessions.clone(), limits.clone()) {
                 Ok((fresh, _)) => vm = fresh,
                 Err(e) => {
                     tracing::error!(target: "opengrid", worker = id, error = %e, "cannot rebuild VM; worker exits");

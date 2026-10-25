@@ -78,7 +78,16 @@ impl RouteTable {
 
     /// Middleware names → class names through the alias map.
     pub fn resolve_middleware(&self, names: &[String]) -> Vec<String> {
-        names.iter().map(|n| self.aliases.get(n).cloned().unwrap_or_else(|| n.clone())).collect()
+        // `throttle:5,1`: the alias is the part before the colon, the
+        // parameters go along to `handle($request, $next, '5', '1')`
+        names
+            .iter()
+            .map(|n| {
+                let (name, params) = n.split_once(':').map_or((n.as_str(), None), |(a, b)| (a, Some(b)));
+                let class = self.aliases.get(name).cloned().unwrap_or_else(|| name.to_string());
+                params.map_or(class.clone(), |p| format!("{class}:{p}"))
+            })
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -126,6 +135,8 @@ mod tests {
     fn groups_prefix_and_middleware() {
         let mut t = RouteTable::default();
         t.aliases.insert("auth".into(), "App\\Auth".into());
+        t.aliases.insert("throttle".into(), "App\\Throttle".into());
+        assert_eq!(t.resolve_middleware(&["throttle:5,1".into(), "auth".into(), "X:a".into()]), vec!["App\\Throttle:5,1", "App\\Auth", "X:a"]);
         t.groups.push(Group { prefix: "/admin/".into(), middleware: vec!["auth".into()] });
         t.groups.push(Group { prefix: "tasks".into(), middleware: vec![] });
         let i = t.add("GET", "/", h("index")).unwrap();

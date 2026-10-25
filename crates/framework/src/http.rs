@@ -9,6 +9,9 @@ pub struct HttpRequest {
     pub query: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    /// Peer address of the connection (`Request::ip()`); proxy headers are
+    /// not trusted (no TrustProxies yet).
+    pub remote_addr: Option<String>,
 }
 
 impl HttpRequest {
@@ -108,6 +111,7 @@ const MAX_BODY: usize = 16 * 1024 * 1024;
 /// Read an Axum request completely (bounded body) into an `HttpRequest`.
 pub async fn from_axum(req: axum::extract::Request) -> Result<HttpRequest, HttpResponse> {
     let (parts, body) = req.into_parts();
+    let remote_addr = parts.extensions.get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|ci| ci.0.ip().to_string());
     let bytes = axum::body::to_bytes(body, MAX_BODY).await.map_err(|_| HttpResponse::text(413, "payload too large"))?;
     let headers = parts
         .headers
@@ -120,6 +124,7 @@ pub async fn from_axum(req: axum::extract::Request) -> Result<HttpRequest, HttpR
         query: parts.uri.query().unwrap_or("").to_string(),
         headers,
         body: bytes.to_vec(),
+        remote_addr,
     })
 }
 

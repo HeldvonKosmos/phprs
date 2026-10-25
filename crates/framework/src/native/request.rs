@@ -74,7 +74,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             let pairs = state(vm)?.req.header("cookie").map(crate::session::parse_cookies).unwrap_or_default();
             Ok(pairs_to_array(&pairs))
         })
-        .method("ip", |_, _| Ok(Val::Null))
+        .method("ip", |vm, _| Ok(state(vm)?.req.remote_addr.as_deref().map_or(Val::Null, Val::str)))
         // AU1: the authenticated user of this request (Laravel's `$request->user()`)
         .method("user", |vm, _| Ok(state(vm)?.user.clone().unwrap_or(Val::Null)))
         .method("setUser", |vm, c| {

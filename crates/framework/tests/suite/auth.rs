@@ -1,6 +1,8 @@
 //! AU1: token authentication like Laravel Sanctum — bcrypt passwords, 256-bit
 //! bearer tokens stored as SHA-256, middleware `auth` (401 JSON), logout
 //! revokes the token, the same 401 for unknown email and wrong password.
+//! AU2: login throttle (429 after five failures per email and IP) and the
+//! `throttle:N,M` middleware.
 
 use std::sync::Arc;
 
@@ -55,6 +57,11 @@ final class AuthController
         return Response::json(Auth::user());
     }
 
+    public function ping(): Response
+    {
+        return Response::json(['pong' => true]);
+    }
+
     public function logout(): Response
     {
         Auth::revokeCurrentToken();
@@ -71,6 +78,7 @@ use Users\Controllers\AuthController;
 
 Route::post('/api/register', [AuthController::class, 'register']);
 Route::post('/api/login', [AuthController::class, 'login']);
+Route::get('/api/ping', [AuthController::class, 'ping'])->middleware('throttle:3,1');
 Route::group(['middleware' => ['auth']], function () {
     Route::get('/api/me', [AuthController::class, 'me']);
     Route::post('/api/logout', [AuthController::class, 'logout']);
@@ -140,5 +148,28 @@ fn token_authentication() {
     let r = send(&pool, HttpRequest::post("/api/logout", j, b""), Some(&token));
     assert_eq!(r.status, 204, "{}", r.body_str());
     assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&token)).status, 401, "token revoked");
+
+    // AU2: the earlier success cleared the counter; five failures, then 429
+    // even with the right password, with Retry-After; other emails unaffected
+    let login = |body: &[u8]| send(&pool, HttpRequest::post("/api/login", j, body), None);
+    for i in 0..5 {
+        assert_eq!(login(br#"{"email":"ada@example.com","password":"wrong-pass"}"#).status, 401, "failure {}", i + 1);
+    }
+    let r = login(br#"{"email":"ADA@example.com","password":"secret123"}"#);
+    assert_eq!(r.status, 429, "{}", r.body_str());
+    let retry: i64 = r.header("retry-after").expect("Retry-After").parse().unwrap();
+    assert!((1..=60).contains(&retry), "{retry}");
+    assert!(json(&r)["message"].as_str().unwrap().starts_with("Too many login attempts."), "{}", r.body_str());
+    assert_eq!(login(br#"{"email":"nobody@example.com","password":"x"}"#).status, 401, "separate counter");
+
+    // throttle:3,1 on /api/ping
+    for _ in 0..3 {
+        let r = send(&pool, HttpRequest::get("/api/ping"), None);
+        assert_eq!(r.status, 200, "{}", r.body_str());
+    }
+    let r = send(&pool, HttpRequest::get("/api/ping"), None);
+    assert_eq!(r.status, 429, "{}", r.body_str());
+    assert_eq!((r.header("x-ratelimit-limit"), r.header("x-ratelimit-remaining")), (Some("3"), Some("0")));
+    assert!(r.header("retry-after").is_some());
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -5,6 +5,7 @@ use OpenGrid\Database\Model;
 use OpenGrid\Http\Middleware;
 use OpenGrid\Http\Request;
 use OpenGrid\Support\Config;
+use OpenGrid\Support\RateLimiter;
 
 /**
  * API token of a user (AU1, like Laravel Sanctum's personal access tokens).
@@ -37,8 +38,34 @@ final class Auth
         return $class;
     }
 
-    /** The user with these credentials, or null (same answer for both failures). */
+    /**
+     * The user with these credentials, or null (same answer for both
+     * failures). AU2: failed attempts count per email and IP; after
+     * `auth.login_throttle.max_attempts` (5) within `decay_seconds` (60) the
+     * login answers 429 with `Retry-After` until the window ends, even with
+     * the right password. A success clears the counter. `max_attempts: 0`
+     * switches the throttle off.
+     */
     public static function attempt(string $email, string $password): ?Model
+    {
+        $max = (int) Config::get('auth.login_throttle.max_attempts', 5);
+        $key = 'login|' . mb_strtolower($email) . '|' . (request()->ip() ?? '');
+        if ($max > 0 && RateLimiter::tooManyAttempts($key, $max)) {
+            $seconds = RateLimiter::availableIn($key);
+            abort(429, "Too many login attempts. Please try again in {$seconds} seconds.", ['Retry-After' => (string) $seconds]);
+        }
+        $user = self::checkCredentials($email, $password);
+        if ($max > 0) {
+            if ($user === null) {
+                RateLimiter::hit($key, (int) Config::get('auth.login_throttle.decay_seconds', 60));
+            } else {
+                RateLimiter::clear($key);
+            }
+        }
+        return $user;
+    }
+
+    private static function checkCredentials(string $email, string $password): ?Model
     {
         $class = self::model();
         $user = $class::where('email', $email)->first();

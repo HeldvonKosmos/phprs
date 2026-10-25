@@ -30,13 +30,16 @@ final class Pipeline
         if ($this->index >= count($this->middleware)) {
             return \opengrid_run_controller($request);
         }
-        $class = $this->middleware[$this->index];
+        // `Class:a,b` passes 'a' and 'b' after $next, as in Laravel
+        $parts = explode(':', $this->middleware[$this->index], 2);
+        $class = $parts[0];
+        $params = count($parts) === 2 ? explode(',', $parts[1]) : [];
         // I1: middleware gets its constructor dependencies injected
         $middleware = \opengrid_resolve($class);
         if (!($middleware instanceof Middleware)) {
             throw new \TypeError($class . ' is not an OpenGrid\Http\Middleware');
         }
-        return $middleware->handle($request, (new Pipeline($this->middleware, $this->index + 1))->next());
+        return $middleware->handle($request, (new Pipeline($this->middleware, $this->index + 1))->next(), ...$params);
     }
 }
 
@@ -62,6 +65,8 @@ namespace OpenGrid\Http\Middleware;
 
 use OpenGrid\Http\Middleware;
 use OpenGrid\Http\Request;
+use OpenGrid\Http\Response;
+use OpenGrid\Support\RateLimiter;
 use OpenGrid\Support\Session;
 
 /** Alias `csrf`: state-changing requests must carry the session's token. */
@@ -78,3 +83,29 @@ final class VerifyCsrfToken extends Middleware
         return $next($request);
     }
 }
+
+/**
+ * Alias `throttle` (AU2): `throttle:60,1` allows 60 requests per minute per
+ * user (or per IP without one); then 429 with `Retry-After`. A third
+ * parameter names the limit, so routes can count separately.
+ */
+final class ThrottleRequests extends Middleware
+{
+    public function handle(Request $request, \Closure $next, string $maxAttempts = '60', string $decayMinutes = '1', string $prefix = ''): mixed
+    {
+        $max = (int) $maxAttempts;
+        $user = $request->user();
+        $key = 'throttle|' . $prefix . '|' . ($user !== null ? 'user:' . (string) $user->id : 'ip:' . ($request->ip() ?? ''));
+        if (RateLimiter::tooManyAttempts($key, $max)) {
+            $seconds = RateLimiter::availableIn($key);
+            abort(429, 'Too Many Attempts.', ['Retry-After' => (string) $seconds, 'X-RateLimit-Limit' => (string) $max, 'X-RateLimit-Remaining' => '0']);
+        }
+        RateLimiter::hit($key, (int) round((float) $decayMinutes * 60));
+        $response = $next($request);
+        if ($response instanceof Response) {
+            $response->withHeaders(['X-RateLimit-Limit' => (string) $max, 'X-RateLimit-Remaining' => (string) RateLimiter::remaining($key, $max)]);
+        }
+        return $response;
+    }
+}
+
