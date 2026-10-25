@@ -347,10 +347,14 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("ctype_xdigit", |_, a| Ok(Val::Bool(matches!(a.first(), Some(Val::Str(s)) if !s.is_empty() && s.as_bytes().iter().all(u8::is_ascii_hexdigit)))));
     vm.register_native("mb_convert_case", |_, a| {
         let s = args::string(a, 0, "mb_convert_case")?.to_string_lossy();
+        // MB_CASE_UPPER/LOWER/TITLE/FOLD and their *_SIMPLE variants (4..7)
         Ok(Val::from(match args::int(a, 1, "mb_convert_case")? {
-            0 => s.to_uppercase(),
-            1 => s.to_lowercase(),
-            _ => s.split(' ').map(|w| { let mut c = w.chars(); match c.next() { Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(), None => String::new() } }).collect::<Vec<_>>().join(" "),
+            0 | 4 => s.to_uppercase(),
+            1 | 5 => s.to_lowercase(),
+            2 | 6 => title_case(&s),
+            3 => s.to_lowercase().replace('ß', "ss"),
+            7 => s.to_lowercase(),
+            m => return Err(Throw::value_error(format!("mb_convert_case(): Argument #2 ($mode) must be one of the MB_CASE_* constants, {m} given"))),
         }))
     });
     vm.register_native("mb_strwidth", |_, a| Ok(Val::Int(args::string(a, 0, "mb_strwidth")?.char_len() as i64)));
@@ -1126,6 +1130,36 @@ fn wordwrap(text: &[u8], width: i64, brk: &[u8], cut: bool) -> Vec<u8> {
     }
     if laststart != current {
         out.extend_from_slice(slice(laststart, current));
+    }
+    out
+}
+
+/// MB_CASE_TITLE as PHP: a cased letter is title-cased when no cased letter
+/// precedes it in the word; case-ignorable characters (apostrophes, periods,
+/// colons, combining marks) keep the word going, anything else (digits, `_`,
+/// `-`, spaces) ends it.
+fn title_case(s: &str) -> String {
+    let case_ignorable = |c: char| {
+        matches!(c, '\'' | '.' | ':' | '\u{00B7}' | '\u{00AD}' | '\u{2018}' | '\u{2019}' | '\u{2024}' | '\u{FE52}' | '\u{FF07}' | '\u{FF0E}' | '\u{FF1A}' | '^' | '`' | '\u{00A8}' | '\u{00AF}' | '\u{00B4}' | '\u{00B8}')
+            || ('\u{0300}'..='\u{036F}').contains(&c)
+    };
+    let mut out = String::with_capacity(s.len());
+    let mut in_word = false;
+    for c in s.chars() {
+        let cased = c.is_uppercase() || c.is_lowercase();
+        if cased {
+            if in_word {
+                out.extend(c.to_lowercase());
+            } else {
+                out.extend(c.to_uppercase());
+            }
+            in_word = true;
+        } else {
+            if !case_ignorable(c) {
+                in_word = false;
+            }
+            out.push(c);
+        }
     }
     out
 }
