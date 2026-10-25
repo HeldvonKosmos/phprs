@@ -2,7 +2,6 @@
 //! (`RUNTIME_ARCHITECTURE.md` §8, `NATIVE_CLASSES.md` §3.)
 
 use std::any::Any;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use indexmap::IndexMap;

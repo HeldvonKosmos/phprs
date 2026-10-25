@@ -120,7 +120,6 @@ pub struct Pool {
     /// Bumped on reload; a worker whose VM is older rebuilds it before its next job.
     generation: Arc<AtomicU64>,
     sessions: Arc<SessionStore>,
-    limits: Arc<RateLimits>,
     /// The pool's one database connection (shared by all workers).
     db: Option<Arc<Db>>,
 }
@@ -223,7 +222,7 @@ impl Pool {
         if options.watch {
             start_watcher(options.root.clone(), Arc::clone(&generation));
         }
-        Ok(Pool { tx, workers: options.workers, options, generation, sessions, limits, db })
+        Ok(Pool { tx, workers: options.workers, options, generation, sessions, db })
     }
 
     /// Ask every worker to rebuild its VM before its next job (hot reload).

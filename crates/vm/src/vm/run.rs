@@ -131,6 +131,29 @@ impl Vm {
                             continue;
                         }
                     }
+                    // property read through the inline cache filled by `exec` (FetchPropSel)
+                    Op::FetchPropSel(_) | Op::FetchPropSelQuiet(_) => {
+                        if let Some(Val::Object(h)) = self.stack.last() {
+                            let h = *h;
+                            let obj = self.objects.get(h);
+                            let e = self.ics[icx][ip];
+                            if e.class == Some(obj.class)
+                                && let Some(v) = &obj.slots[e.a as usize]
+                            {
+                                let v = v.clone();
+                                *self.stack.last_mut().expect("object") = v;
+                                ip += 1;
+                                continue;
+                            }
+                        }
+                    }
+                    Op::LoadThis => {
+                        if let Some(this) = self.frames[fidx].this {
+                            self.stack.push(Val::Object(this));
+                            ip += 1;
+                            continue;
+                        }
+                    }
                     Op::BindSlot(s) => {
                         let v = self.stack.pop().expect("store operand");
                         self.slot_stack[slot_base + *s as usize] = Some(v);
