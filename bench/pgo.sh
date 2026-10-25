@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# PERF2: profile-guided build of `grd` (instrumented build, training run on
-# the benchmarks and probes, merged profile, optimized build).
-#   bench/pgo.sh [out-binary]      (default: ../target-pgo/grd-pgo)
-#   PGO_TRAIN=probes bench/pgo.sh  train on the probes only
-#   PGO_BIN=opengrid bench/pgo.sh  the framework binary, trained with BM2
+# PGO1: profile-guided build of `grd` or `opengrid` (instrumented build,
+# training run, merged profile, optimized build).
+#   bench/pgo.sh [out-binary]      grd (default: ../target-pgo/grd-pgo)
+#   PGO_BIN=opengrid bench/pgo.sh  the framework binary
+#   PGO_ROUNDS=n                   training repetitions (default 10)
+# Training never uses what the benchmarks measure (D14): grd runs the VM
+# probes (with and without JIT) and the support specification, opengrid the
+# test project's acceptance test (examples/test-app/tests/api.sh). c1-c3 and
+# BM2 stay measurements only.
 # Needs `rustup component add llvm-tools-preview`. Uses its own target
 # directory so the normal build cache stays untouched.
 set -euo pipefail
@@ -29,18 +33,28 @@ CARGO_TARGET_DIR=$TD RUSTFLAGS="-Cprofile-generate=$DATA" taskset -c 0-7 cargo b
 BIN=$TD/$PROFILE/$BINNAME
 
 echo "== training"
-# PGO_TRAIN=probes trains on the probes only (to check that the gain carries
-# over to code that was not in the training set)
+ROUNDS=${PGO_ROUNDS:-10}
 if [ "$BINNAME" = opengrid ]; then
-    python3 bench/framework/bm2.py --targets opengrid-embedded --opengrid "$BIN" --duration 5 --warmup 1 --conc 1,16 > /dev/null
-elif [ "${PGO_TRAIN:-all}" != probes ]; then
-    for b in bench/complex/c1_request.grd bench/complex/c2_runtime.grd bench/complex/c3_compute.grd; do
-        GRD_JIT=0 "$BIN" run "$b" > /dev/null
-        "$BIN" run "$b" > /dev/null
+    for _ in $(seq "$ROUNDS"); do
+        OPENGRID_BIN="$BIN" examples/test-app/tests/api.sh > /dev/null || { echo "api.sh failed with the instrumented binary"; exit 1; }
     done
-fi
-if [ "$BINNAME" = grd ]; then
-    for p in crates/vm/tests/probes/*.grd; do GRD_JIT=0 "$BIN" run "$p" > /dev/null 2>&1 || true; done
+else
+    SUPPORT=$TD/support.grd
+    python3 - "$SUPPORT" <<'EOF'
+import sys
+cases = [l for l in open("crates/vm/tests/support/cases.txt").read().splitlines() if l.strip()]
+src = "<?grd\nuse OpenGrid\\Support\\Str;\nuse OpenGrid\\Support\\Arr;\nuse OpenGrid\\Support\\LazyCollection;\n"
+for c in cases:
+    src += "try { echo json_encode(%s), \"\\n\"; } catch (Throwable $e) { echo get_class($e), \"\\n\"; }\n" % c
+open(sys.argv[1], "w").write(src)
+EOF
+    for _ in $(seq "$ROUNDS"); do
+        GRD_JIT=0 "$BIN" run "$SUPPORT" > /dev/null 2>&1 || true
+    done
+    for p in crates/vm/tests/probes/*.grd; do
+        GRD_JIT=0 "$BIN" run "$p" > /dev/null 2>&1 || true
+        GRD_JIT_HOT=1 "$BIN" run "$p" > /dev/null 2>&1 || true
+    done
 fi
 ls "$DATA"/*.profraw > /dev/null || { echo "no profile written (did the process exit cleanly?)"; exit 1; }
 

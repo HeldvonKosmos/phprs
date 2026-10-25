@@ -5,6 +5,8 @@ application (LV1), method D11 (BENCHMARKS.md section 4).
 Targets (each started fresh, data created over the API, no seeds):
   opengrid-server    OpenGrid (examples/test-app) against a SurrealDB server (ws://)
   opengrid-embedded  OpenGrid with the embedded surrealkv database
+  opengrid-embedded-pgo  the same with the PGO binary (--opengrid-pgo, PGO1;
+                     trained on api.sh, never on this load)
   laravel-fpm        Laravel + Sanctum, nginx + PHP-FPM (opcache on, JIT off)
   laravel-octane     Laravel + Sanctum, Octane on RoadRunner
 The Laravel app uses its database from the environment: SQLite until the
@@ -134,10 +136,11 @@ class Target:
                 self.surreal_server()
             else:
                 self.env["OPENGRID_DB_URL"] = f"surrealkv://{self.work}/db"
-            r = subprocess.run([self.a.opengrid, "task", "migrate_push"], cwd=app, env=self.env, capture_output=True, text=True)
+            binary = self.a.opengrid_pgo if self.name.endswith("-pgo") else self.a.opengrid
+            r = subprocess.run([binary, "task", "migrate_push"], cwd=app, env=self.env, capture_output=True, text=True)
             if r.returncode != 0:
                 sys.exit(f"migrate_push failed: {r.stdout[-800:]}{r.stderr[-800:]}")
-            p = start([self.a.opengrid, "start", "--no-banner", "--binding", "127.0.0.1", "--port", str(self.port)], self.a.app_cores, self.env, f"{self.work}/server.log", cwd=app)
+            p = start([binary, "start", "--no-banner", "--binding", "127.0.0.1", "--port", str(self.port)], self.a.app_cores, self.env, f"{self.work}/server.log", cwd=app)
         else:
             db = os.path.join(self.work, "db.sqlite")
             open(db, "w").close()
@@ -192,9 +195,11 @@ def main():
     ap.add_argument("--db-cores", default="4-7")
     ap.add_argument("--load-cores", default="0-3")
     ap.add_argument("--opengrid", default=os.path.join(WS, "target/profiling/opengrid"))
+    ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
     a = ap.parse_args()
     a.opengrid = os.path.abspath(a.opengrid)
+    a.opengrid_pgo = os.path.abspath(a.opengrid_pgo)
     sh = lambda c, cwd=None: subprocess.run(c, capture_output=True, text=True, cwd=cwd).stdout.strip()
     laravel = sh(["php", "artisan", "--version"], LARAVEL_APP) if os.path.isdir(LARAVEL_APP) else "–"
     platform_db = os.path.isdir(os.path.join(LARAVEL_APP, "app/Database"))

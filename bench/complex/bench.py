@@ -12,11 +12,15 @@ compile time of the script (batch of 100 files, minus an empty batch) are
 measured here. Runs are interleaved, pinned with taskset, median and relative
 standard deviation over --runs runs. Checksums must match.
 
-usage: bench.py [--grd BIN] [--runs 7] [--cores 8-11] [--compare A,B,C] [--bench c1_request,...]
+With --grd-pgo BIN (PGO1) the PGO binary is measured in the same interleaved
+runs and every table gets its own columns for it.
+
+usage: bench.py [--grd BIN] [--grd-pgo BIN] [--runs 7] [--cores 8-11] [--compare A,B,C] [--bench c1_request,...]
 """
 import argparse, datetime, os, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+PGO_BIN = None
 PHP_A = ["php", "-d", "opcache.enable_cli=0"]
 PHP_B = ["php", "-d", "opcache.enable_cli=1", "-d", "opcache.jit=disable"]
 PHP_C = ["php", "-d", "opcache.enable_cli=1", "-d", "opcache.jit=tracing", "-d", "opcache.jit_buffer_size=64M"]
@@ -35,6 +39,8 @@ def variant_cmd(v, grd, script):
     php = {"php-a": PHP_A, "php-b": PHP_B, "php-c": PHP_C}
     if v in php:
         return php[v] + [script + ".php"], None
+    if v.endswith("-pgo"):
+        grd, v = PGO_BIN, v[:-4]
     env = dict(os.environ)
     if v == "grd-int":
         env["GRD_JIT"] = "0"
@@ -85,16 +91,19 @@ def compile_ms(v, grd, script, runs, cores, tmp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--grd", default=os.path.join(HERE, "../../../target/profiling/grd"))
+    ap.add_argument("--grd-pgo", default=None)
     ap.add_argument("--runs", type=int, default=7)
     ap.add_argument("--cores", default="8-11")
     ap.add_argument("--compare", default="A,B,C")
     ap.add_argument("--bench", default="c1_request,c2_runtime,c3_compute")
     a = ap.parse_args()
+    global PGO_BIN
     grd = os.path.abspath(a.grd)
+    PGO_BIN = os.path.abspath(a.grd_pgo) if a.grd_pgo else None
     comps = a.compare.split(",")
     variants = []
     for c in comps:
-        for v in (COMPARE[c][1], COMPARE[c][3]):
+        for v in (COMPARE[c][1], COMPARE[c][3]) + ((COMPARE[c][3] + "-pgo",) if PGO_BIN else ()):
             if v not in variants:
                 variants.append(v)
 
@@ -106,7 +115,7 @@ def main():
     dirty = " (+ uncommitted changes)" if sh(["git", "-C", repo, "status", "--porcelain", "--", "crates"]) else ""
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
     print(f"Commit {commit}{dirty} · {datetime.datetime.now():%Y-%m-%d %H:%M} · {sh(['php', '-r', 'echo PHP_VERSION;'])} (NTS, ohne Xdebug)"
-          f" · grd {os.path.relpath(grd, repo)} · Kerne {a.cores} · Governor {gov} · Median aus {a.runs} Läufen, σ relativ\n")
+          f" · grd {os.path.relpath(grd, repo)}" + (f" · PGO {os.path.relpath(PGO_BIN, repo)}" if PGO_BIN else "") + f" · Kerne {a.cores} · Governor {gov} · Median aus {a.runs} Läufen, σ relativ\n")
 
     with tempfile.TemporaryDirectory() as tmp:
         open(os.path.join(tmp, "empty.php"), "w").write("<?php\n")
@@ -134,23 +143,29 @@ def main():
                 ln, lv, rn, rv = COMPARE[c]
                 print(f"### {b} · Vergleich {c}: {ln} gegen {rn}")
                 print(f"Prüfsummen: {'gleich' if ok else 'UNGLEICH ' + str(sums)} ({'/'.join(sorted(sums[lv]))})\n")
-                print(f"| Phase | PHP ms | σ | grd ms | σ | grd/PHP |")
-                print(f"|---|---:|---:|---:|---:|---:|")
+                pv = rv + "-pgo" if PGO_BIN else None
+                print("| Phase | PHP ms | σ | grd ms | σ | grd/PHP |" + (" PGO ms | σ | PGO/PHP |" if pv else ""))
+                print("|---|---:|---:|---:|---:|---:|" + ("---:|---:|---:|" if pv else ""))
 
-                def row(name, l, r):
-                    f = f"{r[0] / l[0]:.1f}×" if l[0] > 0 else "–"
+                def row(name, l, r, g=None):
+                    f = lambda r: f"{r[0] / l[0]:.1f}×" if l[0] > 0 else "–"
                     n = lambda x: f"{x:.2f}" if abs(x) < 10 else f"{x:.1f}"
-                    print(f"| {name} | {n(l[0])} | {l[1]:.0f} % | {n(r[0])} | {r[1]:.0f} % | {f} |")
+                    extra = f" {n(g[0])} | {g[1]:.0f} % | {f(g)} |" if g else ""
+                    print(f"| {name} | {n(l[0])} | {l[1]:.0f} % | {n(r[0])} | {r[1]:.0f} % | {f(r)} |" + extra)
+                pg = lambda fn: fn(pv) if pv else None
                 for p in phases:
-                    row(p, stat([float(x[p]) for x in res[lv]]), stat([float(x[p]) for x in res[rv]]))
+                    col = lambda v: stat([float(x[p]) for x in res[v]])
+                    row(p, col(lv), col(rv), pg(col))
                 tot = lambda v: stat([sum(float(x[p]) for p in phases) for x in res[v]])
-                row("**Summe der Phasen**", tot(lv), tot(rv))
+                row("**Summe der Phasen**", tot(lv), tot(rv), pg(tot))
                 if c == "A":
                     row("Übersetzung des Skripts", comp["php-a"], comp["grd-int"])
-                row("Prozessstart (leeres Skript)", startup[lv], startup[rv])
-                rest = lambda v, x: x["_wall"] - sum(float(x[p]) for p in phases) - startup[v][0] - (comp[v][0] if c == "A" else 0)
-                row("übrige Zeit (Daten erzeugen, Ausgabe, Abbau)", stat([rest(lv, x) for x in res[lv]]), stat([rest(rv, x) for x in res[rv]]))
-                row("**Wanduhr gesamt**", stat([x["_wall"] for x in res[lv]]), stat([x["_wall"] for x in res[rv]]))
+                row("Prozessstart (leeres Skript)", startup[lv], startup[rv], pg(lambda v: startup[v]))
+                rest = lambda v, x: x["_wall"] - sum(float(x[p]) for p in phases) - startup[v][0] - (comp[v][0] if c == "A" and v in comp else 0)
+                restc = lambda v: stat([rest(v, x) for x in res[v]])
+                row("übrige Zeit (Daten erzeugen, Ausgabe, Abbau)", restc(lv), restc(rv), pg(restc))
+                wall = lambda v: stat([x["_wall"] for x in res[v]])
+                row("**Wanduhr gesamt**", wall(lv), wall(rv), pg(wall))
                 print()
             if not ok:
                 sys.exit(1)
