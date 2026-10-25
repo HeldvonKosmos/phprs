@@ -17,6 +17,8 @@ path = "src/bin/opengrid.rs"
 grd-vm = { path = "../vm" }
 # JIT for the worker VMs (DECISIONS D8; tier 2 is process-wide)
 grd-jit = { path = "../jit" }
+# PKG1: the module manager
+opengrid-pkg = { path = "../pkg" }
 loco-rs = { version = "1.2.0", default-features = false, features = ["cli"] }
 axum = "0.8"
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync"] }

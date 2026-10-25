@@ -2,33 +2,17 @@
 name = "opengrid-pkg"
 version = "0.1.0"
 edition = "2024"
-description = "OpenGrid module manager (Composer-compatible): init, install, update, build, run, publish"
+description = "OpenGrid module manager: modules from Git into modules/, with a lock file (PKG1)"
 license = "MIT"
 
 [lib]
 name = "opengrid_pkg"
 path = "src/lib.rs"
 
-[[bin]]
-name = "opengrid-pkg"
-path = "src/bin/opengrid-pkg.rs"
-
 [dependencies]
-anyhow = "1.0"
-thiserror = "2.0"
-clap = { version = "4.5", features = ["derive"] }
+# the module manifest (modules/<m>/module.toml) and its parser
+grd-vm = { path = "../vm" }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 toml = "1"
-reqwest = { version = "0.13", features = ["json"] }
-tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "fs"] }
-semver = { version = "1.0", features = ["serde"] }
-zip = { version = "9", default-features = false, features = ["deflate"] }
-tar = "0.4"
-flate2 = "1.1"
 sha2 = "0.11"
-dirs = "7"
 tempfile = "3"
-log = "0.4"
-env_logger = "0.11"
-regex = "1"

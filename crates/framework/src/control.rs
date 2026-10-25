@@ -30,11 +30,59 @@ pub fn socket_path(root: &Path) -> PathBuf {
 pub fn run_task(pool: &Arc<Pool>, name: &str, args: &BTreeMap<String, String>) -> Result<String, String> {
     match name {
         "migrate_push" | "migrate_pull" | "migrate_fresh" | "rollout" => schema_task(pool, name, args),
+        "module" => module_task(pool.options(), args, Some(pool)),
         "run" => {
             let sig = args.get("task").ok_or("run needs task:<module>:<name>")?;
             grd_task(pool, sig, args)
         }
         other => Err(format!("unknown task `{other}`")),
+    }
+}
+
+/// PKG1: `module cmd:add url:<git> [rev:<tag|branch|commit>]`, `cmd:remove
+/// name:<m>`, `cmd:list`, `cmd:verify`. After `add` the whole project must
+/// still compile and link (GRD check), otherwise the module is taken out
+/// again; a running server (`pool`) reloads its workers.
+pub fn module_task(options: &crate::worker::PoolOptions, args: &BTreeMap<String, String>, pool: Option<&Arc<Pool>>) -> Result<String, String> {
+    let root = &options.root;
+    match args.get("cmd").map(String::as_str).unwrap_or("list") {
+        "add" => {
+            let url = args.get("url").ok_or("module cmd:add needs url:<git repository>")?;
+            let added = opengrid_pkg::add(root, url, args.get("rev").map(String::as_str))?;
+            if let Err(e) = crate::worker::check_project(options) {
+                let _ = opengrid_pkg::remove(root, &added.locked.name);
+                return Err(format!("module `{}` does not pass the check and was removed again: {e}", added.locked.name));
+            }
+            if let Some(p) = pool {
+                p.reload();
+            }
+            Ok(format!("added {} {} ({} @ {})", added.locked.name, added.locked.version, added.locked.source, &added.locked.commit[..12.min(added.locked.commit.len())]))
+        }
+        "remove" => {
+            let name = args.get("name").ok_or("module cmd:remove needs name:<module>")?;
+            opengrid_pkg::remove(root, name)?;
+            if let Some(p) = pool {
+                p.reload();
+            }
+            Ok(format!("removed {name}"))
+        }
+        "list" => {
+            let lock = opengrid_pkg::Lock::read(root)?;
+            let mut out = String::new();
+            for m in lock.modules {
+                out.push_str(&format!("{} {} {} @ {}\n", m.name, m.version, m.source, &m.commit[..12.min(m.commit.len())]));
+            }
+            Ok(out)
+        }
+        "verify" => {
+            let changed = opengrid_pkg::verify(root)?;
+            if changed.is_empty() {
+                Ok("all installed modules match modules.lock".into())
+            } else {
+                Err(changed.iter().map(|(n, r)| format!("{n}: {r}")).collect::<Vec<_>>().join("\n"))
+            }
+        }
+        other => Err(format!("unknown module cmd `{other}` (add, remove, list, verify)")),
     }
 }
 

@@ -21,6 +21,8 @@ mod inject;
 mod jobs;
 #[path = "suite/mail_storage.rs"]
 mod mail_storage;
+#[path = "suite/modules.rs"]
+mod modules;
 #[path = "suite/middleware.rs"]
 mod middleware;
 #[path = "suite/relations.rs"]

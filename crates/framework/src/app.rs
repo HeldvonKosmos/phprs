@@ -227,7 +227,8 @@ impl Hooks for OpenGridApp {
 
 /// The tasks of `opengrid task …`. In a project with a running server they
 /// run inside it (J1, control socket), otherwise in this process.
-const TASKS: [(&str, &str); 5] = [
+const TASKS: [(&str, &str); 6] = [
+    ("module", "modules from Git: cmd:add url:<repo> [rev:<tag|branch|commit>] | cmd:remove name:<m> | cmd:list | cmd:verify"),
     ("migrate_push", "merge the modules' .surql schema and sync the database (development)"),
     ("migrate_pull", "print the database's current schema in .surql form"),
     ("migrate_fresh", "empty the database and push the schema again: force:true [keep_db:true]"),
@@ -260,6 +261,11 @@ impl Task for OpenGridTask {
         };
         let result = match forwarded {
             Some(r) => r,
+            // the module manager needs no database: no pool
+            None if name == "module" => {
+                let options = lazy.options().clone();
+                tokio::task::spawn_blocking(move || crate::control::module_task(&options, &args, None)).await.map_err(|e| msg(format!("task: {e}")))?
+            }
             None => {
                 let pool = lazy.get().await?;
                 tokio::task::spawn_blocking(move || crate::control::run_task(&pool, &name, &args)).await.map_err(|e| msg(format!("task: {e}")))?

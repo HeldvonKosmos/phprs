@@ -190,6 +190,15 @@ fn trace_host(host: &dyn std::any::Any, out: &mut Vec<Val>) {
     }
 }
 
+/// PKG1: compile and link the whole project as a worker does (framework
+/// preludes and natives), without opening the database.
+pub fn check_project(options: &PoolOptions) -> Result<grd_vm::vm::project::ProjectSummary, String> {
+    let mut opts = options.clone();
+    opts.database = None;
+    let services = Arc::new(Services::new(&opts.root, &opts.settings)?);
+    build_vm(&opts, None, Arc::new(SessionStore::new(opts.session.clone())), Arc::new(RateLimits::new()), services).map(|(_, summary)| summary)
+}
+
 impl Pool {
     /// Start the workers; every worker loads the project itself. Fails when a
     /// worker cannot load it (compile or link error, with GRD code).
