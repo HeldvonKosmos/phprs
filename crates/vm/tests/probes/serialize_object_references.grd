@@ -1,0 +1,14 @@
+<?grd
+// serialize numbers every value like PHP and writes an object met again as
+// r:N; unserialize restores the same objects, so cycles and sharing survive.
+final class N { public ?N $n = null; public int $v = 1; public array $list = []; }
+$a = new N(); $b = new N(); $a->n = $b; $b->n = $a; $b->list = [$a, 'x', $b];
+$s = serialize([$a, $b, 'x', $a]);
+echo $s, "\n";
+$u = unserialize($s);
+var_dump($u[0] === $u[3], $u[0]->n->n === $u[0], $u[1]->list[2] === $u[1], $u[1]->list[0] === $u[0]);
+echo serialize($u) === $s ? "round trip\n" : "changed\n";
+$c = new N(); $c->n = $c;
+echo serialize($c), "\n";
+echo serialize(['p' => [1, [2, 3]], 'q' => true, 'r' => null, 'f' => 1.5]), "\n";
+var_dump(unserialize('a:2:{i:0;i:7;i:1;r:2;}'));

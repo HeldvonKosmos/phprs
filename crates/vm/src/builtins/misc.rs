@@ -43,13 +43,13 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("serialize", |vm, a| {
         args::count(a, 1, "serialize")?;
         let mut out = Vec::new();
-        serialize(vm, &a[0], &mut out)?;
+        serialize(vm, &a[0], &mut out, &mut Serialized::default())?;
         Ok(Val::bytes(&out))
     });
     vm.register_native("unserialize", |vm, a| {
         let s = args::string(a, 0, "unserialize")?;
         let mut pos = 0;
-        match unserialize(vm, s.as_bytes(), &mut pos) {
+        match unserialize(vm, s.as_bytes(), &mut pos, &mut Vec::new()) {
             Ok(v) => Ok(v),
             Err(_) => Ok(Val::Bool(false)),
         }
@@ -434,7 +434,28 @@ fn version_cmp(a: &str, b: &str) -> i64 {
     0
 }
 
-fn serialize(vm: &mut Vm, v: &Val, out: &mut Vec<u8>) -> Result<(), Throw> {
+/// Numbering of serialized values, as PHP does: every value (not the keys)
+/// gets the next number; an object met again is written as `r:N;`, the
+/// number of its first appearance, so cycles and shared objects survive.
+#[derive(Default)]
+struct Serialized {
+    n: i64,
+    seen: std::collections::HashMap<ObjHandle, i64>,
+}
+
+fn serialize_key(k: &ArrayKey, out: &mut Vec<u8>) {
+    match k {
+        ArrayKey::Int(i) => out.extend_from_slice(format!("i:{i};").as_bytes()),
+        ArrayKey::Str(s) => {
+            out.extend_from_slice(format!("s:{}:\"", s.len()).as_bytes());
+            out.extend_from_slice(s.as_bytes());
+            out.extend_from_slice(b"\";");
+        }
+    }
+}
+
+fn serialize(vm: &mut Vm, v: &Val, out: &mut Vec<u8>, st: &mut Serialized) -> Result<(), Throw> {
+    st.n += 1;
     match v {
         Val::Null => out.extend_from_slice(b"N;"),
         Val::Bool(b) => out.extend_from_slice(format!("b:{};", *b as u8).as_bytes()),
@@ -448,12 +469,17 @@ fn serialize(vm: &mut Vm, v: &Val, out: &mut Vec<u8>) -> Result<(), Throw> {
         Val::Array(a) => {
             out.extend_from_slice(format!("a:{}:{{", a.len()).as_bytes());
             for (k, val) in a.iter() {
-                serialize(vm, &k.to_val(), out)?;
-                serialize(vm, val, out)?;
+                serialize_key(&k, out);
+                serialize(vm, val, out, st)?;
             }
             out.push(b'}');
         }
         Val::Object(h) => {
+            if let Some(first) = st.seen.get(h) {
+                out.extend_from_slice(format!("r:{first};").as_bytes());
+                return Ok(());
+            }
+            st.seen.insert(*h, st.n);
             let class = vm.objects.get(*h).class;
             let name = vm.class(class).name.clone();
             let props = if vm.class(class).find_method(b"__serialize").is_some() {
@@ -466,8 +492,8 @@ fn serialize(vm: &mut Vm, v: &Val, out: &mut Vec<u8>) -> Result<(), Throw> {
             };
             out.extend_from_slice(format!("O:{}:\"{}\":{}:{{", name.len(), String::from_utf8_lossy(&name), props.len()).as_bytes());
             for (k, val) in props.iter() {
-                serialize(vm, &k.to_val(), out)?;
-                serialize(vm, val, out)?;
+                serialize_key(&k, out);
+                serialize(vm, val, out, st)?;
             }
             out.push(b'}');
         }
@@ -475,7 +501,13 @@ fn serialize(vm: &mut Vm, v: &Val, out: &mut Vec<u8>) -> Result<(), Throw> {
     Ok(())
 }
 
-fn unserialize(vm: &mut Vm, b: &[u8], pos: &mut usize) -> Result<Val, ()> {
+/// One value; `table` holds the values read so far in PHP's numbering (keys
+/// excluded), for `r:N;` back references.
+fn unserialize(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val>) -> Result<Val, ()> {
+    unserialize_inner(vm, b, pos, table, false)
+}
+
+fn unserialize_inner(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val>, is_key: bool) -> Result<Val, ()> {
     let read_until = |pos: &mut usize, stop: u8| -> Result<String, ()> {
         let start = *pos;
         while *pos < b.len() && b[*pos] != stop {
@@ -490,23 +522,33 @@ fn unserialize(vm: &mut Vm, b: &[u8], pos: &mut usize) -> Result<Val, ()> {
     };
     let tag = *b.get(*pos).ok_or(())?;
     *pos += 1;
+    // scalars are numbered right away; arrays and objects take their number
+    // before their contents, so a reference inside them can point back
+    let scalar = |v: Val, table: &mut Vec<Val>| {
+        if !is_key {
+            table.push(v.clone());
+        }
+        Ok(v)
+    };
     match tag {
         b'N' => {
             *pos += 1;
-            Ok(Val::Null)
+            scalar(Val::Null, table)
         }
         b'b' => {
             *pos += 1;
             let v = read_until(pos, b';')?;
-            Ok(Val::Bool(v == "1"))
+            scalar(Val::Bool(v == "1"), table)
         }
         b'i' => {
             *pos += 1;
-            Ok(Val::Int(read_until(pos, b';')?.parse().map_err(|_| ())?))
+            let v = read_until(pos, b';')?.parse().map_err(|_| ())?;
+            scalar(Val::Int(v), table)
         }
         b'd' => {
             *pos += 1;
-            Ok(Val::Float(read_until(pos, b';')?.parse().map_err(|_| ())?))
+            let v = read_until(pos, b';')?.parse().map_err(|_| ())?;
+            scalar(Val::Float(v), table)
         }
         b's' => {
             *pos += 1;
@@ -514,23 +556,35 @@ fn unserialize(vm: &mut Vm, b: &[u8], pos: &mut usize) -> Result<Val, ()> {
             *pos += 1; // quote
             let s = b.get(*pos..*pos + len).ok_or(())?.to_vec();
             *pos += len + 2; // closing quote and ;
-            Ok(Val::bytes(&s))
+            scalar(Val::bytes(&s), table)
         }
-        b'a' => {
+        b'r' if !is_key => {
+            *pos += 1;
+            let n: usize = read_until(pos, b';')?.parse().map_err(|_| ())?;
+            // `r:` points at an object (PHP rejects it for anything else)
+            let v = n.checked_sub(1).and_then(|i| table.get(i)).filter(|v| matches!(v, Val::Object(_))).cloned().ok_or(())?;
+            table.push(v.clone());
+            Ok(v)
+        }
+        b'a' if !is_key => {
             *pos += 1;
             let n: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
             *pos += 1; // {
+            let slot = table.len();
+            table.push(Val::Null);
             let mut arr = PhpArray::new();
             for _ in 0..n {
-                let k = unserialize(vm, b, pos)?;
-                let v = unserialize(vm, b, pos)?;
+                let k = unserialize_inner(vm, b, pos, table, true)?;
+                let v = unserialize_inner(vm, b, pos, table, false)?;
                 let key = vm.to_array_key(&k).map_err(|_| ())?;
                 arr.insert(key, v);
             }
             *pos += 1; // }
-            Ok(Val::array(arr))
+            let v = Val::array(arr);
+            table[slot] = v.clone();
+            Ok(v)
         }
-        b'O' => {
+        b'O' if !is_key => {
             *pos += 1;
             let _len: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
             *pos += 1;
@@ -538,16 +592,17 @@ fn unserialize(vm: &mut Vm, b: &[u8], pos: &mut usize) -> Result<Val, ()> {
             *pos += 1; // :
             let n: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
             *pos += 1;
+            let class = vm.lookup_class(name.as_bytes()).ok_or(())?;
+            let h = vm.alloc_object(class).map_err(|_| ())?;
+            table.push(Val::Object(h));
             let mut props = PhpArray::new();
             for _ in 0..n {
-                let k = unserialize(vm, b, pos)?;
-                let v = unserialize(vm, b, pos)?;
+                let k = unserialize_inner(vm, b, pos, table, true)?;
+                let v = unserialize_inner(vm, b, pos, table, false)?;
                 let key = vm.to_array_key(&k).map_err(|_| ())?;
                 props.insert(key, v);
             }
             *pos += 1;
-            let class = vm.lookup_class(name.as_bytes()).ok_or(())?;
-            let h = vm.alloc_object(class).map_err(|_| ())?;
             if vm.class(class).find_method(b"__unserialize").is_some() {
                 vm.call_method_sync(h, b"__unserialize", vec![Val::array(props)]).map_err(|_| ())?;
             } else {
