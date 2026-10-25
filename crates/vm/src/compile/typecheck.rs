@@ -112,10 +112,10 @@ struct Scope {
     vars: HashMap<Vec<u8>, Var>,
 }
 
-struct Counter<'s> {
+struct Counter {
     scopes: Vec<Scope>,
     counts: Grd021Counts,
-    source: &'s [u8],
+    lines: super::LineIndex,
 }
 
 fn var_name<'a>(e: &Expression<'a>) -> Option<&'a [u8]> {
@@ -140,7 +140,7 @@ fn hint_type(h: &Hint<'_>) -> Option<(T, bool)> {
     })
 }
 
-impl Counter<'_> {
+impl Counter {
     fn scope(&mut self) -> &mut Scope {
         self.scopes.last_mut().expect("scope")
     }
@@ -277,11 +277,11 @@ impl Counter<'_> {
     }
 
     fn line(&self, offset: u32) -> u32 {
-        1 + self.source[..(offset as usize).min(self.source.len())].iter().filter(|b| **b == b'\n').count() as u32
+        self.lines.line(offset)
     }
 }
 
-impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
+impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter {
     fn walk_in_function(&mut self, f: &'ast Function<'arena>, _: &mut ()) {
         self.enter(Some(&f.parameter_list));
     }
@@ -335,7 +335,7 @@ impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Counter<'_> {
 
 /// Check / count GRD021 in a parsed program.
 pub fn count_grd021(program: &Program<'_>, source: &[u8]) -> Grd021Counts {
-    let mut c = Counter { scopes: vec![Scope { key: u32::MAX, ..Default::default() }], counts: Grd021Counts::default(), source };
+    let mut c = Counter { scopes: vec![Scope { key: u32::MAX, ..Default::default() }], counts: Grd021Counts::default(), lines: super::LineIndex::new(source) };
     walk_program_mut(&mut c, program, &mut ());
     c.leave();
     c.counts

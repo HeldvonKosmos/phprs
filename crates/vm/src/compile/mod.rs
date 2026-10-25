@@ -143,6 +143,20 @@ pub fn line_of(source: &[u8], offset: u32) -> u32 {
     (source[..(offset as usize).min(source.len())].iter().filter(|b| **b == b'\n').count() + 1) as u32
 }
 
+/// Offsets of a source's newlines: line numbers in O(log n) instead of
+/// counting from the start for every span (that made compiling quadratic).
+pub(crate) struct LineIndex(Vec<u32>);
+
+impl LineIndex {
+    pub(crate) fn new(source: &[u8]) -> Self {
+        LineIndex(source.iter().enumerate().filter(|(_, b)| **b == b'\n').map(|(i, _)| i as u32).collect())
+    }
+    /// Same as [`line_of`]: 1 + the number of newlines before `offset`.
+    pub(crate) fn line(&self, offset: u32) -> u32 {
+        self.0.partition_point(|&nl| nl < offset) as u32 + 1
+    }
+}
+
 /// Class being compiled (for `self`, `__CLASS__`, promotion).
 #[derive(Debug, Clone)]
 pub(crate) struct ClassCtx {
@@ -321,9 +335,9 @@ impl UnitBuilder {
     }
 }
 
-pub struct Compiler<'src> {
+pub struct Compiler {
     pub module: Module,
-    source: &'src [u8],
+    lines: LineIndex,
     strings: HashMap<Vec<u8>, StrId>,
     pub(crate) names: Names,
     pub(crate) class_stack: Vec<ClassCtx>,
@@ -336,13 +350,13 @@ pub struct Compiler<'src> {
     pub(crate) mixed_vars: HashMap<u32, std::collections::HashSet<Vec<u8>>>,
 }
 
-impl<'src> Compiler<'src> {
-    pub fn new(file_name: &str, source: &'src [u8]) -> Self {
+impl Compiler {
+    pub fn new(file_name: &str, source: &[u8]) -> Self {
         let mut module = Module::default();
         module.file = file_name.to_string();
         Compiler {
             module,
-            source,
+            lines: LineIndex::new(source),
             strings: HashMap::new(),
             names: Names::new(),
             class_stack: Vec::new(),
@@ -356,7 +370,7 @@ impl<'src> Compiler<'src> {
     // ---- errors -------------------------------------------------------
 
     pub(crate) fn line(&self, span: Span) -> u32 {
-        line_of(self.source, span.start.offset)
+        self.lines.line(span.start.offset)
     }
 
     pub(crate) fn err<T>(&self, span: Span, message: impl Into<String>) -> CResult<T> {
@@ -464,5 +478,19 @@ impl<'src> Compiler<'src> {
         let main = self.pop_unit();
         self.module.main = main;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod line_index_tests {
+    use super::{LineIndex, line_of};
+
+    #[test]
+    fn line_index_matches_counting() {
+        let src = b"<?php\n\nfoo();\r\n  bar();\nbaz";
+        let idx = LineIndex::new(src);
+        for off in 0..=src.len() as u32 + 3 {
+            assert_eq!(idx.line(off), line_of(src, off), "offset {off}");
+        }
     }
 }

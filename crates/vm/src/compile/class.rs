@@ -17,7 +17,7 @@ struct Members {
     traits: Vec<StrId>,
 }
 
-impl Compiler<'_> {
+impl Compiler {
     pub(crate) fn compile_class(&mut self, c: &Class<'_>) -> CResult<()> {
         let fq = self.names.declare(c.name.value);
         let parent = match &c.extends {

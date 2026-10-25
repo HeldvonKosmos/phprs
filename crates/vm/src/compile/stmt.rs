@@ -26,7 +26,7 @@ pub(crate) struct FnSpec<'a, 'arena> {
     pub line: u32,
 }
 
-impl Compiler<'_> {
+impl Compiler {
     pub(crate) fn compile_statements<'a, 'arena: 'a>(
         &mut self,
         stmts: impl Iterator<Item = &'a Statement<'arena>>,
@@ -886,7 +886,7 @@ impl Compiler<'_> {
     }
 }
 
-fn flatten_union(c: &mut Compiler<'_>, u: &UnionHint<'_>, out: &mut Vec<TypeHint>) -> CResult<()> {
+fn flatten_union(c: &mut Compiler, u: &UnionHint<'_>, out: &mut Vec<TypeHint>) -> CResult<()> {
     for side in [u.left, u.right] {
         match side {
             Hint::Union(inner) => flatten_union(c, inner, out)?,

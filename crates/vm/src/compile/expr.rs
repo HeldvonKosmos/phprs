@@ -14,7 +14,7 @@ pub(crate) enum Want {
     Discard,
 }
 
-impl Compiler<'_> {
+impl Compiler {
     /// Compile an expression and leave exactly one value on the stack.
     pub(crate) fn compile_expr(&mut self, e: &Expression<'_>) -> CResult<()> {
         self.compile_expr_w(e, Want::Value)
