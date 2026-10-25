@@ -279,6 +279,52 @@ impl Vm {
                             }
                         }
                     }
+                    // PROPW1: `$o->p = v` / `$this->p = v` through an inline cache
+                    // (class -> slot), like property reads; values that need a
+                    // type conversion or check failure take the generic path
+                    Op::StorePath(path) if path.mode == WriteMode::Assign && matches!(path.segs.as_slice(), [PathSeg::PropSel(_)]) => {
+                        let target = match path.base {
+                            PathBase::Slot(s) => match &self.slot_stack[slot_base + s as usize] {
+                                Some(Val::Object(h)) => Some(*h),
+                                _ => None,
+                            },
+                            PathBase::This => self.frames[fidx].this,
+                            _ => None,
+                        };
+                        if let (Some(h), [PathSeg::PropSel(sel)]) = (target, path.segs.as_slice()) {
+                            let class = self.objects.get(h).class;
+                            let e = self.ics[icx][ip];
+                            if e.class != Some(class) {
+                                if let Some(&slot) = self.class(class).props_by_sel.get(sel) {
+                                    let p = &self.class(class).props[slot as usize];
+                                    let scope = self.frames[fidx].class;
+                                    let visible = match p.visibility {
+                                        Visibility::Public => true,
+                                        Visibility::Protected => scope.is_some_and(|sc| self.instance_of(sc, p.declaring) || self.instance_of(p.declaring, sc)),
+                                        Visibility::Private => scope == Some(p.declaring),
+                                    };
+                                    if visible && !p.readonly {
+                                        self.ics[icx][ip] = IcEntry { class: Some(class), a: slot, b: 0, c: 0, flag: false };
+                                    }
+                                }
+                            }
+                            let e = self.ics[icx][ip];
+                            if e.class == Some(class) {
+                                let value = self.stack.last().expect("value");
+                                let fits = match &self.class(class).props[e.a as usize].ty {
+                                    Some(TypeHint::Nullable(t)) => matches!(value, Val::Null) || super::path::scalar_type_matches(t, value),
+                                    Some(t) => super::path::scalar_type_matches(t, value),
+                                    None => true,
+                                };
+                                if fits {
+                                    let value = value.clone();
+                                    self.objects.get_mut(h).slots[e.a as usize] = Some(value);
+                                    ip += 1;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     Op::StorePath(path) if path.mode == WriteMode::Assign => {
                         // `$a[$k] = v` and `$a[] = v` on a local array
                         if let PathBase::Slot(s) = path.base {
