@@ -15,7 +15,7 @@ use surrealdb::types::{Object, Value};
 const MAX_CONFLICT_RETRIES: u32 = 20;
 
 /// SurrealDB marks optimistic transaction conflicts as retriable.
-fn is_retriable(error: &str) -> bool {
+pub(crate) fn is_retriable(error: &str) -> bool {
     error.contains("can be retried")
 }
 

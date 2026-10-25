@@ -37,6 +37,8 @@ mod server;
 mod server_mode;
 #[path = "suite/session.rs"]
 mod session;
+#[path = "suite/transactions.rs"]
+mod transactions;
 #[path = "suite/types.rs"]
 mod types;
 #[path = "suite/test_app.rs"]

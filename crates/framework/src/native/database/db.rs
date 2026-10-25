@@ -9,6 +9,7 @@ use surrealdb::types::Value;
 
 use super::builder;
 use super::value::{from_surreal, to_surreal};
+use super::surreal::is_retriable;
 use super::{QUERY_EXCEPTION, query};
 use crate::native::{ctx, string_arg};
 
@@ -64,28 +65,51 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             let table = string_arg(&c, 0, "DB::table")?;
             Ok(Val::Object(builder::new_for_table(vm, &table, false, None)?))
         })
+        // `DB::transaction(fn, $attempts = 1)` like Laravel: a write conflict that
+        // SurrealDB reports as retriable (optimistic transactions) runs the whole
+        // closure again while attempts remain (TX1, D12); everything else is
+        // passed on. The default of 1 attempt means no retry, as in Laravel.
         .static_method("transaction", |vm, c| {
             let closure = c.arg(0);
+            let attempts = match c.arg(1) {
+                Val::Null => 1,
+                Val::Int(n) if n >= 1 => n,
+                other => return Err(Throw::value_error(format!("DB::transaction(): Argument #2 ($attempts) must be at least 1, {} given", other.type_name()))),
+            };
             let db = ctx(vm).db.clone().ok_or_else(|| Throw::error("no database configured"))?;
             if ctx(vm).txn.is_some() {
                 // nested: run inside the outer transaction
                 return vm.call_value(&closure, Vec::new());
             }
-            let txn = db.begin().map_err(|e| Throw::new(QUERY_EXCEPTION, format!("Surreal: {e}")))?;
-            ctx(vm).txn = Some(txn);
-            let result = vm.call_value(&closure, Vec::new());
-            let txn = ctx(vm).txn.take().expect("transaction still open");
-            match result {
-                Ok(v) => {
-                    db.commit(txn).map_err(|e| Throw::new(QUERY_EXCEPTION, format!("Surreal commit: {e}")))?;
-                    Ok(v)
-                }
-                Err(t) => {
-                    if let Err(e) = db.cancel(txn) {
-                        tracing::warn!(target: "opengrid", error = %e, "transaction cancel failed");
+            let mut attempt = 1;
+            loop {
+                let txn = db.begin().map_err(|e| Throw::new(QUERY_EXCEPTION, format!("Surreal: {e}")))?;
+                ctx(vm).txn = Some(txn);
+                let result = vm.call_value(&closure, Vec::new());
+                let txn = ctx(vm).txn.take().expect("transaction still open");
+                let conflict = match result {
+                    Ok(v) => match db.commit(txn) {
+                        Ok(()) => return Ok(v),
+                        Err(e) if attempt < attempts && is_retriable(&e) => e,
+                        Err(e) => return Err(Throw::new(QUERY_EXCEPTION, format!("Surreal commit: {e}"))),
+                    },
+                    Err(t) => {
+                        if let Err(e) = db.cancel(txn) {
+                            tracing::warn!(target: "opengrid", error = %e, "transaction cancel failed");
+                        }
+                        let message = match t.object {
+                            Some(h) => vm.get_property(h, "message").map(|m| m.to_php_string().map(|s| s.to_string_lossy()).unwrap_or_default()).unwrap_or_default(),
+                            None => t.message.clone(),
+                        };
+                        if attempt < attempts && is_retriable(&message) {
+                            message
+                        } else {
+                            return Err(t);
+                        }
                     }
-                    Err(t)
-                }
+                };
+                tracing::debug!(target: "opengrid", attempt, error = %conflict, "transaction conflict, running the closure again");
+                attempt += 1;
             }
         });
     vm.register_class(def)?;
