@@ -170,6 +170,9 @@ pub struct Vm {
     /// Reused argument buffer for native calls (PERF1); taken while a native
     /// runs, so a nested call simply allocates its own.
     pub(crate) arg_scratch: Vec<Val>,
+    /// Native ids of `intdiv`, `abs`, `max`, `min`: integer calls run inline in the
+    /// interpreter (PERF2), everything else through the native function.
+    pub(crate) fast_natives: [u32; 4],
     pub output: Vec<u8>,
     pub(crate) iters: Vec<Option<IterState>>,
     /// Inline caches: one `Vec<IcEntry>` per unit (index = `ic_base[module] + unit`), indexed by op.
@@ -224,6 +227,7 @@ impl Vm {
             slot_stack: Vec::new(),
             stack: Vec::new(),
             arg_scratch: Vec::new(),
+            fast_natives: [u32::MAX; 4],
             output: Vec::new(),
             iters: Vec::new(),
             ics: Vec::new(),
@@ -243,6 +247,11 @@ impl Vm {
             host: None,
         };
         crate::builtins::register(&mut vm);
+        for (i, name) in ["intdiv", "abs", "max", "min"].iter().enumerate() {
+            if let Some(FuncRef::Native(id)) = vm.functions.get(name.as_bytes()) {
+                vm.fast_natives[i] = *id;
+            }
+        }
         vm
     }
 

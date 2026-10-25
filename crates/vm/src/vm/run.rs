@@ -812,6 +812,10 @@ impl Vm {
                     && aspec.is_simple()
                 {
                     let n = aspec.count();
+                    if let Some(r) = self.fast_native(i, n) {
+                        self.push(r);
+                        return Ok(Flow::Next);
+                    }
                     let func = self.natives[i as usize].1;
                     let mut buf = std::mem::take(&mut self.arg_scratch);
                     let at = self.stack.len() - n;
@@ -1469,3 +1473,40 @@ pub(crate) fn num_fast(bop: BinOp, a: &Val, b: &Val) -> Option<Val> {
         _ => None,
     }
 }
+
+impl Vm {
+    /// `intdiv`, `abs`, `max`, `min` on integers straight on the stack (PERF2):
+    /// the result PHP gives, or None to take the native function (other types,
+    /// division by zero, overflow), which then also raises the errors.
+    #[inline]
+    fn fast_native(&mut self, native: u32, n: usize) -> Option<Val> {
+        let f = &self.fast_natives;
+        let len = self.stack.len();
+        let r = if n == 2 && (native == f[0] || native == f[2] || native == f[3]) {
+            let (Val::Int(a), Val::Int(b)) = (&self.stack[len - 2], &self.stack[len - 1]) else { return None };
+            let (a, b) = (*a, *b);
+            if native == f[0] {
+                if b == 0 || (a == i64::MIN && b == -1) {
+                    return None;
+                }
+                a / b
+            } else if native == f[2] {
+                if b > a { b } else { a }
+            } else if b < a {
+                b
+            } else {
+                a
+            }
+        } else if n == 1 && native == f[1] {
+            let Val::Int(a) = &self.stack[len - 1] else { return None };
+            a.checked_abs()?
+        } else {
+            return None;
+        };
+        for _ in 0..n {
+            self.stack.pop();
+        }
+        Some(Val::Int(r))
+    }
+}
+

@@ -1,0 +1,23 @@
+int(3)
+int(-3)
+int(-3)
+int(3)
+int(9223372036854775807)
+int(-9223372036854775808)
+int(5)
+int(0)
+float(9.223372036854776E+18)
+float(2.5)
+int(9)
+int(9)
+int(-1)
+float(2.5)
+int(8)
+int(3)
+int(3)
+int(-9223372036854775808)
+int(2)
+string(1) "a"
+DivisionByZeroError: Division by zero
+ArithmeticError: Division of PHP_INT_MIN by -1 is not an integer
+1507500
