@@ -22,6 +22,10 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("array_values", |_, a| Ok(Val::array(args::array(a, 0, "array_values")?.reindexed())));
     vm.register_native("array_merge", |_, a| {
         let total: usize = a.iter().map(|v| if let Val::Array(x) = v { x.len() } else { 0 }).sum();
+        // PHP refuses before allocating (instead of running out of memory)
+        if total >= 1 << 30 {
+            return Err(Throw::error("The total number of elements must be lower than 1073741824"));
+        }
         let mut out = PhpArray::with_capacity(total);
         for (i, v) in a.iter().enumerate() {
             let Val::Array(arr) = v else { return Err(Throw::type_error(format!("array_merge(): Argument #{} must be of type array, {} given", i + 1, v.type_name()))) };

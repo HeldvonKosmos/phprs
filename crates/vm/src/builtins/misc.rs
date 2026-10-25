@@ -59,16 +59,20 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("urldecode", |_, a| Ok(Val::bytes(&url_decode(args::string(a, 0, "urldecode")?.as_bytes(), true))));
     vm.register_native("rawurldecode", |_, a| Ok(Val::bytes(&url_decode(args::string(a, 0, "rawurldecode")?.as_bytes(), false))));
     vm.register_native("http_build_query", |vm, a| {
+        let mut visiting = Vec::new();
         let data = match a.first() {
             Some(Val::Array(arr)) => (**arr).clone(),
-            Some(Val::Object(h)) => vm.object_to_array(*h),
+            Some(Val::Object(h)) => {
+                visiting.push(*h);
+                public_props(vm, *h)
+            }
             _ => return Err(Throw::type_error("http_build_query(): Argument #1 ($data) must be of type array")),
         };
         let prefix = match a.get(1) { Some(Val::Str(s)) => s.to_string_lossy(), _ => String::new() };
         let sep = match a.get(2) { Some(Val::Str(s)) => s.to_string_lossy(), _ => "&".into() };
         let raw = args::int_opt(a, 3, "http_build_query", 1)? == 2;
         let mut parts = Vec::new();
-        build_query(vm, &data, None, &prefix, raw, &mut parts)?;
+        build_query(vm, &data, None, &prefix, raw, &mut parts, &mut visiting)?;
         Ok(Val::from(parts.join(&sep)))
     });
     vm.register_native("parse_str", |_, a| {
@@ -275,7 +279,26 @@ pub(crate) fn url_decode(b: &[u8], plus_as_space: bool) -> Vec<u8> {
     out
 }
 
-fn build_query(vm: &mut Vm, data: &PhpArray, prefix_key: Option<String>, num_prefix: &str, raw: bool, out: &mut Vec<String>) -> Result<(), Throw> {
+/// Public properties of an object (http_build_query sees only those, like PHP).
+fn public_props(vm: &Vm, h: ObjHandle) -> PhpArray {
+    let obj = vm.objects.get(h);
+    let class = vm.class(obj.class);
+    let mut out = PhpArray::new();
+    for (i, p) in class.props.iter().enumerate() {
+        if p.visibility == crate::bytecode::Visibility::Public
+            && let Some(v) = &obj.slots[i]
+        {
+            out.insert(ArrayKey::from_str(&String::from_utf8_lossy(&p.name)), v.clone());
+        }
+    }
+    for (k, v) in &obj.dynamic {
+        out.insert(ArrayKey::Str(k.clone()), v.clone());
+    }
+    out
+}
+
+/// `visiting`: objects on the current path; one met again is skipped (PHP).
+fn build_query(vm: &mut Vm, data: &PhpArray, prefix_key: Option<String>, num_prefix: &str, raw: bool, out: &mut Vec<String>, visiting: &mut Vec<ObjHandle>) -> Result<(), Throw> {
     for (k, v) in data.iter() {
         let key = match (k, &prefix_key) {
             (ArrayKey::Int(i), None) => format!("{num_prefix}{i}"),
@@ -284,10 +307,16 @@ fn build_query(vm: &mut Vm, data: &PhpArray, prefix_key: Option<String>, num_pre
             (ArrayKey::Str(s), Some(p)) => format!("{p}[{s}]"),
         };
         match v {
-            Val::Array(inner) => build_query(vm, inner, Some(key), num_prefix, raw, out)?,
+            Val::Array(inner) => build_query(vm, inner, Some(key), num_prefix, raw, out, visiting)?,
             Val::Object(h) => {
-                let inner = vm.object_to_array(*h);
-                build_query(vm, &inner, Some(key), num_prefix, raw, out)?
+                if visiting.contains(h) {
+                    continue;
+                }
+                let inner = public_props(vm, *h);
+                visiting.push(*h);
+                let r = build_query(vm, &inner, Some(key), num_prefix, raw, out, visiting);
+                visiting.pop();
+                r?
             }
             Val::Null => {}
             other => {

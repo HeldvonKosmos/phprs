@@ -1,0 +1,10 @@
+<?grd
+// http_build_query: public properties only, an object met again on the path is
+// skipped (no endless recursion), as in PHP.
+final class K { public mixed $p = 'in'; protected string $q = 'x'; private string $r = 'y'; }
+$o = new K(); $o->p = $o;
+var_dump(http_build_query($o));
+$o2 = new K(); $o2->p = ['a' => $o2, 'b' => 1];
+var_dump(http_build_query($o2));
+var_dump(http_build_query(['x' => ['y' => 1, 'z' => [2, 3]], 'o' => new K(), 'n' => null, 't' => true, 's' => 'a b&c']));
+var_dump(http_build_query([1, 2], 'num_'), http_build_query(['a' => 'x y'], '', '&amp;', PHP_QUERY_RFC3986));
