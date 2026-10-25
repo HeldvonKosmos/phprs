@@ -58,6 +58,11 @@ final class SessionController
         return ['cleared' => true];
     }
 
+    public function ip(): array
+    {
+        return ['ip' => request()->ip()];
+    }
+
     public function logout(): array
     {
         Session::invalidate();

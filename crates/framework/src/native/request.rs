@@ -74,7 +74,15 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             let pairs = state(vm)?.req.header("cookie").map(crate::session::parse_cookies).unwrap_or_default();
             Ok(pairs_to_array(&pairs))
         })
-        .method("ip", |vm, _| Ok(state(vm)?.req.remote_addr.as_deref().map_or(Val::Null, Val::str)))
+        // IP1: settings.opengrid.proxy.ip_header (default X-Forwarded-For, Traefik; false = off)
+        .method("ip", |vm, _| {
+            let header = match ctx(vm).settings.pointer("/opengrid/proxy/ip_header") {
+                None => Some("X-Forwarded-For".to_string()),
+                Some(serde_json::Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                Some(_) => None,
+            };
+            Ok(state(vm)?.req.client_ip(header.as_deref()).map_or(Val::Null, |ip| Val::str(&ip)))
+        })
         // AU1: the authenticated user of this request (Laravel's `$request->user()`)
         .method("user", |vm, _| Ok(state(vm)?.user.clone().unwrap_or(Val::Null)))
         .method("setUser", |vm, c| {

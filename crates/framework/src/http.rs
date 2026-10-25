@@ -9,8 +9,8 @@ pub struct HttpRequest {
     pub query: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
-    /// Peer address of the connection (`Request::ip()`); proxy headers are
-    /// not trusted (no TrustProxies yet).
+    /// Peer address of the connection; `Request::ip()` prefers the proxy's
+    /// header (`client_ip`).
     pub remote_addr: Option<String>,
 }
 
@@ -33,6 +33,20 @@ impl HttpRequest {
     /// Header value, case-insensitive on the name.
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+
+    /// IP1: the client address. Behind Traefik (the default proxy) it is the
+    /// last entry of `X-Forwarded-For`: Traefik appends the address it saw
+    /// and replaces forwarded headers from untrusted senders. `header` names
+    /// another header (`X-Real-Ip`, …) or, as `None`, turns proxy headers off.
+    /// Without a valid header value the connection's address is used.
+    pub fn client_ip(&self, header: Option<&str>) -> Option<String> {
+        let from_header = header.and_then(|h| self.header(h)).and_then(|v| {
+            v.rsplit(',').map(str::trim).find(|s| !s.is_empty()).and_then(|s| {
+                s.parse::<std::net::IpAddr>().ok().or_else(|| s.parse::<std::net::SocketAddr>().ok().map(|a| a.ip()))
+            })
+        });
+        from_header.map(|ip| ip.to_string()).or_else(|| self.remote_addr.clone())
     }
 
     pub fn query_pairs(&self) -> Vec<(String, String)> {
@@ -144,5 +158,27 @@ mod tests {
     fn query_parsing() {
         assert_eq!(super::parse_query("a=1&b=x%20y+z&c"), vec![("a".into(), "1".into()), ("b".into(), "x y z".into()), ("c".into(), String::new())]);
         assert_eq!(super::percent_decode("100%"), "100%");
+    }
+
+    #[test]
+    fn client_ip_from_the_proxy_header() {
+        let req = |xff: Option<&str>| {
+            let mut r = super::HttpRequest::get("/");
+            r.remote_addr = Some("10.0.0.2".into());
+            if let Some(v) = xff {
+                r.headers.push(("x-forwarded-for".into(), v.into()));
+            }
+            r
+        };
+        let xff = Some("X-Forwarded-For");
+        // Traefik appends the address it saw: the last entry counts
+        assert_eq!(req(Some("203.0.113.7")).client_ip(xff).as_deref(), Some("203.0.113.7"));
+        assert_eq!(req(Some("1.2.3.4, 203.0.113.7")).client_ip(xff).as_deref(), Some("203.0.113.7"));
+        assert_eq!(req(Some("2001:db8::1")).client_ip(xff).as_deref(), Some("2001:db8::1"));
+        assert_eq!(req(Some("198.51.100.1:4711")).client_ip(xff).as_deref(), Some("198.51.100.1"));
+        // missing, garbage, or proxy headers off: the connection's address
+        assert_eq!(req(None).client_ip(xff).as_deref(), Some("10.0.0.2"));
+        assert_eq!(req(Some("evil, <script>")).client_ip(xff).as_deref(), Some("10.0.0.2"));
+        assert_eq!(req(Some("203.0.113.7")).client_ip(None).as_deref(), Some("10.0.0.2"));
     }
 }

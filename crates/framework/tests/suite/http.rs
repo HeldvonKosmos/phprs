@@ -31,6 +31,13 @@ fn routes_controllers_and_natives() {
     assert_eq!(r.header("content-type"), Some("application/json"));
     assert_eq!(r.body_str(), r#"{"app":"Fixture","tasks":[{"id":1,"title":"write"},{"id":2,"title":"test"}]}"#);
 
+    // IP1: behind Traefik the client address comes from X-Forwarded-For
+    let mut req = HttpRequest::get("/ip");
+    req.remote_addr = Some("10.0.0.2".into());
+    assert_eq!(send(&pool, req.clone()).body_str(), r#"{"ip":"10.0.0.2"}"#);
+    req.headers.push(("X-Forwarded-For".into(), "198.51.100.9, 203.0.113.7".into()));
+    assert_eq!(send(&pool, req).body_str(), r#"{"ip":"203.0.113.7"}"#);
+
     let r = send(&pool, HttpRequest::get("/tasks/7?verbose=1"));
     assert_eq!(r.status, 200, "{}", r.body_str());
     assert_eq!(r.body_str(), r#"{"id":7,"verbose":true,"path":"/tasks/7","route":"7"}"#);
