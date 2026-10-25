@@ -228,8 +228,14 @@ impl UnitBuilder {
     /// Superinstructions: fuse operand loads into binary ops and comparisons
     /// into conditional jumps. Only ops that no label can target are
     /// replaced (the middle of an expression), so jump targets stay valid.
+    /// That includes the position of the new op itself: in
+    /// `if ($c ? f() : $a === $b)` the then-branch jumps to the JumpIfFalse,
+    /// which must stay a separate op.
     fn try_fuse(&mut self, op: &Op) -> Option<usize> {
         let n = self.unit.ops.len();
+        if self.label_boundary(n) {
+            return None;
+        }
         match op {
             Op::Bin(bop) if n >= 2 && !self.label_boundary(n - 1) => {
                 let fused = match (&self.unit.ops[n - 2], &self.unit.ops[n - 1]) {

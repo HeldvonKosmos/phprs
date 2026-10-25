@@ -1,0 +1,16 @@
+<?php
+// A ternary as if-condition whose else-branch is a comparison: the then-branch
+// jumps to the conditional jump, which must not be fused with the comparison.
+function find(array $items, mixed $value): string|int|null {
+    foreach ($items as $k => $item) {
+        if ($value instanceof \Closure ? $value($item, $k) : $item === $value) { return $k; }
+    }
+    return null;
+}
+var_dump(find([1, 2, 3, 4, 5], fn ($item, $key) => $item > 3));
+var_dump(find([1, 2, 3], 2));
+$a = 1;
+$b = 2;
+$t = true;
+while ($t ? $a < 0 : $a < $b) { echo "never\n"; break; }
+echo "done\n";
