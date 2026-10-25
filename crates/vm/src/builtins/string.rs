@@ -187,48 +187,35 @@ pub fn register(vm: &mut Vm) {
         Ok(Val::bytes(&out))
     });
     vm.register_native("wordwrap", |_, a| {
-        let s = args::string(a, 0, "wordwrap")?.to_string_lossy();
-        let width = args::int_opt(a, 1, "wordwrap", 75)? as usize;
-        let brk = match a.get(2) { Some(v) => v.to_php_string()?.to_string(), None => "\n".into() };
+        let text = args::string(a, 0, "wordwrap")?;
+        let width = args::int_opt(a, 1, "wordwrap", 75)?;
+        let brk = match a.get(2) { Some(v) => v.to_php_string()?.as_bytes().to_vec(), None => b"\n".to_vec() };
         let cut = args::boolean(a, 3, false);
-        let mut out = String::new();
-        let mut line_len = 0;
-        for (i, word) in s.split(' ').enumerate() {
-            let mut word = word.to_string();
-            if i > 0 {
-                if line_len + 1 + word.len() > width {
-                    out.push_str(&brk);
-                    line_len = 0;
-                } else {
-                    out.push(' ');
-                    line_len += 1;
-                }
-            }
-            while cut && word.len() > width {
-                let (h, t) = word.split_at(width);
-                out.push_str(h);
-                out.push_str(&brk);
-                word = t.to_string();
-            }
-            out.push_str(&word);
-            line_len += word.len();
+        if text.is_empty() {
+            return Ok(Val::str(""));
         }
-        Ok(Val::from(out))
+        if brk.is_empty() {
+            return Err(Throw::value_error("wordwrap(): Argument #3 ($break) must not be empty"));
+        }
+        if width == 0 && cut {
+            return Err(Throw::value_error("wordwrap(): Argument #4 ($cut_long_words) cannot be true when argument #2 ($width) is 0"));
+        }
+        Ok(Val::bytes(&wordwrap(text.as_bytes(), width, &brk, cut)))
     });
     vm.register_native("nl2br", |_, a| Ok(Val::from(args::string(a, 0, "nl2br")?.to_string_lossy().replace("\r\n", "<br />\r\n").replace('\n', "<br />\n"))));
-    vm.register_native("strcmp", |_, a| Ok(Val::Int(cmp_ord(args::string(a, 0, "strcmp")?.as_bytes().cmp(args::string(a, 1, "strcmp")?.as_bytes())))));
-    vm.register_native("strcasecmp", |_, a| Ok(Val::Int(cmp_ord(args::string(a, 0, "strcasecmp")?.as_bytes().to_ascii_lowercase().cmp(&args::string(a, 1, "strcasecmp")?.as_bytes().to_ascii_lowercase())))));
+    vm.register_native("strcmp", |_, a| Ok(Val::Int(byte_diff(args::string(a, 0, "strcmp")?.as_bytes(), args::string(a, 1, "strcmp")?.as_bytes()))));
+    vm.register_native("strcasecmp", |_, a| Ok(Val::Int(byte_diff(&args::string(a, 0, "strcasecmp")?.as_bytes().to_ascii_lowercase(), &args::string(a, 1, "strcasecmp")?.as_bytes().to_ascii_lowercase()))));
     vm.register_native("strncmp", |_, a| {
-        let n = args::int(a, 2, "strncmp")? as usize;
+        let n = non_negative_length(a, "strncmp")?;
         let x = args::string(a, 0, "strncmp")?;
         let y = args::string(a, 1, "strncmp")?;
-        Ok(Val::Int(cmp_ord(x.as_bytes()[..n.min(x.len())].cmp(&y.as_bytes()[..n.min(y.len())]))))
+        Ok(Val::Int(byte_diff(&x.as_bytes()[..n.min(x.len())], &y.as_bytes()[..n.min(y.len())])))
     });
     vm.register_native("strncasecmp", |_, a| {
-        let n = args::int(a, 2, "strncasecmp")? as usize;
+        let n = non_negative_length(a, "strncasecmp")?;
         let x = args::string(a, 0, "strncasecmp")?.as_bytes().to_ascii_lowercase();
         let y = args::string(a, 1, "strncasecmp")?.as_bytes().to_ascii_lowercase();
-        Ok(Val::Int(cmp_ord(x[..n.min(x.len())].cmp(&y[..n.min(y.len())]))))
+        Ok(Val::Int(byte_diff(&x[..n.min(x.len())], &y[..n.min(y.len())])))
     });
     vm.register_native("strnatcmp", |_, a| Ok(Val::Int(cmp_ord(natural_cmp(args::string(a, 0, "strnatcmp")?.as_bytes(), args::string(a, 1, "strnatcmp")?.as_bytes(), false)))));
     vm.register_native("strnatcasecmp", |_, a| Ok(Val::Int(cmp_ord(natural_cmp(args::string(a, 0, "strnatcasecmp")?.as_bytes(), args::string(a, 1, "strnatcasecmp")?.as_bytes(), true)))));
@@ -452,6 +439,15 @@ fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
         return None;
     }
     hay.windows(needle.len()).rposition(|w| w == needle)
+}
+
+/// strcmp's result in PHP: the difference of the first differing bytes, else
+/// -1/0/1 by length.
+fn byte_diff(x: &[u8], y: &[u8]) -> i64 {
+    match x.iter().zip(y).find(|(a, b)| a != b) {
+        Some((a, b)) => *a as i64 - *b as i64,
+        None => cmp_ord(x.len().cmp(&y.len())),
+    }
 }
 
 fn cmp_ord(o: std::cmp::Ordering) -> i64 {
@@ -1061,3 +1057,76 @@ pub(crate) fn sha256_hex(data: &[u8]) -> String {
     }
     h.iter().map(|v| format!("{v:08x}")).collect()
 }
+
+/// Argument #3 `$length` of strncmp/strncasecmp: negative is a ValueError.
+fn non_negative_length(a: &[Val], name: &str) -> Result<usize, Throw> {
+    let n = args::int(a, 2, name)?;
+    if n < 0 {
+        return Err(Throw::value_error(format!("{name}(): Argument #3 ($length) must be greater than or equal to 0")));
+    }
+    Ok(n as usize)
+}
+
+/// PHP's wordwrap on bytes: an existing break starts a new line, a space at or
+/// past the width becomes a break, a longer word breaks at its last space, and
+/// with `cut` a word longer than the width is split. One-byte breaks without
+/// `cut` replace spaces in place (PHP's fast path, slightly different rules).
+fn wordwrap(text: &[u8], width: i64, brk: &[u8], cut: bool) -> Vec<u8> {
+    let len = text.len() as i64;
+    let (mut laststart, mut lastspace) = (0i64, 0i64);
+    if brk.len() == 1 && !cut {
+        let mut out = text.to_vec();
+        for current in 0..len {
+            let c = text[current as usize];
+            if c == brk[0] {
+                laststart = current + 1;
+                lastspace = current + 1;
+            } else if c == b' ' {
+                if current - laststart >= width {
+                    out[current as usize] = brk[0];
+                    laststart = current + 1;
+                }
+                lastspace = current;
+            } else if current - laststart >= width && laststart != lastspace {
+                out[lastspace as usize] = brk[0];
+                laststart = lastspace + 1;
+            }
+        }
+        return out;
+    }
+    let mut out = Vec::with_capacity(text.len() + brk.len() * 4);
+    let slice = |from: i64, to: i64| &text[from as usize..to as usize];
+    let mut current = 0i64;
+    while current < len {
+        let c = text[current as usize];
+        if c == brk[0] && current + (brk.len() as i64) < len && text[current as usize..].starts_with(brk) {
+            out.extend_from_slice(slice(laststart, current + brk.len() as i64));
+            current += brk.len() as i64 - 1;
+            laststart = current + 1;
+            lastspace = current + 1;
+        } else if c == b' ' {
+            if current - laststart >= width {
+                out.extend_from_slice(slice(laststart, current));
+                out.extend_from_slice(brk);
+                laststart = current + 1;
+            }
+            lastspace = current;
+        } else if current - laststart >= width && cut && laststart >= lastspace {
+            out.extend_from_slice(slice(laststart, current));
+            out.extend_from_slice(brk);
+            laststart = current;
+            lastspace = current;
+        } else if current - laststart >= width && laststart < lastspace {
+            out.extend_from_slice(slice(laststart, lastspace));
+            out.extend_from_slice(brk);
+            laststart = lastspace + 1;
+            lastspace = laststart;
+        }
+        current += 1;
+    }
+    if laststart != current {
+        out.extend_from_slice(slice(laststart, current));
+    }
+    out
+}
+

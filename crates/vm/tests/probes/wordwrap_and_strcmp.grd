@@ -1,0 +1,10 @@
+<?grd
+// wordwrap as PHP (existing breaks, cut, width 0 and negative, errors) and the
+// strcmp family returning the byte difference.
+$t = "The quick brown fox sat over the lazy dog, A very long woooooooooooord. and something";
+foreach ([[$t, 15, "\n", true], [$t, 15, "\n", false], [$t, 10, "<br />\n", true], [$t, 10, "<br />\n", false], ["A very long woooooooooooooooooord.", 8, "\n", true], ["A very long woooooooooooooooooord.", 8, "\n", false], ["short", 0, "\n", false], ["abc def", -1, "\n", false], ["abc def", -1, "\n", true], ["line one\nline two is longer", 8, "\n", false], ["a  b   c", 1, "--", false], ["", 5, "x", false], ["testing wordwrap function", 0, "<br />\n", false]] as $c) {
+  try { var_dump(wordwrap(...$c)); } catch (ValueError $e) { echo $e->getMessage(), "\n"; }
+}
+foreach ([["abc", 0, "x", true], ["abc", 2, "", false]] as $c) { try { wordwrap(...$c); } catch (ValueError $e) { echo $e->getMessage(), "\n"; } }
+foreach ([["abc", "abd", -1], ["abc", "abd", 2], ["ABC", "abd", 2]] as [$x, $y, $n]) { try { var_dump(strncmp($x, $y, $n), strncasecmp($x, $y, $n)); } catch (ValueError $e) { echo $e->getMessage(), "\n"; } }
+var_dump(strcmp("a","d"), strcasecmp("a","D"), strncmp("a","d",1), strncasecmp("a","D",1), strcmp("abc","ab"), strncmp("abc","ab",3), strcmp("", "abc"), strcasecmp("HELLO","hello"), strcmp("b","a"));
