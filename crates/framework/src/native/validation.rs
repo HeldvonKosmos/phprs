@@ -204,6 +204,14 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
         if !ok {
             let a0 = args.first().copied().unwrap_or("");
             let a1 = args.get(1).copied().unwrap_or("");
+            // size rules name the unit like Laravel: numbers none, arrays items, everything else characters
+            let kind = if numeric_rule && is_numeric(&value) {
+                0
+            } else if matches!(value, Val::Array(_)) {
+                1
+            } else {
+                2
+            };
             msgs.push(match name_r {
                 "required" => format!("The {name} field is required."),
                 "string" => format!("The {name} field must be a string."),
@@ -218,10 +226,26 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
                 "alpha" => format!("The {name} field must only contain letters."),
                 "alpha_num" => format!("The {name} field must only contain letters and numbers."),
                 "alpha_dash" => format!("The {name} field must only contain letters, numbers, dashes, and underscores."),
-                "min" => format!("The {name} field must be at least {a0}."),
-                "max" => format!("The {name} field must not be greater than {a0}."),
-                "size" => format!("The {name} field must be {a0}."),
-                "between" => format!("The {name} field must be between {a0} and {a1}."),
+                "min" => match kind {
+                    0 => format!("The {name} field must be at least {a0}."),
+                    1 => format!("The {name} field must have at least {a0} items."),
+                    _ => format!("The {name} field must be at least {a0} characters."),
+                },
+                "max" => match kind {
+                    0 => format!("The {name} field must not be greater than {a0}."),
+                    1 => format!("The {name} field must not have more than {a0} items."),
+                    _ => format!("The {name} field must not be greater than {a0} characters."),
+                },
+                "size" => match kind {
+                    0 => format!("The {name} field must be {a0}."),
+                    1 => format!("The {name} field must contain {a0} items."),
+                    _ => format!("The {name} field must be {a0} characters."),
+                },
+                "between" => match kind {
+                    0 => format!("The {name} field must be between {a0} and {a1}."),
+                    1 => format!("The {name} field must have between {a0} and {a1} items."),
+                    _ => format!("The {name} field must be between {a0} and {a1} characters."),
+                },
                 "in" => format!("The selected {name} is invalid."),
                 "not_in" => format!("The selected {name} is invalid."),
                 "regex" => format!("The {name} field format is invalid."),
@@ -385,5 +409,31 @@ mod tests {
         let Ok(v) = validate(&good, &rules).unwrap() else { panic!("expected ok") };
         let Val::Array(v) = v else { panic!() };
         assert_eq!(v.len(), 2, "only ruled, present keys survive");
+    }
+
+    #[test]
+    fn size_messages_name_the_unit_like_laravel() {
+        let list = Val::array({
+            let mut a = PhpArray::new();
+            a.push(Val::Int(1));
+            a
+        });
+        let data = arr(&[("pw", Val::str("short")), ("n", Val::Int(9)), ("tags", list.clone()), ("code", Val::str("abc")), ("ids", list)]);
+        let rules = arr(&[
+            ("pw", Val::str("string|min:8")),
+            ("n", Val::str("integer|max:5")),
+            ("tags", Val::str("array|min:2")),
+            ("code", Val::str("string|size:4")),
+            ("ids", Val::str("array|between:2,3")),
+        ]);
+        let Err(errors) = validate(&data, &rules).unwrap() else { panic!("expected errors") };
+        let msgs: Vec<&str> = errors.0.iter().map(|(_, m)| m[0].as_str()).collect();
+        assert_eq!(msgs, vec![
+            "The pw field must be at least 8 characters.",
+            "The n field must not be greater than 5.",
+            "The tags field must have at least 2 items.",
+            "The code field must be 4 characters.",
+            "The ids field must have between 2 and 3 items.",
+        ]);
     }
 }
