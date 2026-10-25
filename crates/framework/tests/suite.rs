@@ -35,6 +35,8 @@ mod schema_ops;
 mod server;
 #[path = "suite/server_mode.rs"]
 mod server_mode;
+#[path = "suite/validation_spec.rs"]
+mod validation_spec;
 #[path = "suite/session.rs"]
 mod session;
 #[path = "suite/transactions.rs"]

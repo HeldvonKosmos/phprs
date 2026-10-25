@@ -1,0 +1,133 @@
+# R3 validation cases: rules JSON <TAB> data JSON (Laravel output in cases.out)
+{"a": "required"}	{}
+{"a": "required"}	{"a": ""}
+{"a": "required"}	{"a": "  "}
+{"a": "required"}	{"a": null}
+{"a": "required"}	{"a": []}
+{"a": "required"}	{"a": "0"}
+{"a": "required"}	{"a": 0}
+{"a": "nullable|string"}	{"a": null}
+{"a": "nullable|integer"}	{}
+{"a": "sometimes|integer"}	{}
+{"a": "sometimes|integer"}	{"a": "x"}
+{"a": "string"}	{"a": 5}
+{"a": "string"}	{"a": "x"}
+{"a": "string"}	{}
+{"a": "integer"}	{"a": 5}
+{"a": "numeric"}	{"a": 5}
+{"a": "integer"}	{"a": "5"}
+{"a": "numeric"}	{"a": "5"}
+{"a": "integer"}	{"a": "5.5"}
+{"a": "numeric"}	{"a": "5.5"}
+{"a": "integer"}	{"a": 5.5}
+{"a": "numeric"}	{"a": 5.5}
+{"a": "integer"}	{"a": "x"}
+{"a": "numeric"}	{"a": "x"}
+{"a": "integer"}	{"a": true}
+{"a": "numeric"}	{"a": true}
+{"a": "integer"}	{"a": "1e3"}
+{"a": "numeric"}	{"a": "1e3"}
+{"a": "integer"}	{"a": " 7 "}
+{"a": "numeric"}	{"a": " 7 "}
+{"a": "integer"}	{"a": "-3"}
+{"a": "numeric"}	{"a": "-3"}
+{"a": "integer"}	{"a": "+3"}
+{"a": "numeric"}	{"a": "+3"}
+{"a": "integer"}	{"a": "0x1A"}
+{"a": "numeric"}	{"a": "0x1A"}
+{"a": "boolean"}	{"a": true}
+{"a": "boolean"}	{"a": false}
+{"a": "boolean"}	{"a": 0}
+{"a": "boolean"}	{"a": 1}
+{"a": "boolean"}	{"a": "0"}
+{"a": "boolean"}	{"a": "1"}
+{"a": "boolean"}	{"a": "true"}
+{"a": "boolean"}	{"a": "yes"}
+{"a": "boolean"}	{"a": 2}
+{"a": "boolean"}	{"a": "on"}
+{"a": "array"}	{"a": [1]}
+{"a": "array"}	{"a": "x"}
+{"a": "array"}	{"a": {"k": 1}}
+{"a": "email"}	{"a": "a@b.de"}
+{"a": "email"}	{"a": "no-at"}
+{"a": "email"}	{"a": "a@b"}
+{"a": "email"}	{"a": "a b@c.de"}
+{"a": "email"}	{"a": "x@y.co.uk"}
+{"a": "url"}	{"a": "https://x.de"}
+{"a": "url"}	{"a": "http://x.de/p?q=1"}
+{"a": "url"}	{"a": "ftp://x.de"}
+{"a": "url"}	{"a": "x.de"}
+{"a": "url"}	{"a": "javascript:alert(1)"}
+{"a": "uuid"}	{"a": "123e4567-e89b-12d3-a456-426614174000"}
+{"a": "uuid"}	{"a": "123e4567e89b12d3a456426614174000"}
+{"a": "uuid"}	{"a": "nope"}
+{"a": "date"}	{"a": "2026-10-25"}
+{"a": "date"}	{"a": "25.10.2026"}
+{"a": "date"}	{"a": "tomorrow"}
+{"a": "date"}	{"a": "2026-13-01"}
+{"a": "date"}	{"a": "x"}
+{"a": "alpha"}	{"a": "abc"}
+{"a": "alpha_num"}	{"a": "abc"}
+{"a": "alpha_dash"}	{"a": "abc"}
+{"a": "alpha"}	{"a": "abc1"}
+{"a": "alpha_num"}	{"a": "abc1"}
+{"a": "alpha_dash"}	{"a": "abc1"}
+{"a": "alpha"}	{"a": "\u00e4bc"}
+{"a": "alpha_num"}	{"a": "\u00e4bc"}
+{"a": "alpha_dash"}	{"a": "\u00e4bc"}
+{"a": "alpha"}	{"a": "ab-c"}
+{"a": "alpha_num"}	{"a": "ab-c"}
+{"a": "alpha_dash"}	{"a": "ab-c"}
+{"a": "alpha"}	{"a": "ab_c"}
+{"a": "alpha_num"}	{"a": "ab_c"}
+{"a": "alpha_dash"}	{"a": "ab_c"}
+{"a": "alpha"}	{"a": ""}
+{"a": "alpha_num"}	{"a": ""}
+{"a": "alpha_dash"}	{"a": ""}
+{"a": "string|min:3"}	{"a": "ab"}
+{"a": "string|max:3"}	{"a": "abcd"}
+{"a": "string|size:3"}	{"a": "ab"}
+{"a": "string|between:2,4"}	{"a": "a"}
+{"a": "integer|min:3"}	{"a": 2}
+{"a": "integer|max:3"}	{"a": 4}
+{"a": "integer|size:3"}	{"a": 4}
+{"a": "integer|between:1,5"}	{"a": 9}
+{"a": "integer|between:1,5"}	{"a": "3"}
+{"a": "numeric|min:2.5"}	{"a": 2}
+{"a": "array|min:2"}	{"a": [1]}
+{"a": "array|max:1"}	{"a": [1, 2]}
+{"a": "array|size:2"}	{"a": [1]}
+{"a": "array|between:2,3"}	{"a": [1]}
+{"a": "min:3"}	{"a": "ab"}
+{"a": "min:3"}	{"a": 2}
+{"a": "max:2"}	{"a": 123}
+{"a": "max:2"}	{"a": "12"}
+{"a": "string|min:2"}	{"a": "\u00e4\u00f6"}
+{"a": "string|max:2"}	{"a": "\u00e4\u00f6\u00fc"}
+{"a": "in:x,y"}	{"a": "x"}
+{"a": "in:x,y"}	{"a": "z"}
+{"a": "in:1,2"}	{"a": 1}
+{"a": "not_in:x,y"}	{"a": "x"}
+{"a": "not_in:x,y"}	{"a": "z"}
+{"a": "regex:/^[a-z]+$/"}	{"a": "abc"}
+{"a": "regex:/^[a-z]+$/"}	{"a": "Abc"}
+{"pw": "confirmed"}	{"pw": "a", "pw_confirmation": "a"}
+{"pw": "confirmed"}	{"pw": "a", "pw_confirmation": "b"}
+{"pw": "confirmed"}	{"pw": "a"}
+{"a": "same:b"}	{"a": "x", "b": "x"}
+{"a": "same:b"}	{"a": "x", "b": "y"}
+{"a": "different:b"}	{"a": "x", "b": "x"}
+{"a": "accepted"}	{"a": "yes"}
+{"a": "accepted"}	{"a": "on"}
+{"a": "accepted"}	{"a": "1"}
+{"a": "accepted"}	{"a": 1}
+{"a": "accepted"}	{"a": true}
+{"a": "accepted"}	{"a": "true"}
+{"a": "accepted"}	{"a": "no"}
+{"a": "accepted"}	{"a": 0}
+{"a": "accepted"}	{"a": false}
+{"first_name": "required|string|max:5", "e-mail": "required|email", "age": "nullable|integer|between:1,120"}	{"first_name": "Johannes", "e-mail": "x", "age": 200, "extra": 1}
+{"title": "required|string|max:120", "done": "boolean", "priority": "integer|between:1,5"}	{"title": "Ok", "done": "1", "priority": "3", "other": "dropped"}
+{"a": "bail|integer|min:5"}	{"a": "x"}
+{"a": "integer|min:5"}	{"a": "x"}
+{"a": ["required", "string", "max:2"]}	{"a": "abc"}

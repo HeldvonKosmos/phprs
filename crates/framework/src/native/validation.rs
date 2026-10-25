@@ -63,21 +63,35 @@ fn is_numeric(v: &Val) -> bool {
     }
 }
 
+/// Laravel: `filter_var($value, FILTER_VALIDATE_INT) !== false` (true counts as 1).
 fn is_integer(v: &Val) -> bool {
     match v {
-        Val::Int(_) => true,
+        Val::Int(_) | Val::Bool(true) => true,
+        Val::Float(f) => f.fract() == 0.0 && f.is_finite(),
         Val::Str(s) => s.to_string_lossy().trim().parse::<i64>().is_ok(),
         _ => false,
     }
 }
 
+/// Laravel's accepted values: true, false, 0, 1, "0", "1".
 fn is_boolean(v: &Val) -> bool {
     match v {
         Val::Bool(_) => true,
         Val::Int(0 | 1) => true,
-        Val::Str(s) => matches!(s.to_string_lossy().as_str(), "0" | "1" | "true" | "false"),
+        Val::Str(s) => matches!(s.as_bytes(), b"0" | b"1"),
         _ => false,
     }
+}
+
+/// Laravel's `date` rule: strtotime understands it and date_parse finds a valid
+/// day; besides ISO forms PHP reads d.m.Y, m/d/Y and Y/m/d.
+fn is_date(s: &str) -> bool {
+    if crate::native::database::value::parse_datetime(s).is_some() {
+        return true;
+    }
+    let s = s.trim();
+    let date = s.split_whitespace().next().unwrap_or("");
+    ["%d.%m.%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y"].iter().any(|f| chrono::NaiveDate::parse_from_str(date, f).is_ok())
 }
 
 fn str_of(v: &Val) -> String {
@@ -146,20 +160,23 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
             "numeric" => is_numeric(&value),
             "boolean" | "bool" => is_boolean(&value),
             "array" => matches!(value, Val::Array(_)),
+            // Laravel's default `email` is RFC validation: no dot needed in the domain
             "email" => {
                 let s = str_of(&value);
-                let re = regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").expect("static regex");
+                let re = regex::Regex::new(r"^[^@\s]+@[^@\s.][^@\s]*$").expect("static regex");
                 re.is_match(&s)
             }
+            // any scheme with an authority (ftp://, ssh://, …), as Laravel's list of protocols
             "url" => {
                 let s = str_of(&value);
-                s.starts_with("http://") || s.starts_with("https://")
+                let re = regex::Regex::new(r"^[A-Za-z][A-Za-z0-9+.-]*://[^\s/?#]+[^\s]*$").expect("static regex");
+                re.is_match(&s)
             }
             "uuid" => {
                 let re = regex::Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$").expect("static regex");
                 re.is_match(&str_of(&value))
             }
-            "date" => crate::native::database::value::parse_datetime(&str_of(&value)).is_some(),
+            "date" => is_date(&str_of(&value)),
             "alpha" => !str_of(&value).is_empty() && str_of(&value).chars().all(|c| c.is_alphabetic()),
             "alpha_num" => !str_of(&value).is_empty() && str_of(&value).chars().all(|c| c.is_alphanumeric()),
             "alpha_dash" => !str_of(&value).is_empty() && str_of(&value).chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'),
@@ -205,9 +222,10 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
             let a0 = args.first().copied().unwrap_or("");
             let a1 = args.get(1).copied().unwrap_or("");
             // size rules name the unit like Laravel: numbers none, arrays items, everything else characters
-            let kind = if numeric_rule && is_numeric(&value) {
+            // Laravel picks the message by the rules, not the value (getAttributeType)
+            let kind = if numeric_rule {
                 0
-            } else if matches!(value, Val::Array(_)) {
+            } else if rules.iter().any(|r| matches!(r.as_str(), "array" | "list")) {
                 1
             } else {
                 2
@@ -258,6 +276,10 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
                 other => format!("The {name} field failed the {other} rule."),
             });
             if nullable && value.is_null() {
+                break;
+            }
+            // `bail`: stop at the first failing rule of this field
+            if rules.iter().any(|r| r == "bail") {
                 break;
             }
         }

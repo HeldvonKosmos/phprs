@@ -1,0 +1,132 @@
+{"errors":{"a":["The a field is required."]}}
+{"errors":{"a":["The a field is required."]}}
+{"errors":{"a":["The a field is required."]}}
+{"errors":{"a":["The a field is required."]}}
+{"errors":{"a":["The a field is required."]}}
+{"valid":{"a":"0"}}
+{"valid":{"a":0}}
+{"valid":{"a":null}}
+{"valid":[]}
+{"valid":[]}
+{"errors":{"a":["The a field must be an integer."]}}
+{"errors":{"a":["The a field must be a string."]}}
+{"valid":{"a":"x"}}
+{"valid":[]}
+{"valid":{"a":5}}
+{"valid":{"a":5}}
+{"valid":{"a":"5"}}
+{"valid":{"a":"5"}}
+{"errors":{"a":["The a field must be an integer."]}}
+{"valid":{"a":"5.5"}}
+{"errors":{"a":["The a field must be an integer."]}}
+{"valid":{"a":5.5}}
+{"errors":{"a":["The a field must be an integer."]}}
+{"errors":{"a":["The a field must be a number."]}}
+{"valid":{"a":true}}
+{"errors":{"a":["The a field must be a number."]}}
+{"errors":{"a":["The a field must be an integer."]}}
+{"valid":{"a":"1e3"}}
+{"valid":{"a":" 7 "}}
+{"valid":{"a":" 7 "}}
+{"valid":{"a":"-3"}}
+{"valid":{"a":"-3"}}
+{"valid":{"a":"+3"}}
+{"valid":{"a":"+3"}}
+{"errors":{"a":["The a field must be an integer."]}}
+{"errors":{"a":["The a field must be a number."]}}
+{"valid":{"a":true}}
+{"valid":{"a":false}}
+{"valid":{"a":0}}
+{"valid":{"a":1}}
+{"valid":{"a":"0"}}
+{"valid":{"a":"1"}}
+{"errors":{"a":["The a field must be true or false."]}}
+{"errors":{"a":["The a field must be true or false."]}}
+{"errors":{"a":["The a field must be true or false."]}}
+{"errors":{"a":["The a field must be true or false."]}}
+{"valid":{"a":[1]}}
+{"errors":{"a":["The a field must be an array."]}}
+{"valid":{"a":{"k":1}}}
+{"valid":{"a":"a@b.de"}}
+{"errors":{"a":["The a field must be a valid email address."]}}
+{"valid":{"a":"a@b"}}
+{"errors":{"a":["The a field must be a valid email address."]}}
+{"valid":{"a":"x@y.co.uk"}}
+{"valid":{"a":"https://x.de"}}
+{"valid":{"a":"http://x.de/p?q=1"}}
+{"valid":{"a":"ftp://x.de"}}
+{"errors":{"a":["The a field must be a valid URL."]}}
+{"errors":{"a":["The a field must be a valid URL."]}}
+{"valid":{"a":"123e4567-e89b-12d3-a456-426614174000"}}
+{"errors":{"a":["The a field must be a valid UUID."]}}
+{"errors":{"a":["The a field must be a valid UUID."]}}
+{"valid":{"a":"2026-10-25"}}
+{"valid":{"a":"25.10.2026"}}
+{"errors":{"a":["The a field must be a valid date."]}}
+{"errors":{"a":["The a field must be a valid date."]}}
+{"errors":{"a":["The a field must be a valid date."]}}
+{"valid":{"a":"abc"}}
+{"valid":{"a":"abc"}}
+{"valid":{"a":"abc"}}
+{"errors":{"a":["The a field must only contain letters."]}}
+{"valid":{"a":"abc1"}}
+{"valid":{"a":"abc1"}}
+{"valid":{"a":"\u00e4bc"}}
+{"valid":{"a":"\u00e4bc"}}
+{"valid":{"a":"\u00e4bc"}}
+{"errors":{"a":["The a field must only contain letters."]}}
+{"errors":{"a":["The a field must only contain letters and numbers."]}}
+{"valid":{"a":"ab-c"}}
+{"errors":{"a":["The a field must only contain letters."]}}
+{"errors":{"a":["The a field must only contain letters and numbers."]}}
+{"valid":{"a":"ab_c"}}
+{"valid":{"a":""}}
+{"valid":{"a":""}}
+{"valid":{"a":""}}
+{"errors":{"a":["The a field must be at least 3 characters."]}}
+{"errors":{"a":["The a field must not be greater than 3 characters."]}}
+{"errors":{"a":["The a field must be 3 characters."]}}
+{"errors":{"a":["The a field must be between 2 and 4 characters."]}}
+{"errors":{"a":["The a field must be at least 3."]}}
+{"errors":{"a":["The a field must not be greater than 3."]}}
+{"errors":{"a":["The a field must be 3."]}}
+{"errors":{"a":["The a field must be between 1 and 5."]}}
+{"valid":{"a":"3"}}
+{"errors":{"a":["The a field must be at least 2.5."]}}
+{"errors":{"a":["The a field must have at least 2 items."]}}
+{"errors":{"a":["The a field must not have more than 1 items."]}}
+{"errors":{"a":["The a field must contain 2 items."]}}
+{"errors":{"a":["The a field must have between 2 and 3 items."]}}
+{"errors":{"a":["The a field must be at least 3 characters."]}}
+{"errors":{"a":["The a field must be at least 3 characters."]}}
+{"errors":{"a":["The a field must not be greater than 2 characters."]}}
+{"valid":{"a":"12"}}
+{"valid":{"a":"\u00e4\u00f6"}}
+{"errors":{"a":["The a field must not be greater than 2 characters."]}}
+{"valid":{"a":"x"}}
+{"errors":{"a":["The selected a is invalid."]}}
+{"valid":{"a":1}}
+{"errors":{"a":["The selected a is invalid."]}}
+{"valid":{"a":"z"}}
+{"valid":{"a":"abc"}}
+{"errors":{"a":["The a field format is invalid."]}}
+{"valid":{"pw":"a"}}
+{"errors":{"pw":["The pw field confirmation does not match."]}}
+{"errors":{"pw":["The pw field confirmation does not match."]}}
+{"valid":{"a":"x"}}
+{"errors":{"a":["The a field must match b."]}}
+{"errors":{"a":["The a field and b must be different."]}}
+{"valid":{"a":"yes"}}
+{"valid":{"a":"on"}}
+{"valid":{"a":"1"}}
+{"valid":{"a":1}}
+{"valid":{"a":true}}
+{"valid":{"a":"true"}}
+{"errors":{"a":["The a field must be accepted."]}}
+{"errors":{"a":["The a field must be accepted."]}}
+{"errors":{"a":["The a field must be accepted."]}}
+{"errors":{"first_name":["The first name field must not be greater than 5 characters."],"e-mail":["The e-mail field must be a valid email address."],"age":["The age field must be between 1 and 120."]}}
+{"valid":{"title":"Ok","done":"1","priority":"3"}}
+{"errors":{"a":["The a field must be an integer."]}}
+{"errors":{"a":["The a field must be an integer.","The a field must be at least 5."]}}
+{"errors":{"a":["The a field must not be greater than 2 characters."]}}
