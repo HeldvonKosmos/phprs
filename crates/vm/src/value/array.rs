@@ -64,19 +64,78 @@ fn canonical_int(b: &[u8]) -> Option<i64> {
     s.parse::<i64>().ok()
 }
 
-#[derive(Clone, Debug, Default)]
+/// Storage of a PHP array. `Packed` while the keys are exactly 0..n-1 in
+/// order: values in a vector, no hashing (PHP's packed arrays); the keys are
+/// kept beside them so that iteration can hand out `&ArrayKey`. The first
+/// string key, gap or removal in the middle turns it into `Hash` for good.
+#[derive(Clone, Debug)]
+enum Store {
+    Packed { keys: Vec<ArrayKey>, vals: Vec<Val> },
+    Hash(IndexMap<ArrayKey, Val, KeyHasher>),
+}
+
+#[derive(Clone, Debug)]
 pub struct PhpArray {
-    map: IndexMap<ArrayKey, Val, KeyHasher>,
+    store: Store,
     /// Next index for `$a[] = v` (PHP: one more than the largest int key ever used).
     next_free: i64,
 }
 
+impl Default for PhpArray {
+    fn default() -> Self {
+        PhpArray::new()
+    }
+}
+
+/// Iterator over either storage (one concrete type for `impl Iterator`).
+pub enum Either<A, B> {
+    A(A),
+    B(B),
+}
+
+impl<T, A: Iterator<Item = T>, B: Iterator<Item = T>> Iterator for Either<A, B> {
+    type Item = T;
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        match self {
+            Either::A(a) => a.next(),
+            Either::B(b) => b.next(),
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Either::A(a) => a.size_hint(),
+            Either::B(b) => b.size_hint(),
+        }
+    }
+}
+
+impl<T, A: DoubleEndedIterator<Item = T>, B: DoubleEndedIterator<Item = T>> DoubleEndedIterator for Either<A, B> {
+    fn next_back(&mut self) -> Option<T> {
+        match self {
+            Either::A(a) => a.next_back(),
+            Either::B(b) => b.next_back(),
+        }
+    }
+}
+
+impl<T, A: ExactSizeIterator<Item = T>, B: ExactSizeIterator<Item = T>> ExactSizeIterator for Either<A, B> {}
+
+/// Index of `key` in a packed array of length `len`.
+#[inline]
+fn packed_index(key: &ArrayKey, len: usize) -> Option<usize> {
+    match key {
+        ArrayKey::Int(i) if *i >= 0 && (*i as u64) < len as u64 => Some(*i as usize),
+        _ => None,
+    }
+}
+
 impl PhpArray {
     pub fn new() -> Self {
-        PhpArray { map: IndexMap::with_hasher(KeyHasher::default()), next_free: 0 }
+        PhpArray { store: Store::Packed { keys: Vec::new(), vals: Vec::new() }, next_free: 0 }
     }
     pub fn with_capacity(n: usize) -> Self {
-        PhpArray { map: IndexMap::with_capacity_and_hasher(n, KeyHasher::default()), next_free: 0 }
+        PhpArray { store: Store::Packed { keys: Vec::with_capacity(n), vals: Vec::with_capacity(n) }, next_free: 0 }
     }
     pub fn from_values(values: impl IntoIterator<Item = Val>) -> Self {
         let values = values.into_iter();
@@ -86,28 +145,65 @@ impl PhpArray {
         }
         a
     }
+    /// Switch to hash storage (keeps order and keys).
+    fn to_hash(&mut self) -> &mut IndexMap<ArrayKey, Val, KeyHasher> {
+        if let Store::Packed { keys, vals } = &mut self.store {
+            let mut map = IndexMap::with_capacity_and_hasher(vals.len() + 1, KeyHasher::default());
+            for (k, v) in std::mem::take(keys).into_iter().zip(std::mem::take(vals)) {
+                map.insert(k, v);
+            }
+            self.store = Store::Hash(map);
+        }
+        match &mut self.store {
+            Store::Hash(m) => m,
+            Store::Packed { .. } => unreachable!(),
+        }
+    }
     pub fn len(&self) -> usize {
-        self.map.len()
+        match &self.store {
+            Store::Packed { vals, .. } => vals.len(),
+            Store::Hash(m) => m.len(),
+        }
     }
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        self.len() == 0
     }
+    #[inline]
     pub fn get(&self, key: &ArrayKey) -> Option<&Val> {
-        self.map.get(key)
+        match &self.store {
+            Store::Packed { vals, .. } => packed_index(key, vals.len()).map(|i| &vals[i]),
+            Store::Hash(m) => m.get(key),
+        }
     }
+    #[inline]
     pub fn get_mut(&mut self, key: &ArrayKey) -> Option<&mut Val> {
-        self.map.get_mut(key)
+        match &mut self.store {
+            Store::Packed { vals, .. } => packed_index(key, vals.len()).map(|i| &mut vals[i]),
+            Store::Hash(m) => m.get_mut(key),
+        }
     }
     pub fn contains_key(&self, key: &ArrayKey) -> bool {
-        self.map.contains_key(key)
+        self.get(key).is_some()
     }
     pub fn insert(&mut self, key: ArrayKey, value: Val) {
         if let ArrayKey::Int(i) = key
             && i >= self.next_free
         {
+            let packed_append = matches!(&self.store, Store::Packed { vals, .. } if i as u64 == vals.len() as u64 && self.next_free == i);
             self.next_free = i.saturating_add(1);
+            if packed_append && let Store::Packed { keys, vals } = &mut self.store {
+                keys.push(key);
+                vals.push(value);
+                return;
+            }
         }
-        self.map.insert(key, value);
+        if let Store::Packed { vals, .. } = &mut self.store
+            && let Some(i) = packed_index(&key, vals.len())
+        {
+            vals[i] = value;
+            return;
+        }
+        self.to_hash().insert(key, value);
     }
     /// `$a[] = value`
     pub fn push(&mut self, value: Val) {
@@ -116,54 +212,85 @@ impl PhpArray {
     }
     /// `unset($a[k])`; keeps the order of the remaining elements.
     pub fn remove(&mut self, key: &ArrayKey) -> Option<Val> {
-        self.map.shift_remove(key)
+        if let Store::Packed { keys, vals } = &mut self.store {
+            match packed_index(key, vals.len()) {
+                None => return None,
+                // the last element: still 0..n-2 (next_free stays, so `[]` leaves a gap)
+                Some(i) if i + 1 == vals.len() => {
+                    keys.pop();
+                    return vals.pop();
+                }
+                Some(_) => {}
+            }
+        }
+        self.to_hash().shift_remove(key)
     }
-    pub fn iter(&self) -> impl Iterator<Item = (&ArrayKey, &Val)> {
-        self.map.iter()
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (&ArrayKey, &Val)> + ExactSizeIterator {
+        match &self.store {
+            Store::Packed { keys, vals } => Either::A(keys.iter().zip(vals.iter())),
+            Store::Hash(m) => Either::B(m.iter()),
+        }
     }
-    pub fn keys(&self) -> impl Iterator<Item = &ArrayKey> {
-        self.map.keys()
+    pub fn keys(&self) -> impl DoubleEndedIterator<Item = &ArrayKey> + ExactSizeIterator {
+        match &self.store {
+            Store::Packed { keys, .. } => Either::A(keys.iter()),
+            Store::Hash(m) => Either::B(m.keys()),
+        }
     }
-    pub fn values(&self) -> impl Iterator<Item = &Val> {
-        self.map.values()
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = &Val> + ExactSizeIterator {
+        match &self.store {
+            Store::Packed { vals, .. } => Either::A(vals.iter()),
+            Store::Hash(m) => Either::B(m.values()),
+        }
     }
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Val> {
-        self.map.values_mut()
+    pub fn values_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut Val> + ExactSizeIterator {
+        match &mut self.store {
+            Store::Packed { vals, .. } => Either::A(vals.iter_mut()),
+            Store::Hash(m) => Either::B(m.values_mut()),
+        }
     }
     pub fn entry_at(&self, index: usize) -> Option<(&ArrayKey, &Val)> {
-        self.map.get_index(index)
+        match &self.store {
+            Store::Packed { keys, vals } => keys.get(index).zip(vals.get(index)),
+            Store::Hash(m) => m.get_index(index),
+        }
     }
     pub fn first(&self) -> Option<(&ArrayKey, &Val)> {
-        self.map.first()
+        self.entry_at(0)
     }
     pub fn last(&self) -> Option<(&ArrayKey, &Val)> {
-        self.map.last()
+        match &self.store {
+            Store::Packed { keys, vals } => keys.last().zip(vals.last()),
+            Store::Hash(m) => m.last(),
+        }
     }
     pub fn last_mut(&mut self) -> Option<&mut Val> {
-        self.map.last_mut().map(|(_, v)| v)
+        match &mut self.store {
+            Store::Packed { vals, .. } => vals.last_mut(),
+            Store::Hash(m) => m.last_mut().map(|(_, v)| v),
+        }
     }
     /// Mutable access to `key`, inserting `null` when missing.
     pub fn entry_mut(&mut self, key: ArrayKey) -> &mut Val {
-        if !self.map.contains_key(&key) {
+        if !self.contains_key(&key) {
             self.insert(key.clone(), Val::Null);
         }
-        self.map.get_mut(&key).expect("just inserted")
+        self.get_mut(&key).expect("just inserted")
     }
     /// True if keys are exactly 0..n-1 in order (`array_is_list`).
     pub fn is_list(&self) -> bool {
-        self.map.keys().enumerate().all(|(i, k)| *k == ArrayKey::Int(i as i64))
+        match &self.store {
+            Store::Packed { .. } => true,
+            Store::Hash(m) => m.keys().enumerate().all(|(i, k)| *k == ArrayKey::Int(i as i64)),
+        }
     }
     pub fn clear(&mut self) {
-        self.map.clear();
+        self.store = Store::Packed { keys: Vec::new(), vals: Vec::new() };
         self.next_free = 0;
     }
     /// Re-index with 0..n (used by `array_values`, `sort`, …).
     pub fn reindexed(&self) -> PhpArray {
-        let mut a = PhpArray::with_capacity(self.map.len());
-        for v in self.map.values() {
-            a.push(v.clone());
-        }
-        a
+        PhpArray::from_values(self.values().cloned())
     }
 }
 
@@ -208,6 +335,29 @@ mod tests {
             assert_eq!(x.len(), 3);
             assert_eq!(y.len(), 2);
         }
+    }
+
+    #[test]
+    fn packed_until_a_gap_or_string_key() {
+        let mut a = PhpArray::from_values([Val::Int(10), Val::Int(11)]);
+        assert!(matches!(a.store, Store::Packed { .. }));
+        a.insert(ArrayKey::Int(1), Val::Int(21));
+        a.insert(ArrayKey::Int(2), Val::Int(12));
+        assert!(matches!(a.store, Store::Packed { .. }) && a.len() == 3);
+        assert!(matches!(a.get(&ArrayKey::Int(1)), Some(Val::Int(21))));
+        assert!(matches!(a.get(&ArrayKey::from_str("1")), Some(Val::Int(21))));
+        assert!(a.get(&ArrayKey::Int(-1)).is_none());
+        // removing the last element keeps it packed, but the next push leaves a gap
+        assert!(matches!(a.remove(&ArrayKey::Int(2)), Some(Val::Int(12))));
+        assert!(matches!(a.store, Store::Packed { .. }));
+        a.push(Val::Int(13));
+        assert!(matches!(a.store, Store::Hash(_)));
+        let keys: Vec<_> = a.keys().cloned().collect();
+        assert_eq!(keys, vec![ArrayKey::Int(0), ArrayKey::Int(1), ArrayKey::Int(3)]);
+        let mut b = PhpArray::from_values([Val::Int(1)]);
+        b.insert(ArrayKey::from_str("k"), Val::Int(2));
+        assert!(matches!(b.store, Store::Hash(_)));
+        assert_eq!(b.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(), vec![ArrayKey::Int(0), ArrayKey::Str("k".into())]);
     }
 
     #[test]
