@@ -80,7 +80,15 @@ impl Compiler {
             Statement::Break(b) => self.compile_break_continue(b.level, true, b.span()),
             Statement::Switch(sw) => self.compile_switch(sw),
             Statement::If(i) => self.compile_if(i),
-            Statement::Return(r) => self.compile_return(r.value),
+            Statement::Return(r) => {
+                let kind = match r.value {
+                    None => 0,
+                    Some(Expression::Literal(Literal::Null(_))) => 1,
+                    Some(_) => 2,
+                };
+                self.ub().returns.push((r.span(), kind));
+                self.compile_return(r.value)
+            }
             Statement::Expression(e) => {
                 self.check_discarded_result(e.expression)?;
                 self.compile_expr_w(e.expression, Want::Discard)
@@ -329,11 +337,14 @@ impl Compiler {
         match spec.body {
             FnBody::Block(b) => self.compile_statements(b.statements.iter())?,
             FnBody::Expr(e) => {
+                // an arrow function returns its expression
+                self.ub().returns.push((e.span(), 2));
                 self.compile_expr(e)?;
                 self.emit(Op::Return);
             }
             FnBody::Signature => {}
         }
+        self.check_returns()?;
         // record slot names for reflection/debugging
         let mut names: Vec<(Slot, Vec<u8>)> = self.ub().slots.iter().map(|(k, v)| (*v, k.clone())).collect();
         names.sort();
@@ -428,6 +439,43 @@ impl Compiler {
             self.ub().unit.uses_this = true;
         }
         self.emit(Op::MakeClosure(Box::new(ClosureOp { unit, captures, bind_this })));
+        Ok(())
+    }
+
+    /// PHP's compile errors for `return` against the declared return type
+    /// (generators excepted, whose type must admit Generator).
+    fn check_returns(&mut self) -> CResult<()> {
+        let ub = self.ub();
+        let (Some(ret), returns, is_gen) = (ub.unit.return_type.clone(), std::mem::take(&mut ub.returns), ub.unit.is_generator) else { return Ok(()) };
+        if is_gen {
+            let ok = match &ret {
+                TypeHint::Mixed | TypeHint::Object | TypeHint::Iterable => true,
+                TypeHint::Class(n) => matches!(self.module.str(*n).to_ascii_lowercase().as_slice(), b"generator" | b"iterator" | b"traversable"),
+                _ => false,
+            };
+            if !ok {
+                let span = returns.first().map(|r| r.0);
+                let msg = format!("Generator return type must be a supertype of Generator, {} given", type_display(self, &ret));
+                return match span { Some(s) => self.err(s, msg), None => Err(super::CompileError { code: None, message: msg, hint: None, line: self.ub().unit.line, file: self.module.file.clone() }) };
+            }
+            return Ok(());
+        }
+        let nullable = match &ret {
+            TypeHint::Mixed | TypeHint::Null | TypeHint::Nullable(_) => true,
+            TypeHint::Union(p) => p.iter().any(|t| matches!(t, TypeHint::Null)),
+            _ => false,
+        };
+        for (span, kind) in returns {
+            match (&ret, kind) {
+                (TypeHint::Void, 2) => return self.err(span, "A void function must not return a value"),
+                (TypeHint::Void, 1) => return self.err(span, "A void function must not return a value (did you mean \"return;\" instead of \"return null;\"?)"),
+                (TypeHint::Void, _) => {}
+                (TypeHint::Never, _) => return self.err(span, "A never-returning function must not return"),
+                (_, 0) if nullable => return self.err(span, "A function with return type must return a value (did you mean \"return null;\" instead of \"return;\"?)"),
+                (_, 0) => return self.err(span, "A function with return type must return a value"),
+                _ => {}
+            }
+        }
         Ok(())
     }
 
@@ -833,10 +881,22 @@ impl Compiler {
                 }
             }
             Hint::Parenthesized(p) => self.type_hint(p.hint)?,
-            Hint::Nullable(n) => TypeHint::Nullable(Box::new(self.type_hint(n.hint)?)),
+            Hint::Nullable(n) => {
+                let inner = self.type_hint(n.hint)?;
+                // PHP's compile errors for ?T
+                match inner {
+                    TypeHint::Mixed => return self.err(h.span(), "Type mixed cannot be marked as nullable since mixed already includes null"),
+                    TypeHint::Void => return self.err(h.span(), "Void can only be used as a standalone type"),
+                    TypeHint::Never => return self.err(h.span(), "never can only be used as a standalone type"),
+                    TypeHint::Null => return self.err(h.span(), "null cannot be marked as nullable"),
+                    _ => {}
+                }
+                TypeHint::Nullable(Box::new(inner))
+            }
             Hint::Union(u) => {
                 let mut parts = Vec::new();
                 flatten_union(self, u, &mut parts)?;
+                self.check_union(&parts, h.span())?;
                 TypeHint::Union(parts)
             }
             Hint::Intersection(i) => TypeHint::Intersection(vec![self.type_hint(i.left)?, self.type_hint(i.right)?]),
@@ -858,6 +918,48 @@ impl Compiler {
             Hint::Mixed(_) => TypeHint::Mixed,
             Hint::Iterable(_) => TypeHint::Iterable,
         })
+    }
+
+    /// PHP's compile errors for union types: standalone types, duplicates
+    /// (iterable counts as array|Traversable), true|false, object with a class.
+    fn check_union(&self, parts: &[TypeHint], span: mago_span::Span) -> CResult<()> {
+        let mut seen: Vec<Vec<u8>> = Vec::new();
+        let (mut has_true, mut has_false, mut has_object, mut first_class) = (false, false, false, None);
+        for p in parts {
+            let names: Vec<Vec<u8>> = match p {
+                TypeHint::Mixed => return self.err(span, "Type mixed can only be used as a standalone type"),
+                TypeHint::Void => return self.err(span, "Void can only be used as a standalone type"),
+                TypeHint::Never => return self.err(span, "never can only be used as a standalone type"),
+                TypeHint::Iterable => vec![b"array".to_vec(), b"Traversable".to_vec()],
+                TypeHint::Class(n) => {
+                    first_class.get_or_insert(*n);
+                    vec![self.module.str(*n).to_vec()]
+                }
+                TypeHint::Bool => vec![b"bool".to_vec(), b"true".to_vec(), b"false".to_vec()],
+                other => vec![type_keyword(other).as_bytes().to_vec()],
+            };
+            has_true |= matches!(p, TypeHint::True);
+            has_false |= matches!(p, TypeHint::False);
+            has_object |= matches!(p, TypeHint::Object);
+            for n in names {
+                if seen.iter().any(|s| s.eq_ignore_ascii_case(&n)) {
+                    // PHP names the later member as written; for bool it is the true/false part
+                    let shown = match p {
+                        TypeHint::Bool => parts.iter().find(|q| matches!(q, TypeHint::True | TypeHint::False)).map(|q| type_keyword(q).as_bytes().to_vec()).unwrap_or(n),
+                        _ => n,
+                    };
+                    return self.err(span, format!("Duplicate type {} is redundant", String::from_utf8_lossy(&shown)));
+                }
+                seen.push(n);
+            }
+        }
+        if has_true && has_false {
+            return self.err(span, "Type contains both true and false, bool must be used instead");
+        }
+        if has_object && let Some(c) = first_class {
+            return self.err(span, format!("Type {}|object contains both object and a class type, which is redundant", String::from_utf8_lossy(self.module.str(c))));
+        }
+        Ok(())
     }
 
     pub(crate) fn compile_attributes(&mut self, lists: &Sequence<'_, AttributeList<'_>>) -> CResult<Vec<AttributeDecl>> {
@@ -906,3 +1008,39 @@ fn join_ns(ns: &[u8], name: &[u8]) -> Vec<u8> {
     v.extend_from_slice(name);
     v
 }
+
+/// The keyword of a built-in type (for messages).
+fn type_keyword(t: &TypeHint) -> &'static str {
+    match t {
+        TypeHint::Mixed => "mixed",
+        TypeHint::Null => "null",
+        TypeHint::Bool => "bool",
+        TypeHint::True => "true",
+        TypeHint::False => "false",
+        TypeHint::Int => "int",
+        TypeHint::Float => "float",
+        TypeHint::String => "string",
+        TypeHint::Array => "array",
+        TypeHint::Object => "object",
+        TypeHint::Iterable => "iterable",
+        TypeHint::Callable => "callable",
+        TypeHint::Void => "void",
+        TypeHint::Never => "never",
+        TypeHint::Static => "static",
+        TypeHint::SelfT => "self",
+        TypeHint::Parent => "parent",
+        _ => "",
+    }
+}
+
+/// A type as PHP writes it in messages.
+fn type_display(c: &Compiler, t: &TypeHint) -> String {
+    match t {
+        TypeHint::Class(n) => String::from_utf8_lossy(c.module.str(*n)).into_owned(),
+        TypeHint::Nullable(i) => format!("?{}", type_display(c, i)),
+        TypeHint::Union(p) => p.iter().map(|x| type_display(c, x)).collect::<Vec<_>>().join("|"),
+        TypeHint::Intersection(p) => p.iter().map(|x| type_display(c, x)).collect::<Vec<_>>().join("&"),
+        other => type_keyword(other).to_string(),
+    }
+}
+

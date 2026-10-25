@@ -113,3 +113,53 @@ fn declaration_checks_match_php() {
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+
+/// PHP's compile-time checks of types (?T, unions) and of `return` against the
+/// declared return type. Expected messages are PHP 8.4's.
+#[test]
+fn type_and_return_checks_match_php() {
+    let cases: &[(&str, &str)] = &[
+        (r#"function f(?mixed $x) {}"#, r#"Type mixed cannot be marked as nullable since mixed already includes null"#),
+        (r#"function f(mixed|int $x) {}"#, r#"Type mixed can only be used as a standalone type"#),
+        (r#"function f(?void $x) {}"#, r#"Void can only be used as a standalone type"#),
+        (r#"function f(void|int $x) {}"#, r#"Void can only be used as a standalone type"#),
+        (r#"function f(never|int $x) {}"#, r#"never can only be used as a standalone type"#),
+        (r#"function f(int|int $x) {}"#, r#"Duplicate type int is redundant"#),
+        (r#"function f(int|INT $x) {}"#, r#"Duplicate type int is redundant"#),
+        (r#"function f(A|a $x) {}"#, r#"Duplicate type a is redundant"#),
+        (r#"function f(bool|false $x) {}"#, r#"Duplicate type false is redundant"#),
+        (r#"function f(false|bool $x) {}"#, r#"Duplicate type false is redundant"#),
+        (r#"function f(true|false $x) {}"#, r#"Type contains both true and false, bool must be used instead"#),
+        (r#"function f(iterable|array $x) {}"#, r#"Duplicate type array is redundant"#),
+        (r#"function f(iterable|Traversable $x) {}"#, r#"Duplicate type Traversable is redundant"#),
+        (r#"function f(object|A $x) {}"#, r#"Type A|object contains both object and a class type, which is redundant"#),
+        (r#"function f(?null $x) {}"#, r#"null cannot be marked as nullable"#),
+        (r#"function f(null $x) {}"#, r#"ok"#),
+        (r#"function f(int|null $x) {}"#, r#"ok"#),
+        (r#"function f(string|array|string $x) {}"#, r#"Duplicate type string is redundant"#),
+        (r#"function f(callable|Closure $x) {}"#, r#"ok"#),
+        (r#"function f(A|B|null $x) {}"#, r#"ok"#),
+        (r#"function f(): void { return 1; }"#, r#"A void function must not return a value"#),
+        (r#"function f(): void { return null; }"#, r#"A void function must not return a value (did you mean "return;" instead of "return null;"?)"#),
+        (r#"function f(): void { return; }"#, r#"ok"#),
+        (r#"function f(): never { return; }"#, r#"A never-returning function must not return"#),
+        (r#"function f(): int { return; }"#, r#"A function with return type must return a value"#),
+        (r#"function f(): ?int { return; }"#, r#"A function with return type must return a value (did you mean "return null;" instead of "return;"?)"#),
+        (r#"function f(): int { yield 1; return; }"#, r#"Generator return type must be a supertype of Generator, int given"#),
+        (r#"function f(): iterable { yield 1; return; }"#, r#"ok"#),
+        (r#"function f() { return; }"#, r#"ok"#),
+        (r#"$c = fn (): void => 1;"#, r#"A void function must not return a value"#),
+        (r#"class A { function __construct() { return 1; } }"#, r#"ok"#),
+        (r#"function f(): mixed { return; }"#, r#"A function with return type must return a value (did you mean "return null;" instead of "return;"?)"#),
+        (r#"function f(): Generator { yield 1; return 5; }"#, r#"ok"#),
+    ];
+    let mut failures = Vec::new();
+    for (src, expected) in cases {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
+        if got != *expected {
+            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}

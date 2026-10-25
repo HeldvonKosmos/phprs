@@ -195,6 +195,9 @@ pub(crate) struct UnitBuilder {
     pub first_assigned: std::collections::HashSet<Slot>,
     /// Variables without a static type in this unit (GRD021: not checked).
     pub mixed: std::collections::HashSet<Vec<u8>>,
+    /// `return` statements: (span, 0 = no value, 1 = `null`, 2 = other value),
+    /// checked against the return type once the body is compiled.
+    pub returns: Vec<(mago_span::Span, u8)>,
 }
 
 impl UnitBuilder {
@@ -205,6 +208,7 @@ impl UnitBuilder {
             slots: HashMap::new(),
             first_assigned: std::collections::HashSet::new(),
             mixed: std::collections::HashSet::new(),
+            returns: Vec::new(),
             loops: Vec::new(),
             tries: Vec::new(),
             function_name: Vec::new(),
