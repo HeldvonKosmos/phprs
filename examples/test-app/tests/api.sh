@@ -1,22 +1,42 @@
 #!/usr/bin/env bash
 # TP5 acceptance test of the test project's API (login, logout, CRUD).
 #
-# Starts the server on a free port with a fresh embedded database (a
-# temporary surrealkv directory), waits for GET /health, plays the whole
-# flow with curl and jq, restarts the server on the same directory and
-# checks the data survived. Every step prints PASS or FAIL; the exit code
-# is non-zero if any step failed. The server is stopped in any case.
+# Starts the server on a free port with a fresh database, waits for GET
+# /health, plays the whole flow with curl and jq and, for OpenGrid, restarts
+# the server on the same embedded database directory and checks the data
+# survived. Every step prints PASS, FAIL or SKIP (steps that only apply to
+# OpenGrid, when the Laravel comparison application runs); the exit code is
+# non-zero if any step failed. The server is stopped in any case.
 #
-#   tests/api.sh                    uses ../../../target/debug/opengrid
+#   tests/api.sh                          OpenGrid, ../../../target/debug/opengrid
 #   OPENGRID_BIN=/path/to/opengrid tests/api.sh
+#   tests/api.sh --app laravel [--runtime fpm|octane]
+#                                         the Laravel comparison application (LV1,
+#                                         bench/framework/laravel; SQLite until the
+#                                         platform's SurrealDB layer is there)
 set -u -o pipefail
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
+TARGET=opengrid
+RUNTIME=fpm
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --app) TARGET=$2; shift 2;;
+    --runtime) RUNTIME=$2; shift 2;;
+    *) echo "usage: api.sh [--app opengrid|laravel] [--runtime fpm|octane]"; exit 2;;
+  esac
+done
 BIN=${OPENGRID_BIN:-$HERE/../../../target/debug/opengrid}
+SERVE=$HERE/../../bench/framework/laravel/serve.sh
 for tool in curl jq python3; do
   command -v "$tool" >/dev/null || { echo "FAIL setup: $tool is missing"; exit 2; }
 done
-[ -x "$BIN" ] || { echo "FAIL setup: no opengrid binary at $BIN (build it: cargo build -p opengrid-framework --bin opengrid)"; exit 2; }
+case "$TARGET" in
+  opengrid) [ -x "$BIN" ] || { echo "FAIL setup: no opengrid binary at $BIN (build it: cargo build -p opengrid-framework --bin opengrid)"; exit 2; };;
+  laravel) [ -x "$SERVE" ] || { echo "FAIL setup: $SERVE is missing"; exit 2; };;
+  *) echo "FAIL setup: unknown app $TARGET"; exit 2;;
+esac
+echo "app: $TARGET$([ "$TARGET" = laravel ] && echo " ($RUNTIME)")"
 
 WORK=$(mktemp -d)
 APP="$WORK/app"
@@ -24,11 +44,13 @@ mkdir -p "$APP"
 # a copy of the project, so the run writes nothing into the repository
 (cd "$HERE" && tar --exclude=./.opengrid --exclude=./tests -cf - .) | (cd "$APP" && tar -xf -)
 export OPENGRID_DB_URL="surrealkv://$WORK/db"
+export DB_CONNECTION=sqlite DB_DATABASE="$WORK/db.sqlite"
 PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 BASE="http://127.0.0.1:$PORT"
 PID=""
 FAILS=0
 STEPS=0
+SKIPS=0
 
 cleanup() {
   if [ -n "$PID" ]; then kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; fi
@@ -39,9 +61,14 @@ trap cleanup EXIT INT TERM
 
 pass() { STEPS=$((STEPS + 1)); echo "PASS $1"; }
 fail() { STEPS=$((STEPS + 1)); FAILS=$((FAILS + 1)); echo "FAIL $1: $2"; }
+skip() { SKIPS=$((SKIPS + 1)); echo "SKIP $1 (only OpenGrid: $2)"; }
 
 start_server() {
-  (cd "$APP" && exec "$BIN" start --no-banner --binding 127.0.0.1 --port "$PORT" >>"$WORK/server.log" 2>&1) &
+  if [ "$TARGET" = opengrid ]; then
+    (cd "$APP" && exec "$BIN" start --no-banner --binding 127.0.0.1 --port "$PORT" >>"$WORK/server.log" 2>&1) &
+  else
+    "$SERVE" "$RUNTIME" "$PORT" "$WORK/run" 2 >>"$WORK/server.log" 2>&1 &
+  fi
   PID=$!
   for _ in $(seq 1 100); do
     if curl -s -o /dev/null "$BASE/health"; then return 0; fi
@@ -68,16 +95,27 @@ req() {
 # check NAME STATUS [JQ-EXPRESSION that must be true]
 check() {
   local name=$1 want=$2 expr=${3:-}
-  if [ "$STATUS" != "$want" ]; then fail "$name" "status $STATUS, expected $want; body: $BODY"; return 1; fi
+  if [ "$STATUS" != "$want" ]; then fail "$name" "status $STATUS, expected $want; body: ${BODY:0:300}"; return 1; fi
   if [ -n "$expr" ] && ! printf '%s' "$BODY" | jq -e "$expr" >/dev/null 2>&1; then fail "$name" "jq '$expr' is not true for: $BODY"; return 1; fi
   pass "$name"
 }
 
 # ---- setup -----------------------------------------------------------------
-if (cd "$APP" && "$BIN" task migrate_push >"$WORK/migrate.log" 2>&1); then pass "schema: migrate_push"; else fail "schema: migrate_push" "$(tail -n 5 "$WORK/migrate.log")"; exit 1; fi
+if [ "$TARGET" = opengrid ]; then
+  if (cd "$APP" && "$BIN" task migrate_push >"$WORK/migrate.log" 2>&1); then pass "schema: migrate_push"; else fail "schema: migrate_push" "$(tail -n 5 "$WORK/migrate.log")"; exit 1; fi
+else
+  LARAVEL_APP=${LARAVEL_APP:-$(cd "$HERE/../../.." && pwd)/bench/laravel-app}
+  touch "$DB_DATABASE"
+  if (cd "$LARAVEL_APP" && php artisan config:clear >/dev/null && php artisan migrate --force >"$WORK/migrate.log" 2>&1); then pass "schema: artisan migrate"; else fail "schema: artisan migrate" "$(tail -n 5 "$WORK/migrate.log")"; exit 1; fi
+fi
 if start_server; then pass "server starts, GET /health answers"; else fail "server start" "no answer on $BASE/health"; exit 1; fi
 req GET /health
-check "health: status ok, embedded database" 200 '.status == "ok" and .database.mode == "embedded" and (.database.version | length > 0)'
+check "health: status ok" 200 '.status == "ok" and (.database.version | length > 0)'
+if [ "$TARGET" = opengrid ]; then
+  check "health: embedded database" 200 '.database.mode == "embedded"'
+else
+  skip "health: embedded database" "embedded SurrealDB"
+fi
 
 # ---- registration and login ------------------------------------------------
 ADA='{"name":"Ada","email":"ada@example.com","password":"secret-123","password_confirmation":"secret-123"}'
@@ -86,7 +124,7 @@ check "register" 201 '.email == "ada@example.com" and .name == "Ada" and (has("p
 req POST /api/register "$ADA"
 check "register again with the same email" 422 '.errors.email[0] == "The email has already been taken."'
 req POST /api/register '{"name":"X","email":"not-an-email","password":"short","password_confirmation":"other"}'
-check "register with invalid data" 422 '(.errors.email | length) > 0 and (.errors.password | length) > 0'
+check "register with invalid data" 422 '.errors.email[0] == "The email field must be a valid email address." and .errors.password == ["The password field must be at least 8 characters.", "The password field confirmation does not match."]'
 req POST /api/login '{"email":"ada@example.com","password":"wrong-password"}'
 check "login with a wrong password" 401
 WRONG=$BODY
@@ -163,18 +201,25 @@ check "logout" 204
 req GET /api/me "" "$TOKEN"
 check "me with the old token" 401
 
-# ---- restart on the same database ------------------------------------------
-stop_server
-if start_server; then pass "restart on the same database"; else fail "restart" "no answer on $BASE/health"; exit 1; fi
-req POST /api/login '{"email":"ada@example.com","password":"secret-123"}'
-check "login after restart" 200
-TOKEN=$(printf '%s' "$BODY" | jq -r .token)
-req GET '/api/notes?sort=title' "" "$TOKEN"
-check "data survived the restart" 200 '.total == 2 and [.data[].title] == ["Steuer", "Urlaub"]'
-req GET /api/me "" "$TOKEN2"
-check "the second user's token survived the restart" 200 '.name == "Bob"'
+# ---- restart on the same database (embedded, OpenGrid only) ----------------
+if [ "$TARGET" = opengrid ]; then
+  stop_server
+  if start_server; then pass "restart on the same database"; else fail "restart" "no answer on $BASE/health"; exit 1; fi
+  req POST /api/login '{"email":"ada@example.com","password":"secret-123"}'
+  check "login after restart" 200
+  TOKEN=$(printf '%s' "$BODY" | jq -r .token)
+  req GET '/api/notes?sort=title' "" "$TOKEN"
+  check "data survived the restart" 200 '.total == 2 and [.data[].title] == ["Steuer", "Urlaub"]'
+  req GET /api/me "" "$TOKEN2"
+  check "the second user's token survived the restart" 200 '.name == "Bob"'
+else
+  for name in "restart on the same database" "login after restart" "data survived the restart" "the second user's token survived the restart"; do
+    skip "$name" "restart on the same embedded database directory"
+  done
+fi
 
 echo "---"
-if [ "$FAILS" -eq 0 ]; then echo "api.sh: all $STEPS steps passed"; exit 0; fi
-echo "api.sh: $FAILS of $STEPS steps failed"
+SKIPPED=$([ "$SKIPS" -gt 0 ] && echo ", $SKIPS skipped" || true)
+if [ "$FAILS" -eq 0 ]; then echo "api.sh ($TARGET): all $STEPS steps passed$SKIPPED"; exit 0; fi
+echo "api.sh ($TARGET): $FAILS of $STEPS steps failed$SKIPPED"
 exit 1
