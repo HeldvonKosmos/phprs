@@ -54,7 +54,6 @@ http {
   proxy_temp_path $W/nginx-tmp/proxy;
   uwsgi_temp_path $W/nginx-tmp/uwsgi;
   scgi_temp_path $W/nginx-tmp/scgi;
-  upstream php { server unix:$W/php-fpm.sock; keepalive 64; }
   server {
     listen 127.0.0.1:$PORT;
     root $APP/public;
@@ -62,8 +61,7 @@ http {
     location = /index.php {
       include /etc/nginx/fastcgi_params;
       fastcgi_param SCRIPT_FILENAME $APP/public/index.php;
-      fastcgi_keep_conn on;
-      fastcgi_pass php;
+      fastcgi_pass unix:$W/php-fpm.sock;   # one FastCGI connection per request (keep_conn would pin a child)
     }
   }
 }

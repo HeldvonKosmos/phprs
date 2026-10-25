@@ -218,18 +218,25 @@ def main():
                         codes = r.get("statusCodeDistribution", {})
                         bad = sum(n for code, n in codes.items() if not code.startswith("2"))
                         lat = r["latencyPercentiles"]
-                        results[(e, name, c)] = (r["summary"]["requestsPerSec"], lat["p50"] * 1000, lat["p99"] * 1000, bad, sum(codes.values()))
+                        rps = r["summary"]["requestsPerSec"]
+                        # Little's law: requests in flight = throughput × mean latency; far below the
+                        # connection count means connections hung and their requests are not in the
+                        # percentiles (oha only counts finished requests)
+                        inflight = rps * (r["summary"]["average"] or 0)
+                        if c > 1 and inflight < 0.8 * c:
+                            print(f"WARNING {name} {e} c={c}: only {inflight:.1f} requests in flight on average", file=sys.stderr)
+                        results[(e, name, c)] = (rps, lat["p50"] * 1000, lat["p99"] * 1000, bad, sum(codes.values()), inflight)
                         print(f"  {name:<18} {e:<7} c={c:<3} {results[(e, name, c)][0]:>9.0f} req/s  p50 {results[(e, name, c)][1]:7.2f} ms  p99 {results[(e, name, c)][2]:7.2f} ms  non-2xx {bad}", file=sys.stderr)
             finally:
                 t.close()
     for e in a.endpoints.split(","):
         print(f"#### {e}\n")
-        print("| Ziel | Verbindungen | Anfragen/s | p50 ms | p99 ms | Fehler (nicht 2xx) |")
-        print("|---|---:|---:|---:|---:|---:|")
+        print("| Ziel | Verbindungen | Anfragen/s | p50 ms | p99 ms | Fehler (nicht 2xx) | in Arbeit (Little) |")
+        print("|---|---:|---:|---:|---:|---:|---:|")
         for name in a.targets.split(","):
             for c in conc:
-                rps, p50, p99, bad, total = results[(e, name, c)]
-                print(f"| {name} | {c} | {rps:.0f} | {p50:.2f} | {p99:.2f} | {bad} von {total} |")
+                rps, p50, p99, bad, total, inflight = results[(e, name, c)]
+                print(f"| {name} | {c} | {rps:.0f} | {p50:.2f} | {p99:.2f} | {bad} von {total} | {inflight:.1f} |")
         print()
     if a.json:
         json.dump({f"{e}|{n}|{c}": v for (e, n, c), v in results.items()}, open(a.json, "w"), indent=1)
