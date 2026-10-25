@@ -84,7 +84,9 @@ impl Vm {
         if child_abstract && !parent_abstract {
             return Err(Throw::error(format!("Cannot make non abstract method {pname}() abstract in class {cname}")));
         }
-        if vis_rank(child.visibility) > vis_rank(parent.visibility) {
+        let is_ctor = child.name.eq_ignore_ascii_case(b"__construct");
+        // a constructor may narrow its visibility unless the parent's is abstract
+        if vis_rank(child.visibility) > vis_rank(parent.visibility) && (!is_ctor || parent_abstract) {
             return Err(Throw::error(format!(
                 "Access level to {cname}::{}() must be {} (as in class {}){}",
                 String::from_utf8_lossy(&child.name),
@@ -94,14 +96,17 @@ impl Vm {
             )));
         }
         // constructors are free unless the parent's is abstract or from an interface
-        if child.name.eq_ignore_ascii_case(b"__construct") && !parent_abstract && !from_interface {
+        if is_ctor && !parent_abstract && !from_interface {
             return Ok(());
         }
         let (Some((pm, pu)), Some((cm, cu))) = (self.sig_of(parent, cur), self.sig_of(child, cur)) else { return Ok(()) };
         let (pu, cu) = (&pm.units[pu as usize], &cm.units[cu as usize]);
         let pctx = Ctx { module: pm, class: Some(parent.declaring), linking: Some(rt) };
         let cctx = Ctx { module: cm, class: Some(rt.id), linking: Some(rt) };
-        if !self.signature_compatible(pu, pctx, cu, cctx) {
+        // methods of internal classes (the base prelude, module 0) have tentative
+        // return types in PHP: a different return type is only deprecated
+        let tentative = parent.module == 0;
+        if !self.signature_compatible(pu, pctx, cu, cctx, tentative) {
             return Err(Throw::error(format!(
                 "Declaration of {} must be compatible with {}",
                 self.render_signature(&cname, &child.name, cu, cctx),
@@ -113,7 +118,7 @@ impl Vm {
 
     /// zend_do_perform_implementation_check: the child accepts at least what the
     /// parent accepts (contravariant parameters) and returns no more (covariant).
-    fn signature_compatible(&self, p: &Unit, pctx: Ctx, c: &Unit, cctx: Ctx) -> bool {
+    fn signature_compatible(&self, p: &Unit, pctx: Ctx, c: &Unit, cctx: Ctx, tentative_return: bool) -> bool {
         if c.required_params > p.required_params {
             return false;
         }
@@ -140,6 +145,9 @@ impl Vm {
             }
         }
         // return: the child's type must fit into the parent's
+        if tentative_return {
+            return true;
+        }
         match (&p.return_type, &c.return_type) {
             (None, _) => true,
             (Some(_), None) => false,
@@ -158,6 +166,13 @@ impl Vm {
 
     fn atom_subtype(&self, a: &TypeHint, actx: Ctx, b: &TypeHint, bctx: Ctx) -> bool {
         use TypeHint as T;
+        // A&B fits where one of its parts fits; a type fits A&B if it fits each part
+        if let T::Intersection(parts) = b {
+            return parts.iter().all(|p| self.atom_subtype(a, actx, p, bctx));
+        }
+        if let T::Intersection(parts) = a {
+            return parts.iter().any(|p| self.atom_subtype(p, actx, b, bctx));
+        }
         match (a, b) {
             (T::Never, _) => true,
             (T::Void, T::Void) => true,
@@ -302,7 +317,8 @@ impl Vm {
             return Ok(());
         }
         left.sort_by_key(|m| (m.declaring.0, m.name.clone()));
-        let names: Vec<String> = left.iter().take(3).map(|m| format!("{}::{}", self.class_name_str(m.declaring), String::from_utf8_lossy(&m.name))).collect();
+        let owner = |id: ClassId| if id == rt.id { String::from_utf8_lossy(&rt.name).into_owned() } else { self.class_name_str(id) };
+        let names: Vec<String> = left.iter().take(3).map(|m| format!("{}::{}", owner(m.declaring), String::from_utf8_lossy(&m.name))).collect();
         let kind = if rt.kind == ClassKind::Enum { "Enum" } else { "Class" };
         Err(Throw::error(format!(
             "{kind} {} contains {} abstract method{} and must therefore be declared abstract or implement the remaining methods ({}{})",

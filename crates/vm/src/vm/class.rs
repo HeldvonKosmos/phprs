@@ -230,6 +230,11 @@ impl Vm {
                 rt.static_props.insert(k.clone(), StaticPropInfo { declaring: id, ..sp.clone() });
             }
             for (k, m) in &tc.methods {
+                // an abstract trait method does not replace an inherited implementation
+                let abstract_m = m.unit.is_none() && m.native.is_none();
+                if abstract_m && rt.methods.get(k).is_some_and(|e| e.unit.is_some() || e.native.is_some()) {
+                    continue;
+                }
                 let mut m = m.clone();
                 m.declaring = id;
                 rt.methods.insert(k.clone(), m);
@@ -293,8 +298,11 @@ impl Vm {
             if let Some(parent) = &overridden {
                 self.check_method_override(&rt, parent, &info, super::inherit::Linking { idx: midx, module })?;
             }
-            let overrides = overridden.as_ref().is_some_and(|p| p.visibility != Visibility::Private || (p.unit.is_none() && p.native.is_none()));
-            if !overrides && m.attributes.iter().any(|a| module.str(a.name).eq_ignore_ascii_case(b"Override")) {
+            // implementing an abstract method of a used trait counts as overriding (PHP 8.3)
+            let from_trait_abstract = rt.methods.get(&key).is_some_and(|e| e.declaring == id && e.unit.is_none() && e.native.is_none());
+            let overrides = from_trait_abstract || overridden.as_ref().is_some_and(|p| p.visibility != Visibility::Private || (p.unit.is_none() && p.native.is_none()));
+            // in a trait, #[\Override] is checked where the trait is used (PHP)
+            if !overrides && decl.kind != ClassKind::Trait && m.attributes.iter().any(|a| module.str(a.name).eq_ignore_ascii_case(b"Override")) {
                 return Err(Throw::error(format!("{}::{}() has #[\\Override] attribute, but no matching parent method exists", String::from_utf8_lossy(&name), String::from_utf8_lossy(&mname))));
             }
             rt.methods.insert(key, info);
