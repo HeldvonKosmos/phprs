@@ -15,6 +15,7 @@ if (!enum_exists('SortDirection')) { eval('enum SortDirection { case Ascending; 
 [$self, $vendor, $cases] = $argv;
 require $vendor . '/autoload.php';
 class_alias(\Illuminate\Support\Str::class, 'Str');
+class_alias(\Illuminate\Support\LazyCollection::class, 'LazyCollection');
 
 // the dialect has no references: Arr::set/forget/push return the new root
 // array, Arr::pull returns [value, rest] like Arr::pop/shift

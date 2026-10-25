@@ -18,7 +18,7 @@ fn support_classes_match_laravel() {
     let cases: Vec<String> = std::fs::read_to_string(dir().join("cases.txt")).unwrap().lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect();
     let expected: Vec<String> = std::fs::read_to_string(dir().join("cases.out")).unwrap().lines().map(str::to_string).collect();
     assert_eq!(cases.len(), expected.len(), "cases.out is stale");
-    let mut src = String::from("<?grd\nuse OpenGrid\\Support\\Str;\nuse OpenGrid\\Support\\Arr;\n");
+    let mut src = String::from("<?grd\nuse OpenGrid\\Support\\Str;\nuse OpenGrid\\Support\\Arr;\nuse OpenGrid\\Support\\LazyCollection;\n");
     for c in &cases {
         src.push_str(&format!("try {{ echo json_encode({c}), \"\\n\"; }} catch (Throwable $e) {{ echo 'ERR ', substr(strrchr('\\\\' . get_class($e), '\\\\'), 1), ': ', $e->getMessage(), \"\\n\"; }}\n"));
     }

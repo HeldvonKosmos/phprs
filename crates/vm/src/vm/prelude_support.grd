@@ -1863,6 +1863,404 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
  * Fluent strings (S1b, Laravel's Stringable): each step returns a new
  * Stringable, questions return their answer. Built on Str.
  */
+/**
+ * Lazy sequence over a generator (Laravel's LazyCollection): every method
+ * returns a new LazyCollection whose source is a closure producing a fresh
+ * generator, so nothing runs until the values are iterated.
+ */
+class LazyCollection implements \IteratorAggregate, \JsonSerializable
+{
+    protected \Closure $source;
+
+    public function __construct(mixed $source = null)
+    {
+        if ($source instanceof \Closure) {
+            $this->source = $source;
+        } elseif ($source === null) {
+            $this->source = fn (): array => [];
+        } elseif ($source instanceof LazyCollection) {
+            $this->source = $source->source;
+        } else {
+            $items = $source instanceof Collection ? $source->all() : $source;
+            $this->source = function () use ($items): \Generator { yield from $items; };
+        }
+    }
+
+    public static function make(mixed $items = []): static { return new static($items); }
+    public static function empty(): static { return new static([]); }
+
+    public static function range(int $from, int $to, int $step = 1): static
+    {
+        return new static(function () use ($from, $to, $step): \Generator {
+            if ($from <= $to) {
+                for (; $from <= $to; $from += abs($step)) { yield $from; }
+            } else {
+                for (; $from >= $to; $from -= abs($step)) { yield $from; }
+            }
+        });
+    }
+
+    public static function times(int $number, ?callable $callback = null): static
+    {
+        return new static(function () use ($number, $callback): \Generator {
+            for ($i = 1; $i <= $number; $i++) { yield $callback === null ? $i : $callback($i); }
+        });
+    }
+
+    public function getIterator(): \Iterator
+    {
+        $iter = ($this->source)();
+        return $iter instanceof \Iterator ? $iter : new \ArrayIterator($iter);
+    }
+
+    protected function valueRetriever(mixed $value): \Closure
+    {
+        if ($value instanceof \Closure) { return $value; }
+        if ($value === null) { return fn (mixed $item): mixed => $item; }
+        return fn (mixed $item): mixed => data_get($item, $value);
+    }
+
+    // ---- lazy transforms ---------------------------------------------------
+
+    public function map(callable $callback): static
+    {
+        return new static(function () use ($callback): \Generator {
+            foreach ($this as $k => $v) { yield $k => $callback($v, $k); }
+        });
+    }
+
+    public function mapWithKeys(callable $callback): static
+    {
+        return new static(function () use ($callback): \Generator {
+            foreach ($this as $k => $v) { yield from $callback($v, $k); }
+        });
+    }
+
+    public function filter(?callable $callback = null): static
+    {
+        return new static(function () use ($callback): \Generator {
+            foreach ($this as $k => $v) {
+                if ($callback === null ? (bool) $v : $callback($v, $k)) { yield $k => $v; }
+            }
+        });
+    }
+
+    public function reject(callable $callback): static { return $this->filter(fn (mixed $v, string|int $k): bool => !$callback($v, $k)); }
+
+    public function where(string $key, mixed $operator = null, mixed $value = null): static
+    {
+        $args = func_get_args();
+        return new static(function () use ($args): \Generator {
+            $kept = (new Collection(iterator_to_array($this)))->where(...$args);
+            yield from $kept->all();
+        });
+    }
+
+    public function whereNotNull(?string $key = null): static { return $this->filter(fn (mixed $v): bool => ($key === null ? $v : data_get($v, $key)) !== null); }
+
+    public function pluck(string $value, ?string $key = null): static
+    {
+        return new static(function () use ($value, $key): \Generator {
+            foreach ($this as $item) {
+                if ($key === null) { yield data_get($item, $value); } else { yield data_get($item, $key) => data_get($item, $value); }
+            }
+        });
+    }
+
+    public function keys(): static
+    {
+        return new static(function (): \Generator {
+            foreach ($this as $k => $_) { yield $k; }
+        });
+    }
+
+    public function values(): static
+    {
+        return new static(function (): \Generator {
+            foreach ($this as $v) { yield $v; }
+        });
+    }
+
+    public function flip(): static
+    {
+        return new static(function (): \Generator {
+            foreach ($this as $k => $v) { yield $v => $k; }
+        });
+    }
+
+    public function take(int $limit): static
+    {
+        if ($limit < 0) { return new static(fn (): array => (new Collection(iterator_to_array($this)))->take($limit)->all()); }
+        return new static(function () use ($limit): \Generator {
+            if ($limit === 0) { return; }
+            $n = 0;
+            foreach ($this as $k => $v) {
+                yield $k => $v;
+                if (++$n >= $limit) { break; }
+            }
+        });
+    }
+
+    public function takeUntil(mixed $value): static
+    {
+        $test = $value instanceof \Closure ? $value : fn (mixed $item): bool => $item === $value;
+        return new static(function () use ($test): \Generator {
+            foreach ($this as $k => $v) {
+                if ($test($v, $k)) { break; }
+                yield $k => $v;
+            }
+        });
+    }
+
+    public function takeWhile(mixed $value): static
+    {
+        $test = $value instanceof \Closure ? $value : fn (mixed $item): bool => $item === $value;
+        return $this->takeUntil(fn (mixed $v, string|int $k): bool => !$test($v, $k));
+    }
+
+    public function skip(int $count): static
+    {
+        return new static(function () use ($count): \Generator {
+            $n = 0;
+            foreach ($this as $k => $v) {
+                if ($n++ >= $count) { yield $k => $v; }
+            }
+        });
+    }
+
+    public function skipUntil(mixed $value): static
+    {
+        $test = $value instanceof \Closure ? $value : fn (mixed $item): bool => $item === $value;
+        return new static(function () use ($test): \Generator {
+            $taking = false;
+            foreach ($this as $k => $v) {
+                if (!$taking && $test($v, $k)) { $taking = true; }
+                if ($taking) { yield $k => $v; }
+            }
+        });
+    }
+
+    public function skipWhile(mixed $value): static
+    {
+        $test = $value instanceof \Closure ? $value : fn (mixed $item): bool => $item === $value;
+        return $this->skipUntil(fn (mixed $v, string|int $k): bool => !$test($v, $k));
+    }
+
+    public function chunk(int $size): static
+    {
+        if ($size <= 0) { return static::empty(); }
+        return new static(function () use ($size): \Generator {
+            $chunk = [];
+            foreach ($this as $k => $v) {
+                $chunk[$k] = $v;
+                if (count($chunk) === $size) {
+                    yield new static($chunk);
+                    $chunk = [];
+                }
+            }
+            if ($chunk !== []) { yield new static($chunk); }
+        });
+    }
+
+    public function flatMap(callable $callback): static
+    {
+        return new static(function () use ($callback): \Generator {
+            foreach ($this as $k => $v) {
+                foreach ($callback($v, $k) as $item) { yield $item; }
+            }
+        });
+    }
+
+    public function collapse(): static
+    {
+        return new static(function (): \Generator {
+            foreach ($this as $values) {
+                foreach ($values as $v) { yield $v; }
+            }
+        });
+    }
+
+    public function unique(string|callable|null $key = null): static
+    {
+        $retrieve = $this->valueRetriever($key);
+        return new static(function () use ($retrieve): \Generator {
+            $seen = [];
+            foreach ($this as $k => $v) {
+                $id = $retrieve($v, $k);
+                $marker = is_array($id) || is_object($id) ? serialize($id) : var_export($id, true);
+                if (!array_key_exists($marker, $seen)) {
+                    $seen[$marker] = true;
+                    yield $k => $v;
+                }
+            }
+        });
+    }
+
+    public function concat(iterable $source): static
+    {
+        return new static(function () use ($source): \Generator {
+            foreach ($this as $v) { yield $v; }
+            foreach ($source as $v) { yield $v; }
+        });
+    }
+
+    public function tapEach(callable $callback): static
+    {
+        return new static(function () use ($callback): \Generator {
+            foreach ($this as $k => $v) {
+                $callback($v, $k);
+                yield $k => $v;
+            }
+        });
+    }
+
+    public function zip(iterable ...$items): static
+    {
+        return new static(function () use ($items): \Generator {
+            $arrays = array_map(fn (iterable $i): array => array_values(is_array($i) ? $i : iterator_to_array($i)), $items);
+            $i = 0;
+            foreach ($this as $v) {
+                $row = [$v];
+                foreach ($arrays as $a) { $row[] = $a[$i] ?? null; }
+                yield new static($row);
+                $i++;
+            }
+        });
+    }
+
+    /** Caches the values as they are first iterated (Laravel's remember). */
+    public function remember(): static
+    {
+        $cache = new LazyCache();
+        return new static(function () use ($cache): \Generator {
+            $i = 0;
+            while (true) {
+                if ($i < count($cache->pairs)) {
+                    yield $cache->pairs[$i][0] => $cache->pairs[$i][1];
+                    $i++;
+                    continue;
+                }
+                if ($cache->done) { return; }
+                if ($cache->source === null) {
+                    $cache->source = $this->getIterator();
+                } else {
+                    $cache->source->next();
+                }
+                if (!$cache->source->valid()) {
+                    $cache->done = true;
+                    return;
+                }
+                $cache->pairs[] = [$cache->source->key(), $cache->source->current()];
+            }
+        });
+    }
+
+    // ---- terminal operations -----------------------------------------------
+
+    public function all(): array { return iterator_to_array($this); }
+    public function toArray(): array { return $this->collect()->toArray(); }
+    public function jsonSerialize(): array { return $this->collect()->jsonSerialize(); }
+    public function toJson(int $options = 0): string { return json_encode($this->jsonSerialize(), $options); }
+    public function collect(): Collection { return new Collection($this->all()); }
+    public function eager(): static { return new static($this->all()); }
+
+    public function count(): int
+    {
+        $n = 0;
+        foreach ($this as $_) { $n++; }
+        return $n;
+    }
+
+    public function isEmpty(): bool
+    {
+        foreach ($this as $_) { return false; }
+        return true;
+    }
+
+    public function isNotEmpty(): bool { return !$this->isEmpty(); }
+
+    public function first(?callable $callback = null, mixed $default = null): mixed
+    {
+        foreach ($this as $k => $v) {
+            if ($callback === null || $callback($v, $k)) { return $v; }
+        }
+        return $default instanceof \Closure ? $default() : $default;
+    }
+
+    public function last(?callable $callback = null, mixed $default = null): mixed
+    {
+        $found = false;
+        $last = null;
+        foreach ($this as $k => $v) {
+            if ($callback === null || $callback($v, $k)) {
+                $found = true;
+                $last = $v;
+            }
+        }
+        return $found ? $last : ($default instanceof \Closure ? $default() : $default);
+    }
+
+    public function each(callable $callback): static
+    {
+        foreach ($this as $k => $v) {
+            if ($callback($v, $k) === false) { break; }
+        }
+        return $this;
+    }
+
+    public function contains(mixed $key, mixed $operator = null, mixed $value = null): bool
+    {
+        if (func_num_args() === 1 && $key instanceof \Closure) {
+            foreach ($this as $k => $v) {
+                if ($key($v, $k)) { return true; }
+            }
+            return false;
+        }
+        if (func_num_args() === 1) {
+            foreach ($this as $v) {
+                if ($v === $key) { return true; }
+            }
+            return false;
+        }
+        return $this->collect()->contains(...func_get_args());
+    }
+
+    public function every(callable $callback): bool
+    {
+        foreach ($this as $k => $v) {
+            if (!$callback($v, $k)) { return false; }
+        }
+        return true;
+    }
+
+    public function reduce(callable $callback, mixed $initial = null): mixed
+    {
+        $result = $initial;
+        foreach ($this as $k => $v) { $result = $callback($result, $v, $k); }
+        return $result;
+    }
+
+    public function sum(string|callable|null $callback = null): int|float { return $this->collect()->sum($callback); }
+    public function avg(string|callable|null $callback = null): int|float|null { return $this->collect()->avg($callback); }
+    public function min(string|callable|null $callback = null): mixed { return $this->collect()->min($callback); }
+    public function max(string|callable|null $callback = null): mixed { return $this->collect()->max($callback); }
+    public function implode(string $value, ?string $glue = null): string { return $this->collect()->implode($value, $glue); }
+    public function join(string $glue, string $finalGlue = ''): string { return $this->collect()->join($glue, $finalGlue); }
+    public function groupBy(string|callable $groupBy): Collection { return $this->collect()->groupBy($groupBy); }
+    public function keyBy(string|callable $keyBy): static { return new static($this->collect()->keyBy($keyBy)->all()); }
+    public function sort(?callable $callback = null): static { return new static($this->collect()->sort($callback)->all()); }
+    public function sortBy(string|callable|null $callback = null, bool $descending = false): static { return new static($this->collect()->sortBy($callback, $descending)->all()); }
+    public function reverse(): static { return new static($this->collect()->reverse()->all()); }
+}
+
+/** @internal State of LazyCollection::remember, shared by its generators. */
+final class LazyCache
+{
+    public array $pairs = [];
+    public bool $done = false;
+    public ?\Iterator $source = null;
+}
+
 class Stringable implements \JsonSerializable, \ArrayAccess, \Stringable
 {
     public function __construct(protected string $value = '') {}
