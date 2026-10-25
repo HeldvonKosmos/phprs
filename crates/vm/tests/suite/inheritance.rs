@@ -43,15 +43,70 @@ fn inheritance_checks_match_php() {
     for (src, expected) in cases {
         let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
         let code = format!("<?grd\n{src}\necho 'ok';");
-        let got = match vm.run_file("t.grd", code.as_bytes()) {
-            Ok(_) => String::from_utf8_lossy(&vm.output).into_owned(),
-            // "PHP Fatal error:  Uncaught Error: <message> on line N"
-            Err(e) => {
-                let t = e.to_string();
-                let t = t.split_once("Uncaught Error: ").map(|(_, m)| m).unwrap_or(&t);
-                t.rsplit_once(" on line ").map(|(m, _)| m).unwrap_or(t).to_string()
-            }
-        };
+        let got = run(&mut vm, &code);
+        if got != *expected {
+            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+/// The message of a failed run: a link-time Error ("PHP Fatal error:  Uncaught
+/// Error: <message> on line N") or a compile error ("error: <message>\n  --> …").
+fn run(vm: &mut grd_vm::vm::Vm, code: &str) -> String {
+    match vm.run_file("t.grd", code.as_bytes()) {
+        Ok(_) => String::from_utf8_lossy(&vm.output).into_owned(),
+        Err(e) => {
+            let t = e.to_string();
+            let t = t.lines().next().unwrap_or("").to_string();
+            let t = t.strip_prefix("error: ").unwrap_or(&t).to_string();
+            let t = t.split_once("Uncaught Error: ").map(|(_, m)| m.to_string()).unwrap_or(t);
+            t.rsplit_once(" on line ").map(|(m, _)| m.to_string()).unwrap_or(t)
+        }
+    }
+}
+
+/// PHP's compile-time checks of declarations: modifiers given twice, members
+/// declared twice, untyped readonly properties, enum rules, magic method
+/// signatures. Expected messages are PHP 8.4's.
+#[test]
+fn declaration_checks_match_php() {
+    let cases: &[(&str, &str)] = &[
+        (r#"class A { public public $x; }"#, r#"Multiple access type modifiers are not allowed"#),
+        (r#"class A { final final public function f() {} }"#, r#"Multiple final modifiers are not allowed"#),
+        (r#"class A { public static static function f() {} }"#, r#"Multiple static modifiers are not allowed"#),
+        (r#"class A { public readonly readonly int $x; }"#, r#"Multiple readonly modifiers are not allowed"#),
+        (r#"abstract class A { abstract abstract function f(); }"#, r#"Multiple abstract modifiers are not allowed"#),
+        (r#"class A { public readonly $x; }"#, r#"Readonly property A::$x must have type"#),
+        (r#"readonly class A { public $x; }"#, r#"Readonly property A::$x must have type"#),
+        (r#"class A { public function f() {} public function F() {} }"#, r#"Cannot redeclare A::F()"#),
+        (r#"class A { public $x; public $x; }"#, r#"Cannot redeclare A::$x"#),
+        (r#"class A { const X = 1; const X = 2; }"#, r#"Cannot redefine class constant A::X"#),
+        (r#"enum E { public $x; case A; }"#, r#"Enum E cannot include properties"#),
+        (r#"enum E { case A = 1; }"#, r#"Case A of non-backed enum E must not have a value"#),
+        (r#"enum E: int { case A; }"#, r#"Case A of backed enum E must have a value"#),
+        (r#"final abstract class A {}"#, r#"Cannot use the final modifier on an abstract class"#),
+        (r#"class A { public function __get(int $n) {} }"#, r#"A::__get(): Parameter #1 ($n) must be of type string when declared"#),
+        (r#"class A { public function __get($a, $b) {} }"#, r#"Method A::__get() must take exactly 1 argument"#),
+        (r#"class A { public static function __get($n) {} }"#, r#"Method A::__get() cannot be static"#),
+        (r#"class A { public function __set(string $n, $v): int { return 1; } }"#, r#"A::__set(): Return type must be void when declared"#),
+        (r#"class A { public function __isset(string $n): string { return ''; } }"#, r#"A::__isset(): Return type must be bool when declared"#),
+        (r#"class A { public function __call(string $n, int $a) {} }"#, r#"A::__call(): Parameter #2 ($a) must be of type array when declared"#),
+        (r#"class A { public function __callStatic($n, $a) {} }"#, r#"Method A::__callStatic() must be static"#),
+        (r#"class A { public function __toString(): int { return 1; } }"#, r#"A::__toString(): Return type must be string when declared"#),
+        (r#"class A { public function __construct(): void {} }"#, r#"Method A::__construct() cannot declare a return type"#),
+        (r#"class A { public function __destruct($a) {} }"#, r#"Method A::__destruct() cannot take arguments"#),
+        (r#"class A { public function __clone(): int { return 1; } }"#, r#"A::__clone(): Return type must be void when declared"#),
+        (r#"class A { public static function __construct() {} }"#, r#"Method A::__construct() cannot be static"#),
+        (r#"class A { public function __debugInfo(): array { return []; } public function __toString(): string { return ''; } public function __get(string $n): mixed { return 1; } public function __set(string $n, mixed $v): void {} public function __isset(string $n): bool { return true; } public function __unset(string $n): void {} public function __call(string $n, array $a): mixed { return 1; } public static function __callStatic(string $n, array $a): mixed { return 1; } public function __serialize(): array { return []; } public function __unserialize(array $d): void {} public function __invoke(int ...$x) {} public function __clone(): void {} }"#, r#"ok"#),
+        (r#"class A { public function __get($n): never { throw new Exception(); } public function __set(mixed $n, $v) {} }"#, r#"ok"#),
+        (r#"enum E: string { case A = 'a'; const X = self::A; }"#, r#"ok"#),
+        (r#"class A { public function __set_state(array $a) {} }"#, r#"Method A::__set_state() must be static"#),
+    ];
+    let mut failures = Vec::new();
+    for (src, expected) in cases {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
         if got != *expected {
             failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
         }

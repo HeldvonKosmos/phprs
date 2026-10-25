@@ -38,6 +38,9 @@ impl Compiler {
                 other => return self.err(other.span(), "ungültiger Klassen-Modifier"),
             }
         }
+        if is_abstract && is_final {
+            return self.err(c.span(), "Cannot use the final modifier on an abstract class");
+        }
         let interfaces = self.interface_names(c.implements.as_ref())?;
         let attributes = self.compile_attributes(&c.attribute_lists)?;
         let line = self.line(c.span());
@@ -45,6 +48,11 @@ impl Compiler {
         let members = self.compile_members(&c.members);
         self.class_stack.pop();
         let members = members?;
+        if is_readonly
+            && let Some(p) = members.props.iter().find(|p| p.ty.is_none() && !p.is_static)
+        {
+            return self.err(c.span(), format!("Readonly property {}::${} must have type", String::from_utf8_lossy(&fq), String::from_utf8_lossy(self.module.str(p.name))));
+        }
         let name = self.intern(&fq);
         let parent = parent.map(|p| self.intern(&p));
         self.module.classes.push(ClassDecl {
@@ -205,6 +213,18 @@ impl Compiler {
         let members = self.compile_members(&e.members);
         self.class_stack.pop();
         let members = members?;
+        let ename = String::from_utf8_lossy(&fq).into_owned();
+        if !members.props.is_empty() {
+            return self.err(e.span(), format!("Enum {ename} cannot include properties"));
+        }
+        for c in &members.cases {
+            let cname = String::from_utf8_lossy(self.module.str(c.name)).into_owned();
+            match (&backing, &c.value) {
+                (None, Some(_)) => return self.err(e.span(), format!("Case {cname} of non-backed enum {ename} must not have a value")),
+                (Some(_), None) => return self.err(e.span(), format!("Case {cname} of backed enum {ename} must have a value")),
+                _ => {}
+            }
+        }
         let name = self.intern(&fq);
         self.module.classes.push(ClassDecl {
             name,
@@ -327,7 +347,40 @@ impl Compiler {
                 }
             }
         }
+        self.check_member_declarations(&out, members)?;
         Ok(out)
+    }
+
+    /// PHP's compile errors for members declared twice and untyped readonly properties.
+    fn check_member_declarations(&self, out: &Members, members: &Sequence<'_, ClassLikeMember<'_>>) -> CResult<()> {
+        let Some(first) = members.iter().next() else { return Ok(()) };
+        let span = first.span();
+        let class = String::from_utf8_lossy(&self.current_class().map(|c| c.name.clone()).unwrap_or_default()).into_owned();
+        let mut seen: std::collections::HashSet<Vec<u8>> = std::collections::HashSet::new();
+        for m in &out.methods {
+            let n = self.module.str(m.name);
+            if !seen.insert(n.to_ascii_lowercase()) {
+                return self.err(span, format!("Cannot redeclare {class}::{}()", String::from_utf8_lossy(n)));
+            }
+        }
+        seen.clear();
+        for p in &out.props {
+            let n = self.module.str(p.name);
+            if !seen.insert(n.to_vec()) {
+                return self.err(span, format!("Cannot redeclare {class}::${}", String::from_utf8_lossy(n)));
+            }
+            if p.is_readonly && p.ty.is_none() {
+                return self.err(span, format!("Readonly property {class}::${} must have type", String::from_utf8_lossy(n)));
+            }
+        }
+        seen.clear();
+        for c in &out.consts {
+            let n = self.module.str(c.name);
+            if !seen.insert(n.to_vec()) {
+                return self.err(span, format!("Cannot redefine class constant {class}::{}", String::from_utf8_lossy(n)));
+            }
+        }
+        Ok(())
     }
 
     /// (visibility, final, static, readonly)
@@ -336,15 +389,34 @@ impl Compiler {
         let mut is_final = false;
         let mut is_static = false;
         let mut is_readonly = false;
+        let (mut n_vis, mut n_abstract) = (0, 0);
         for m in mods.iter() {
+            // a modifier given twice is a compile error in PHP
+            let twice = |what: &str| format!("Multiple {what} modifiers are not allowed");
             match m {
-                Modifier::Public(_) => vis = Visibility::Public,
-                Modifier::Protected(_) => vis = Visibility::Protected,
-                Modifier::Private(_) => vis = Visibility::Private,
+                Modifier::Public(_) | Modifier::Protected(_) | Modifier::Private(_) => {
+                    n_vis += 1;
+                    if n_vis > 1 {
+                        return self.err(m.span(), "Multiple access type modifiers are not allowed");
+                    }
+                    vis = match m {
+                        Modifier::Public(_) => Visibility::Public,
+                        Modifier::Protected(_) => Visibility::Protected,
+                        _ => Visibility::Private,
+                    };
+                }
+                Modifier::Final(_) if is_final => return self.err(m.span(), twice("final")),
                 Modifier::Final(_) => is_final = true,
+                Modifier::Static(_) if is_static => return self.err(m.span(), twice("static")),
                 Modifier::Static(_) => is_static = true,
+                Modifier::Readonly(_) if is_readonly => return self.err(m.span(), twice("readonly")),
                 Modifier::Readonly(_) => is_readonly = true,
-                Modifier::Abstract(_) => {}
+                Modifier::Abstract(_) => {
+                    n_abstract += 1;
+                    if n_abstract > 1 {
+                        return self.err(m.span(), twice("abstract"));
+                    }
+                }
                 other => return self.err(other.span(), "asymmetrische Sichtbarkeit ist nicht unterstützt"),
             }
         }
@@ -395,7 +467,73 @@ impl Compiler {
                 Some(self.compile_function_like(spec)?)
             }
         };
+        if let Some(u) = unit.or(sig_unit) {
+            self.check_magic_method(&class_name, m.name.value, u, is_static, m.span())?;
+        }
         Ok(MethodDecl { name, unit, sig_unit, visibility, is_static, is_final, attributes })
+    }
+
+    /// PHP's checks of magic method signatures (zend_check_magic_method_implementation):
+    /// argument count, static or not, declared argument and return types.
+    fn check_magic_method(&self, class: &[u8], method: &[u8], unit: UnitId, is_static: bool, span: mago_span::Span) -> CResult<()> {
+        if !method.starts_with(b"__") {
+            return Ok(());
+        }
+        let lc = method.to_ascii_lowercase();
+        // (arguments or -1 for any, static: Some(required), arg types, return type)
+        let (args, must_static, arg_types, ret): (i32, Option<bool>, &[(usize, MagicType)], Option<MagicType>) = match lc.as_slice() {
+            b"__construct" => (-1, Some(false), &[], None),
+            b"__destruct" => (0, Some(false), &[], None),
+            b"__clone" => (0, Some(false), &[], Some(MagicType::Void)),
+            b"__get" => (1, Some(false), &[(0, MagicType::String)], None),
+            b"__set" => (2, Some(false), &[(0, MagicType::String)], Some(MagicType::Void)),
+            b"__unset" => (1, Some(false), &[(0, MagicType::String)], Some(MagicType::Void)),
+            b"__isset" => (1, Some(false), &[(0, MagicType::String)], Some(MagicType::Bool)),
+            b"__call" => (2, Some(false), &[(0, MagicType::String), (1, MagicType::Array)], None),
+            b"__callstatic" => (2, Some(true), &[(0, MagicType::String), (1, MagicType::Array)], None),
+            b"__tostring" => (0, Some(false), &[], Some(MagicType::String)),
+            b"__debuginfo" => (0, Some(false), &[], Some(MagicType::NullableArray)),
+            b"__serialize" => (0, Some(false), &[], Some(MagicType::Array)),
+            b"__unserialize" => (1, Some(false), &[(0, MagicType::Array)], Some(MagicType::Void)),
+            b"__set_state" => (1, Some(true), &[(0, MagicType::Array)], Some(MagicType::Object)),
+            b"__invoke" => (-1, Some(false), &[], None),
+            b"__sleep" => (0, Some(false), &[], Some(MagicType::Array)),
+            b"__wakeup" => (0, Some(false), &[], Some(MagicType::Void)),
+            _ => return Ok(()),
+        };
+        let (c, m) = (String::from_utf8_lossy(class), String::from_utf8_lossy(method));
+        let u = &self.module.units[unit as usize];
+        if args >= 0 && u.params.len() as i32 != args {
+            return self.err(span, match args {
+                0 => format!("Method {c}::{m}() cannot take arguments"),
+                1 => format!("Method {c}::{m}() must take exactly 1 argument"),
+                n => format!("Method {c}::{m}() must take exactly {n} arguments"),
+            });
+        }
+        match must_static {
+            Some(false) if is_static => return self.err(span, format!("Method {c}::{m}() cannot be static")),
+            Some(true) if !is_static => return self.err(span, format!("Method {c}::{m}() must be static")),
+            _ => {}
+        }
+        for (i, want) in arg_types {
+            if let Some(p) = u.params.get(*i)
+                && let Some(t) = &p.ty
+                && !want.admits_any(t)
+            {
+                let pname = String::from_utf8_lossy(self.module.str(p.name));
+                return self.err(span, format!("{c}::{m}(): Parameter #{} (${pname}) must be of type {} when declared", i + 1, want.name()));
+            }
+        }
+        if matches!(lc.as_slice(), b"__construct" | b"__destruct") && u.return_type.is_some() {
+            return self.err(span, format!("Method {c}::{m}() cannot declare a return type"));
+        }
+        if let (Some(want), Some(t)) = (ret, &u.return_type)
+            && !matches!(t, TypeHint::Never)
+            && !want.contains_all(t)
+        {
+            return self.err(span, format!("{c}::{m}(): Return type must be {} when declared", want.name()));
+        }
+        Ok(())
     }
 
     /// Constant expression → `Init`: folded when it is made of literals,
@@ -490,3 +628,63 @@ fn const_to_bytes(c: &Const) -> Option<Vec<u8>> {
         _ => return None,
     })
 }
+
+/// Types PHP prescribes for magic methods.
+#[derive(Clone, Copy)]
+enum MagicType {
+    Void,
+    Bool,
+    String,
+    Array,
+    NullableArray,
+    Object,
+}
+
+impl MagicType {
+    fn name(self) -> &'static str {
+        match self {
+            MagicType::Void => "void",
+            MagicType::Bool => "bool",
+            MagicType::String => "string",
+            MagicType::Array => "array",
+            MagicType::NullableArray => "?array",
+            MagicType::Object => "object",
+        }
+    }
+
+    /// One member of a union type `t`.
+    fn admits(self, t: &TypeHint) -> bool {
+        match (self, t) {
+            (MagicType::Void, TypeHint::Void) => true,
+            (MagicType::Bool, TypeHint::Bool | TypeHint::True | TypeHint::False) => true,
+            (MagicType::String, TypeHint::String) => true,
+            (MagicType::Array | MagicType::NullableArray, TypeHint::Array) => true,
+            (MagicType::NullableArray, TypeHint::Null) => true,
+            (MagicType::Object, TypeHint::Object | TypeHint::Class(_) | TypeHint::SelfT | TypeHint::Static | TypeHint::Parent) => true,
+            _ => false,
+        }
+    }
+
+    fn members(t: &TypeHint) -> Vec<&TypeHint> {
+        match t {
+            TypeHint::Nullable(inner) => {
+                let mut v = vec![&TypeHint::Null];
+                v.extend(Self::members(inner));
+                v
+            }
+            TypeHint::Union(parts) => parts.iter().flat_map(Self::members).collect(),
+            other => vec![other],
+        }
+    }
+
+    /// A declared argument type may include more, but must include this one.
+    fn admits_any(self, t: &TypeHint) -> bool {
+        matches!(t, TypeHint::Mixed) || Self::members(t).iter().any(|m| self.admits(m))
+    }
+
+    /// A declared return type must not include anything else.
+    fn contains_all(self, t: &TypeHint) -> bool {
+        Self::members(t).iter().all(|m| self.admits(m))
+    }
+}
+
