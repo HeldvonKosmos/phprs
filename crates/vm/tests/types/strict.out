@@ -1,0 +1,1301 @@
+param int <- int ok int
+return int <- int ok int
+prop int <- int ok int
+promoted int <- int ok int
+static int <- int ok int
+param int <- float ok param int <- float TypeError
+return int <- float ok return int <- float TypeError
+prop int <- float ok prop int <- float TypeError
+promoted int <- float ok promoted int <- float TypeError
+static int <- float ok static int <- float TypeError
+param int <- ifloat ok param int <- ifloat TypeError
+return int <- ifloat ok return int <- ifloat TypeError
+prop int <- ifloat ok prop int <- ifloat TypeError
+promoted int <- ifloat ok promoted int <- ifloat TypeError
+static int <- ifloat ok static int <- ifloat TypeError
+param int <- numstr ok param int <- numstr TypeError
+return int <- numstr ok return int <- numstr TypeError
+prop int <- numstr ok prop int <- numstr TypeError
+promoted int <- numstr ok promoted int <- numstr TypeError
+static int <- numstr ok static int <- numstr TypeError
+param int <- str ok param int <- str TypeError
+return int <- str ok return int <- str TypeError
+prop int <- str ok prop int <- str TypeError
+promoted int <- str ok promoted int <- str TypeError
+static int <- str ok static int <- str TypeError
+param int <- true ok param int <- true TypeError
+return int <- true ok return int <- true TypeError
+prop int <- true ok prop int <- true TypeError
+promoted int <- true ok promoted int <- true TypeError
+static int <- true ok static int <- true TypeError
+param int <- false ok param int <- false TypeError
+return int <- false ok return int <- false TypeError
+prop int <- false ok prop int <- false TypeError
+promoted int <- false ok promoted int <- false TypeError
+static int <- false ok static int <- false TypeError
+param int <- null ok param int <- null TypeError
+return int <- null ok return int <- null TypeError
+prop int <- null ok prop int <- null TypeError
+promoted int <- null ok promoted int <- null TypeError
+static int <- null ok static int <- null TypeError
+param int <- arr ok param int <- arr TypeError
+return int <- arr ok return int <- arr TypeError
+prop int <- arr ok prop int <- arr TypeError
+promoted int <- arr ok promoted int <- arr TypeError
+static int <- arr ok static int <- arr TypeError
+param int <- obj ok param int <- obj TypeError
+return int <- obj ok return int <- obj TypeError
+prop int <- obj ok prop int <- obj TypeError
+promoted int <- obj ok promoted int <- obj TypeError
+param int <- closure ok param int <- closure TypeError
+return int <- closure ok return int <- closure TypeError
+prop int <- closure ok prop int <- closure TypeError
+promoted int <- closure ok promoted int <- closure TypeError
+param int <- cnt ok param int <- cnt TypeError
+return int <- cnt ok return int <- cnt TypeError
+prop int <- cnt ok prop int <- cnt TypeError
+promoted int <- cnt ok promoted int <- cnt TypeError
+param int <- max ok int
+return int <- max ok int
+prop int <- max ok int
+promoted int <- max ok int
+static int <- max ok int
+param int <- fnname ok param int <- fnname TypeError
+return int <- fnname ok return int <- fnname TypeError
+prop int <- fnname ok prop int <- fnname TypeError
+promoted int <- fnname ok promoted int <- fnname TypeError
+static int <- fnname ok static int <- fnname TypeError
+param float <- int ok float
+return float <- int ok float
+prop float <- int ok float
+promoted float <- int ok float
+static float <- int ok float
+param float <- float ok float
+return float <- float ok float
+prop float <- float ok float
+promoted float <- float ok float
+static float <- float ok float
+param float <- ifloat ok float
+return float <- ifloat ok float
+prop float <- ifloat ok float
+promoted float <- ifloat ok float
+static float <- ifloat ok float
+param float <- numstr ok param float <- numstr TypeError
+return float <- numstr ok return float <- numstr TypeError
+prop float <- numstr ok prop float <- numstr TypeError
+promoted float <- numstr ok promoted float <- numstr TypeError
+static float <- numstr ok static float <- numstr TypeError
+param float <- str ok param float <- str TypeError
+return float <- str ok return float <- str TypeError
+prop float <- str ok prop float <- str TypeError
+promoted float <- str ok promoted float <- str TypeError
+static float <- str ok static float <- str TypeError
+param float <- true ok param float <- true TypeError
+return float <- true ok return float <- true TypeError
+prop float <- true ok prop float <- true TypeError
+promoted float <- true ok promoted float <- true TypeError
+static float <- true ok static float <- true TypeError
+param float <- false ok param float <- false TypeError
+return float <- false ok return float <- false TypeError
+prop float <- false ok prop float <- false TypeError
+promoted float <- false ok promoted float <- false TypeError
+static float <- false ok static float <- false TypeError
+param float <- null ok param float <- null TypeError
+return float <- null ok return float <- null TypeError
+prop float <- null ok prop float <- null TypeError
+promoted float <- null ok promoted float <- null TypeError
+static float <- null ok static float <- null TypeError
+param float <- arr ok param float <- arr TypeError
+return float <- arr ok return float <- arr TypeError
+prop float <- arr ok prop float <- arr TypeError
+promoted float <- arr ok promoted float <- arr TypeError
+static float <- arr ok static float <- arr TypeError
+param float <- obj ok param float <- obj TypeError
+return float <- obj ok return float <- obj TypeError
+prop float <- obj ok prop float <- obj TypeError
+promoted float <- obj ok promoted float <- obj TypeError
+param float <- closure ok param float <- closure TypeError
+return float <- closure ok return float <- closure TypeError
+prop float <- closure ok prop float <- closure TypeError
+promoted float <- closure ok promoted float <- closure TypeError
+param float <- cnt ok param float <- cnt TypeError
+return float <- cnt ok return float <- cnt TypeError
+prop float <- cnt ok prop float <- cnt TypeError
+promoted float <- cnt ok promoted float <- cnt TypeError
+param float <- max ok float
+return float <- max ok float
+prop float <- max ok float
+promoted float <- max ok float
+static float <- max ok float
+param float <- fnname ok param float <- fnname TypeError
+return float <- fnname ok return float <- fnname TypeError
+prop float <- fnname ok prop float <- fnname TypeError
+promoted float <- fnname ok promoted float <- fnname TypeError
+static float <- fnname ok static float <- fnname TypeError
+param string <- int ok param string <- int TypeError
+return string <- int ok return string <- int TypeError
+prop string <- int ok prop string <- int TypeError
+promoted string <- int ok promoted string <- int TypeError
+static string <- int ok static string <- int TypeError
+param string <- float ok param string <- float TypeError
+return string <- float ok return string <- float TypeError
+prop string <- float ok prop string <- float TypeError
+promoted string <- float ok promoted string <- float TypeError
+static string <- float ok static string <- float TypeError
+param string <- ifloat ok param string <- ifloat TypeError
+return string <- ifloat ok return string <- ifloat TypeError
+prop string <- ifloat ok prop string <- ifloat TypeError
+promoted string <- ifloat ok promoted string <- ifloat TypeError
+static string <- ifloat ok static string <- ifloat TypeError
+param string <- numstr ok string
+return string <- numstr ok string
+prop string <- numstr ok string
+promoted string <- numstr ok string
+static string <- numstr ok string
+param string <- str ok string
+return string <- str ok string
+prop string <- str ok string
+promoted string <- str ok string
+static string <- str ok string
+param string <- true ok param string <- true TypeError
+return string <- true ok return string <- true TypeError
+prop string <- true ok prop string <- true TypeError
+promoted string <- true ok promoted string <- true TypeError
+static string <- true ok static string <- true TypeError
+param string <- false ok param string <- false TypeError
+return string <- false ok return string <- false TypeError
+prop string <- false ok prop string <- false TypeError
+promoted string <- false ok promoted string <- false TypeError
+static string <- false ok static string <- false TypeError
+param string <- null ok param string <- null TypeError
+return string <- null ok return string <- null TypeError
+prop string <- null ok prop string <- null TypeError
+promoted string <- null ok promoted string <- null TypeError
+static string <- null ok static string <- null TypeError
+param string <- arr ok param string <- arr TypeError
+return string <- arr ok return string <- arr TypeError
+prop string <- arr ok prop string <- arr TypeError
+promoted string <- arr ok promoted string <- arr TypeError
+static string <- arr ok static string <- arr TypeError
+param string <- obj ok param string <- obj TypeError
+return string <- obj ok return string <- obj TypeError
+prop string <- obj ok prop string <- obj TypeError
+promoted string <- obj ok promoted string <- obj TypeError
+param string <- closure ok param string <- closure TypeError
+return string <- closure ok return string <- closure TypeError
+prop string <- closure ok prop string <- closure TypeError
+promoted string <- closure ok promoted string <- closure TypeError
+param string <- cnt ok param string <- cnt TypeError
+return string <- cnt ok return string <- cnt TypeError
+prop string <- cnt ok prop string <- cnt TypeError
+promoted string <- cnt ok promoted string <- cnt TypeError
+param string <- max ok param string <- max TypeError
+return string <- max ok return string <- max TypeError
+prop string <- max ok prop string <- max TypeError
+promoted string <- max ok promoted string <- max TypeError
+static string <- max ok static string <- max TypeError
+param string <- fnname ok string
+return string <- fnname ok string
+prop string <- fnname ok string
+promoted string <- fnname ok string
+static string <- fnname ok string
+param bool <- int ok param bool <- int TypeError
+return bool <- int ok return bool <- int TypeError
+prop bool <- int ok prop bool <- int TypeError
+promoted bool <- int ok promoted bool <- int TypeError
+static bool <- int ok static bool <- int TypeError
+param bool <- float ok param bool <- float TypeError
+return bool <- float ok return bool <- float TypeError
+prop bool <- float ok prop bool <- float TypeError
+promoted bool <- float ok promoted bool <- float TypeError
+static bool <- float ok static bool <- float TypeError
+param bool <- ifloat ok param bool <- ifloat TypeError
+return bool <- ifloat ok return bool <- ifloat TypeError
+prop bool <- ifloat ok prop bool <- ifloat TypeError
+promoted bool <- ifloat ok promoted bool <- ifloat TypeError
+static bool <- ifloat ok static bool <- ifloat TypeError
+param bool <- numstr ok param bool <- numstr TypeError
+return bool <- numstr ok return bool <- numstr TypeError
+prop bool <- numstr ok prop bool <- numstr TypeError
+promoted bool <- numstr ok promoted bool <- numstr TypeError
+static bool <- numstr ok static bool <- numstr TypeError
+param bool <- str ok param bool <- str TypeError
+return bool <- str ok return bool <- str TypeError
+prop bool <- str ok prop bool <- str TypeError
+promoted bool <- str ok promoted bool <- str TypeError
+static bool <- str ok static bool <- str TypeError
+param bool <- true ok bool
+return bool <- true ok bool
+prop bool <- true ok bool
+promoted bool <- true ok bool
+static bool <- true ok bool
+param bool <- false ok bool
+return bool <- false ok bool
+prop bool <- false ok bool
+promoted bool <- false ok bool
+static bool <- false ok bool
+param bool <- null ok param bool <- null TypeError
+return bool <- null ok return bool <- null TypeError
+prop bool <- null ok prop bool <- null TypeError
+promoted bool <- null ok promoted bool <- null TypeError
+static bool <- null ok static bool <- null TypeError
+param bool <- arr ok param bool <- arr TypeError
+return bool <- arr ok return bool <- arr TypeError
+prop bool <- arr ok prop bool <- arr TypeError
+promoted bool <- arr ok promoted bool <- arr TypeError
+static bool <- arr ok static bool <- arr TypeError
+param bool <- obj ok param bool <- obj TypeError
+return bool <- obj ok return bool <- obj TypeError
+prop bool <- obj ok prop bool <- obj TypeError
+promoted bool <- obj ok promoted bool <- obj TypeError
+param bool <- closure ok param bool <- closure TypeError
+return bool <- closure ok return bool <- closure TypeError
+prop bool <- closure ok prop bool <- closure TypeError
+promoted bool <- closure ok promoted bool <- closure TypeError
+param bool <- cnt ok param bool <- cnt TypeError
+return bool <- cnt ok return bool <- cnt TypeError
+prop bool <- cnt ok prop bool <- cnt TypeError
+promoted bool <- cnt ok promoted bool <- cnt TypeError
+param bool <- max ok param bool <- max TypeError
+return bool <- max ok return bool <- max TypeError
+prop bool <- max ok prop bool <- max TypeError
+promoted bool <- max ok promoted bool <- max TypeError
+static bool <- max ok static bool <- max TypeError
+param bool <- fnname ok param bool <- fnname TypeError
+return bool <- fnname ok return bool <- fnname TypeError
+prop bool <- fnname ok prop bool <- fnname TypeError
+promoted bool <- fnname ok promoted bool <- fnname TypeError
+static bool <- fnname ok static bool <- fnname TypeError
+param array <- int ok param array <- int TypeError
+return array <- int ok return array <- int TypeError
+prop array <- int ok prop array <- int TypeError
+promoted array <- int ok promoted array <- int TypeError
+static array <- int ok static array <- int TypeError
+param array <- float ok param array <- float TypeError
+return array <- float ok return array <- float TypeError
+prop array <- float ok prop array <- float TypeError
+promoted array <- float ok promoted array <- float TypeError
+static array <- float ok static array <- float TypeError
+param array <- ifloat ok param array <- ifloat TypeError
+return array <- ifloat ok return array <- ifloat TypeError
+prop array <- ifloat ok prop array <- ifloat TypeError
+promoted array <- ifloat ok promoted array <- ifloat TypeError
+static array <- ifloat ok static array <- ifloat TypeError
+param array <- numstr ok param array <- numstr TypeError
+return array <- numstr ok return array <- numstr TypeError
+prop array <- numstr ok prop array <- numstr TypeError
+promoted array <- numstr ok promoted array <- numstr TypeError
+static array <- numstr ok static array <- numstr TypeError
+param array <- str ok param array <- str TypeError
+return array <- str ok return array <- str TypeError
+prop array <- str ok prop array <- str TypeError
+promoted array <- str ok promoted array <- str TypeError
+static array <- str ok static array <- str TypeError
+param array <- true ok param array <- true TypeError
+return array <- true ok return array <- true TypeError
+prop array <- true ok prop array <- true TypeError
+promoted array <- true ok promoted array <- true TypeError
+static array <- true ok static array <- true TypeError
+param array <- false ok param array <- false TypeError
+return array <- false ok return array <- false TypeError
+prop array <- false ok prop array <- false TypeError
+promoted array <- false ok promoted array <- false TypeError
+static array <- false ok static array <- false TypeError
+param array <- null ok param array <- null TypeError
+return array <- null ok return array <- null TypeError
+prop array <- null ok prop array <- null TypeError
+promoted array <- null ok promoted array <- null TypeError
+static array <- null ok static array <- null TypeError
+param array <- arr ok array
+return array <- arr ok array
+prop array <- arr ok array
+promoted array <- arr ok array
+static array <- arr ok array
+param array <- obj ok param array <- obj TypeError
+return array <- obj ok return array <- obj TypeError
+prop array <- obj ok prop array <- obj TypeError
+promoted array <- obj ok promoted array <- obj TypeError
+param array <- closure ok param array <- closure TypeError
+return array <- closure ok return array <- closure TypeError
+prop array <- closure ok prop array <- closure TypeError
+promoted array <- closure ok promoted array <- closure TypeError
+param array <- cnt ok param array <- cnt TypeError
+return array <- cnt ok return array <- cnt TypeError
+prop array <- cnt ok prop array <- cnt TypeError
+promoted array <- cnt ok promoted array <- cnt TypeError
+param array <- max ok param array <- max TypeError
+return array <- max ok return array <- max TypeError
+prop array <- max ok prop array <- max TypeError
+promoted array <- max ok promoted array <- max TypeError
+static array <- max ok static array <- max TypeError
+param array <- fnname ok param array <- fnname TypeError
+return array <- fnname ok return array <- fnname TypeError
+prop array <- fnname ok prop array <- fnname TypeError
+promoted array <- fnname ok promoted array <- fnname TypeError
+static array <- fnname ok static array <- fnname TypeError
+param ?int <- int ok int
+return ?int <- int ok int
+prop ?int <- int ok int
+promoted ?int <- int ok int
+static ?int <- int ok int
+param ?int <- float ok param ?int <- float TypeError
+return ?int <- float ok return ?int <- float TypeError
+prop ?int <- float ok prop ?int <- float TypeError
+promoted ?int <- float ok promoted ?int <- float TypeError
+static ?int <- float ok static ?int <- float TypeError
+param ?int <- ifloat ok param ?int <- ifloat TypeError
+return ?int <- ifloat ok return ?int <- ifloat TypeError
+prop ?int <- ifloat ok prop ?int <- ifloat TypeError
+promoted ?int <- ifloat ok promoted ?int <- ifloat TypeError
+static ?int <- ifloat ok static ?int <- ifloat TypeError
+param ?int <- numstr ok param ?int <- numstr TypeError
+return ?int <- numstr ok return ?int <- numstr TypeError
+prop ?int <- numstr ok prop ?int <- numstr TypeError
+promoted ?int <- numstr ok promoted ?int <- numstr TypeError
+static ?int <- numstr ok static ?int <- numstr TypeError
+param ?int <- str ok param ?int <- str TypeError
+return ?int <- str ok return ?int <- str TypeError
+prop ?int <- str ok prop ?int <- str TypeError
+promoted ?int <- str ok promoted ?int <- str TypeError
+static ?int <- str ok static ?int <- str TypeError
+param ?int <- true ok param ?int <- true TypeError
+return ?int <- true ok return ?int <- true TypeError
+prop ?int <- true ok prop ?int <- true TypeError
+promoted ?int <- true ok promoted ?int <- true TypeError
+static ?int <- true ok static ?int <- true TypeError
+param ?int <- false ok param ?int <- false TypeError
+return ?int <- false ok return ?int <- false TypeError
+prop ?int <- false ok prop ?int <- false TypeError
+promoted ?int <- false ok promoted ?int <- false TypeError
+static ?int <- false ok static ?int <- false TypeError
+param ?int <- null ok null
+return ?int <- null ok null
+prop ?int <- null ok null
+promoted ?int <- null ok null
+static ?int <- null ok null
+param ?int <- arr ok param ?int <- arr TypeError
+return ?int <- arr ok return ?int <- arr TypeError
+prop ?int <- arr ok prop ?int <- arr TypeError
+promoted ?int <- arr ok promoted ?int <- arr TypeError
+static ?int <- arr ok static ?int <- arr TypeError
+param ?int <- obj ok param ?int <- obj TypeError
+return ?int <- obj ok return ?int <- obj TypeError
+prop ?int <- obj ok prop ?int <- obj TypeError
+promoted ?int <- obj ok promoted ?int <- obj TypeError
+param ?int <- closure ok param ?int <- closure TypeError
+return ?int <- closure ok return ?int <- closure TypeError
+prop ?int <- closure ok prop ?int <- closure TypeError
+promoted ?int <- closure ok promoted ?int <- closure TypeError
+param ?int <- cnt ok param ?int <- cnt TypeError
+return ?int <- cnt ok return ?int <- cnt TypeError
+prop ?int <- cnt ok prop ?int <- cnt TypeError
+promoted ?int <- cnt ok promoted ?int <- cnt TypeError
+param ?int <- max ok int
+return ?int <- max ok int
+prop ?int <- max ok int
+promoted ?int <- max ok int
+static ?int <- max ok int
+param ?int <- fnname ok param ?int <- fnname TypeError
+return ?int <- fnname ok return ?int <- fnname TypeError
+prop ?int <- fnname ok prop ?int <- fnname TypeError
+promoted ?int <- fnname ok promoted ?int <- fnname TypeError
+static ?int <- fnname ok static ?int <- fnname TypeError
+param int|string <- int ok int
+return int|string <- int ok int
+prop int|string <- int ok int
+promoted int|string <- int ok int
+static int|string <- int ok int
+param int|string <- float ok param int|string <- float TypeError
+return int|string <- float ok return int|string <- float TypeError
+prop int|string <- float ok prop int|string <- float TypeError
+promoted int|string <- float ok promoted int|string <- float TypeError
+static int|string <- float ok static int|string <- float TypeError
+param int|string <- ifloat ok param int|string <- ifloat TypeError
+return int|string <- ifloat ok return int|string <- ifloat TypeError
+prop int|string <- ifloat ok prop int|string <- ifloat TypeError
+promoted int|string <- ifloat ok promoted int|string <- ifloat TypeError
+static int|string <- ifloat ok static int|string <- ifloat TypeError
+param int|string <- numstr ok string
+return int|string <- numstr ok string
+prop int|string <- numstr ok string
+promoted int|string <- numstr ok string
+static int|string <- numstr ok string
+param int|string <- str ok string
+return int|string <- str ok string
+prop int|string <- str ok string
+promoted int|string <- str ok string
+static int|string <- str ok string
+param int|string <- true ok param int|string <- true TypeError
+return int|string <- true ok return int|string <- true TypeError
+prop int|string <- true ok prop int|string <- true TypeError
+promoted int|string <- true ok promoted int|string <- true TypeError
+static int|string <- true ok static int|string <- true TypeError
+param int|string <- false ok param int|string <- false TypeError
+return int|string <- false ok return int|string <- false TypeError
+prop int|string <- false ok prop int|string <- false TypeError
+promoted int|string <- false ok promoted int|string <- false TypeError
+static int|string <- false ok static int|string <- false TypeError
+param int|string <- null ok param int|string <- null TypeError
+return int|string <- null ok return int|string <- null TypeError
+prop int|string <- null ok prop int|string <- null TypeError
+promoted int|string <- null ok promoted int|string <- null TypeError
+static int|string <- null ok static int|string <- null TypeError
+param int|string <- arr ok param int|string <- arr TypeError
+return int|string <- arr ok return int|string <- arr TypeError
+prop int|string <- arr ok prop int|string <- arr TypeError
+promoted int|string <- arr ok promoted int|string <- arr TypeError
+static int|string <- arr ok static int|string <- arr TypeError
+param int|string <- obj ok param int|string <- obj TypeError
+return int|string <- obj ok return int|string <- obj TypeError
+prop int|string <- obj ok prop int|string <- obj TypeError
+promoted int|string <- obj ok promoted int|string <- obj TypeError
+param int|string <- closure ok param int|string <- closure TypeError
+return int|string <- closure ok return int|string <- closure TypeError
+prop int|string <- closure ok prop int|string <- closure TypeError
+promoted int|string <- closure ok promoted int|string <- closure TypeError
+param int|string <- cnt ok param int|string <- cnt TypeError
+return int|string <- cnt ok return int|string <- cnt TypeError
+prop int|string <- cnt ok prop int|string <- cnt TypeError
+promoted int|string <- cnt ok promoted int|string <- cnt TypeError
+param int|string <- max ok int
+return int|string <- max ok int
+prop int|string <- max ok int
+promoted int|string <- max ok int
+static int|string <- max ok int
+param int|string <- fnname ok string
+return int|string <- fnname ok string
+prop int|string <- fnname ok string
+promoted int|string <- fnname ok string
+static int|string <- fnname ok string
+param int|float <- int ok int
+return int|float <- int ok int
+prop int|float <- int ok int
+promoted int|float <- int ok int
+static int|float <- int ok int
+param int|float <- float ok float
+return int|float <- float ok float
+prop int|float <- float ok float
+promoted int|float <- float ok float
+static int|float <- float ok float
+param int|float <- ifloat ok float
+return int|float <- ifloat ok float
+prop int|float <- ifloat ok float
+promoted int|float <- ifloat ok float
+static int|float <- ifloat ok float
+param int|float <- numstr ok param int|float <- numstr TypeError
+return int|float <- numstr ok return int|float <- numstr TypeError
+prop int|float <- numstr ok prop int|float <- numstr TypeError
+promoted int|float <- numstr ok promoted int|float <- numstr TypeError
+static int|float <- numstr ok static int|float <- numstr TypeError
+param int|float <- str ok param int|float <- str TypeError
+return int|float <- str ok return int|float <- str TypeError
+prop int|float <- str ok prop int|float <- str TypeError
+promoted int|float <- str ok promoted int|float <- str TypeError
+static int|float <- str ok static int|float <- str TypeError
+param int|float <- true ok param int|float <- true TypeError
+return int|float <- true ok return int|float <- true TypeError
+prop int|float <- true ok prop int|float <- true TypeError
+promoted int|float <- true ok promoted int|float <- true TypeError
+static int|float <- true ok static int|float <- true TypeError
+param int|float <- false ok param int|float <- false TypeError
+return int|float <- false ok return int|float <- false TypeError
+prop int|float <- false ok prop int|float <- false TypeError
+promoted int|float <- false ok promoted int|float <- false TypeError
+static int|float <- false ok static int|float <- false TypeError
+param int|float <- null ok param int|float <- null TypeError
+return int|float <- null ok return int|float <- null TypeError
+prop int|float <- null ok prop int|float <- null TypeError
+promoted int|float <- null ok promoted int|float <- null TypeError
+static int|float <- null ok static int|float <- null TypeError
+param int|float <- arr ok param int|float <- arr TypeError
+return int|float <- arr ok return int|float <- arr TypeError
+prop int|float <- arr ok prop int|float <- arr TypeError
+promoted int|float <- arr ok promoted int|float <- arr TypeError
+static int|float <- arr ok static int|float <- arr TypeError
+param int|float <- obj ok param int|float <- obj TypeError
+return int|float <- obj ok return int|float <- obj TypeError
+prop int|float <- obj ok prop int|float <- obj TypeError
+promoted int|float <- obj ok promoted int|float <- obj TypeError
+param int|float <- closure ok param int|float <- closure TypeError
+return int|float <- closure ok return int|float <- closure TypeError
+prop int|float <- closure ok prop int|float <- closure TypeError
+promoted int|float <- closure ok promoted int|float <- closure TypeError
+param int|float <- cnt ok param int|float <- cnt TypeError
+return int|float <- cnt ok return int|float <- cnt TypeError
+prop int|float <- cnt ok prop int|float <- cnt TypeError
+promoted int|float <- cnt ok promoted int|float <- cnt TypeError
+param int|float <- max ok int
+return int|float <- max ok int
+prop int|float <- max ok int
+promoted int|float <- max ok int
+static int|float <- max ok int
+param int|float <- fnname ok param int|float <- fnname TypeError
+return int|float <- fnname ok return int|float <- fnname TypeError
+prop int|float <- fnname ok prop int|float <- fnname TypeError
+promoted int|float <- fnname ok promoted int|float <- fnname TypeError
+static int|float <- fnname ok static int|float <- fnname TypeError
+param float|string <- int ok float
+return float|string <- int ok float
+prop float|string <- int ok float
+promoted float|string <- int ok float
+static float|string <- int ok float
+param float|string <- float ok float
+return float|string <- float ok float
+prop float|string <- float ok float
+promoted float|string <- float ok float
+static float|string <- float ok float
+param float|string <- ifloat ok float
+return float|string <- ifloat ok float
+prop float|string <- ifloat ok float
+promoted float|string <- ifloat ok float
+static float|string <- ifloat ok float
+param float|string <- numstr ok string
+return float|string <- numstr ok string
+prop float|string <- numstr ok string
+promoted float|string <- numstr ok string
+static float|string <- numstr ok string
+param float|string <- str ok string
+return float|string <- str ok string
+prop float|string <- str ok string
+promoted float|string <- str ok string
+static float|string <- str ok string
+param float|string <- true ok param float|string <- true TypeError
+return float|string <- true ok return float|string <- true TypeError
+prop float|string <- true ok prop float|string <- true TypeError
+promoted float|string <- true ok promoted float|string <- true TypeError
+static float|string <- true ok static float|string <- true TypeError
+param float|string <- false ok param float|string <- false TypeError
+return float|string <- false ok return float|string <- false TypeError
+prop float|string <- false ok prop float|string <- false TypeError
+promoted float|string <- false ok promoted float|string <- false TypeError
+static float|string <- false ok static float|string <- false TypeError
+param float|string <- null ok param float|string <- null TypeError
+return float|string <- null ok return float|string <- null TypeError
+prop float|string <- null ok prop float|string <- null TypeError
+promoted float|string <- null ok promoted float|string <- null TypeError
+static float|string <- null ok static float|string <- null TypeError
+param float|string <- arr ok param float|string <- arr TypeError
+return float|string <- arr ok return float|string <- arr TypeError
+prop float|string <- arr ok prop float|string <- arr TypeError
+promoted float|string <- arr ok promoted float|string <- arr TypeError
+static float|string <- arr ok static float|string <- arr TypeError
+param float|string <- obj ok param float|string <- obj TypeError
+return float|string <- obj ok return float|string <- obj TypeError
+prop float|string <- obj ok prop float|string <- obj TypeError
+promoted float|string <- obj ok promoted float|string <- obj TypeError
+param float|string <- closure ok param float|string <- closure TypeError
+return float|string <- closure ok return float|string <- closure TypeError
+prop float|string <- closure ok prop float|string <- closure TypeError
+promoted float|string <- closure ok promoted float|string <- closure TypeError
+param float|string <- cnt ok param float|string <- cnt TypeError
+return float|string <- cnt ok return float|string <- cnt TypeError
+prop float|string <- cnt ok prop float|string <- cnt TypeError
+promoted float|string <- cnt ok promoted float|string <- cnt TypeError
+param float|string <- max ok float
+return float|string <- max ok float
+prop float|string <- max ok float
+promoted float|string <- max ok float
+static float|string <- max ok float
+param float|string <- fnname ok string
+return float|string <- fnname ok string
+prop float|string <- fnname ok string
+promoted float|string <- fnname ok string
+static float|string <- fnname ok string
+param mixed <- int ok int
+return mixed <- int ok int
+prop mixed <- int ok int
+promoted mixed <- int ok int
+static mixed <- int ok int
+param mixed <- float ok float
+return mixed <- float ok float
+prop mixed <- float ok float
+promoted mixed <- float ok float
+static mixed <- float ok float
+param mixed <- ifloat ok float
+return mixed <- ifloat ok float
+prop mixed <- ifloat ok float
+promoted mixed <- ifloat ok float
+static mixed <- ifloat ok float
+param mixed <- numstr ok string
+return mixed <- numstr ok string
+prop mixed <- numstr ok string
+promoted mixed <- numstr ok string
+static mixed <- numstr ok string
+param mixed <- str ok string
+return mixed <- str ok string
+prop mixed <- str ok string
+promoted mixed <- str ok string
+static mixed <- str ok string
+param mixed <- true ok bool
+return mixed <- true ok bool
+prop mixed <- true ok bool
+promoted mixed <- true ok bool
+static mixed <- true ok bool
+param mixed <- false ok bool
+return mixed <- false ok bool
+prop mixed <- false ok bool
+promoted mixed <- false ok bool
+static mixed <- false ok bool
+param mixed <- null ok null
+return mixed <- null ok null
+prop mixed <- null ok null
+promoted mixed <- null ok null
+static mixed <- null ok null
+param mixed <- arr ok array
+return mixed <- arr ok array
+prop mixed <- arr ok array
+promoted mixed <- arr ok array
+static mixed <- arr ok array
+param mixed <- obj ok stdClass
+return mixed <- obj ok stdClass
+prop mixed <- obj ok stdClass
+promoted mixed <- obj ok stdClass
+param mixed <- closure ok Closure
+return mixed <- closure ok Closure
+prop mixed <- closure ok Closure
+promoted mixed <- closure ok Closure
+param mixed <- cnt ok Cnt
+return mixed <- cnt ok Cnt
+prop mixed <- cnt ok Cnt
+promoted mixed <- cnt ok Cnt
+param mixed <- max ok int
+return mixed <- max ok int
+prop mixed <- max ok int
+promoted mixed <- max ok int
+static mixed <- max ok int
+param mixed <- fnname ok string
+return mixed <- fnname ok string
+prop mixed <- fnname ok string
+promoted mixed <- fnname ok string
+static mixed <- fnname ok string
+param object <- int ok param object <- int TypeError
+return object <- int ok return object <- int TypeError
+prop object <- int ok prop object <- int TypeError
+promoted object <- int ok promoted object <- int TypeError
+static object <- int ok static object <- int TypeError
+param object <- float ok param object <- float TypeError
+return object <- float ok return object <- float TypeError
+prop object <- float ok prop object <- float TypeError
+promoted object <- float ok promoted object <- float TypeError
+static object <- float ok static object <- float TypeError
+param object <- ifloat ok param object <- ifloat TypeError
+return object <- ifloat ok return object <- ifloat TypeError
+prop object <- ifloat ok prop object <- ifloat TypeError
+promoted object <- ifloat ok promoted object <- ifloat TypeError
+static object <- ifloat ok static object <- ifloat TypeError
+param object <- numstr ok param object <- numstr TypeError
+return object <- numstr ok return object <- numstr TypeError
+prop object <- numstr ok prop object <- numstr TypeError
+promoted object <- numstr ok promoted object <- numstr TypeError
+static object <- numstr ok static object <- numstr TypeError
+param object <- str ok param object <- str TypeError
+return object <- str ok return object <- str TypeError
+prop object <- str ok prop object <- str TypeError
+promoted object <- str ok promoted object <- str TypeError
+static object <- str ok static object <- str TypeError
+param object <- true ok param object <- true TypeError
+return object <- true ok return object <- true TypeError
+prop object <- true ok prop object <- true TypeError
+promoted object <- true ok promoted object <- true TypeError
+static object <- true ok static object <- true TypeError
+param object <- false ok param object <- false TypeError
+return object <- false ok return object <- false TypeError
+prop object <- false ok prop object <- false TypeError
+promoted object <- false ok promoted object <- false TypeError
+static object <- false ok static object <- false TypeError
+param object <- null ok param object <- null TypeError
+return object <- null ok return object <- null TypeError
+prop object <- null ok prop object <- null TypeError
+promoted object <- null ok promoted object <- null TypeError
+static object <- null ok static object <- null TypeError
+param object <- arr ok param object <- arr TypeError
+return object <- arr ok return object <- arr TypeError
+prop object <- arr ok prop object <- arr TypeError
+promoted object <- arr ok promoted object <- arr TypeError
+static object <- arr ok static object <- arr TypeError
+param object <- obj ok stdClass
+return object <- obj ok stdClass
+prop object <- obj ok stdClass
+promoted object <- obj ok stdClass
+param object <- closure ok Closure
+return object <- closure ok Closure
+prop object <- closure ok Closure
+promoted object <- closure ok Closure
+param object <- cnt ok Cnt
+return object <- cnt ok Cnt
+prop object <- cnt ok Cnt
+promoted object <- cnt ok Cnt
+param object <- max ok param object <- max TypeError
+return object <- max ok return object <- max TypeError
+prop object <- max ok prop object <- max TypeError
+promoted object <- max ok promoted object <- max TypeError
+static object <- max ok static object <- max TypeError
+param object <- fnname ok param object <- fnname TypeError
+return object <- fnname ok return object <- fnname TypeError
+prop object <- fnname ok prop object <- fnname TypeError
+promoted object <- fnname ok promoted object <- fnname TypeError
+static object <- fnname ok static object <- fnname TypeError
+param iterable <- int ok param iterable <- int TypeError
+return iterable <- int ok return iterable <- int TypeError
+prop iterable <- int ok prop iterable <- int TypeError
+promoted iterable <- int ok promoted iterable <- int TypeError
+static iterable <- int ok static iterable <- int TypeError
+param iterable <- float ok param iterable <- float TypeError
+return iterable <- float ok return iterable <- float TypeError
+prop iterable <- float ok prop iterable <- float TypeError
+promoted iterable <- float ok promoted iterable <- float TypeError
+static iterable <- float ok static iterable <- float TypeError
+param iterable <- ifloat ok param iterable <- ifloat TypeError
+return iterable <- ifloat ok return iterable <- ifloat TypeError
+prop iterable <- ifloat ok prop iterable <- ifloat TypeError
+promoted iterable <- ifloat ok promoted iterable <- ifloat TypeError
+static iterable <- ifloat ok static iterable <- ifloat TypeError
+param iterable <- numstr ok param iterable <- numstr TypeError
+return iterable <- numstr ok return iterable <- numstr TypeError
+prop iterable <- numstr ok prop iterable <- numstr TypeError
+promoted iterable <- numstr ok promoted iterable <- numstr TypeError
+static iterable <- numstr ok static iterable <- numstr TypeError
+param iterable <- str ok param iterable <- str TypeError
+return iterable <- str ok return iterable <- str TypeError
+prop iterable <- str ok prop iterable <- str TypeError
+promoted iterable <- str ok promoted iterable <- str TypeError
+static iterable <- str ok static iterable <- str TypeError
+param iterable <- true ok param iterable <- true TypeError
+return iterable <- true ok return iterable <- true TypeError
+prop iterable <- true ok prop iterable <- true TypeError
+promoted iterable <- true ok promoted iterable <- true TypeError
+static iterable <- true ok static iterable <- true TypeError
+param iterable <- false ok param iterable <- false TypeError
+return iterable <- false ok return iterable <- false TypeError
+prop iterable <- false ok prop iterable <- false TypeError
+promoted iterable <- false ok promoted iterable <- false TypeError
+static iterable <- false ok static iterable <- false TypeError
+param iterable <- null ok param iterable <- null TypeError
+return iterable <- null ok return iterable <- null TypeError
+prop iterable <- null ok prop iterable <- null TypeError
+promoted iterable <- null ok promoted iterable <- null TypeError
+static iterable <- null ok static iterable <- null TypeError
+param iterable <- arr ok array
+return iterable <- arr ok array
+prop iterable <- arr ok array
+promoted iterable <- arr ok array
+static iterable <- arr ok array
+param iterable <- obj ok param iterable <- obj TypeError
+return iterable <- obj ok return iterable <- obj TypeError
+prop iterable <- obj ok prop iterable <- obj TypeError
+promoted iterable <- obj ok promoted iterable <- obj TypeError
+param iterable <- closure ok param iterable <- closure TypeError
+return iterable <- closure ok return iterable <- closure TypeError
+prop iterable <- closure ok prop iterable <- closure TypeError
+promoted iterable <- closure ok promoted iterable <- closure TypeError
+param iterable <- cnt ok Cnt
+return iterable <- cnt ok Cnt
+prop iterable <- cnt ok Cnt
+promoted iterable <- cnt ok Cnt
+param iterable <- max ok param iterable <- max TypeError
+return iterable <- max ok return iterable <- max TypeError
+prop iterable <- max ok prop iterable <- max TypeError
+promoted iterable <- max ok promoted iterable <- max TypeError
+static iterable <- max ok static iterable <- max TypeError
+param iterable <- fnname ok param iterable <- fnname TypeError
+return iterable <- fnname ok return iterable <- fnname TypeError
+prop iterable <- fnname ok prop iterable <- fnname TypeError
+promoted iterable <- fnname ok promoted iterable <- fnname TypeError
+static iterable <- fnname ok static iterable <- fnname TypeError
+param callable <- int ok param callable <- int TypeError
+return callable <- int ok return callable <- int TypeError
+param callable <- float ok param callable <- float TypeError
+return callable <- float ok return callable <- float TypeError
+param callable <- ifloat ok param callable <- ifloat TypeError
+return callable <- ifloat ok return callable <- ifloat TypeError
+param callable <- numstr ok param callable <- numstr TypeError
+return callable <- numstr ok return callable <- numstr TypeError
+param callable <- str ok param callable <- str TypeError
+return callable <- str ok return callable <- str TypeError
+param callable <- true ok param callable <- true TypeError
+return callable <- true ok return callable <- true TypeError
+param callable <- false ok param callable <- false TypeError
+return callable <- false ok return callable <- false TypeError
+param callable <- null ok param callable <- null TypeError
+return callable <- null ok return callable <- null TypeError
+param callable <- arr ok param callable <- arr TypeError
+return callable <- arr ok return callable <- arr TypeError
+param callable <- obj ok param callable <- obj TypeError
+return callable <- obj ok return callable <- obj TypeError
+param callable <- closure ok Closure
+return callable <- closure ok Closure
+param callable <- cnt ok param callable <- cnt TypeError
+return callable <- cnt ok return callable <- cnt TypeError
+param callable <- max ok param callable <- max TypeError
+return callable <- max ok return callable <- max TypeError
+param callable <- fnname ok string
+return callable <- fnname ok string
+param \stdClass <- int ok param \stdClass <- int TypeError
+return \stdClass <- int ok return \stdClass <- int TypeError
+prop \stdClass <- int ok prop \stdClass <- int TypeError
+promoted \stdClass <- int ok promoted \stdClass <- int TypeError
+static \stdClass <- int ok static \stdClass <- int TypeError
+param \stdClass <- float ok param \stdClass <- float TypeError
+return \stdClass <- float ok return \stdClass <- float TypeError
+prop \stdClass <- float ok prop \stdClass <- float TypeError
+promoted \stdClass <- float ok promoted \stdClass <- float TypeError
+static \stdClass <- float ok static \stdClass <- float TypeError
+param \stdClass <- ifloat ok param \stdClass <- ifloat TypeError
+return \stdClass <- ifloat ok return \stdClass <- ifloat TypeError
+prop \stdClass <- ifloat ok prop \stdClass <- ifloat TypeError
+promoted \stdClass <- ifloat ok promoted \stdClass <- ifloat TypeError
+static \stdClass <- ifloat ok static \stdClass <- ifloat TypeError
+param \stdClass <- numstr ok param \stdClass <- numstr TypeError
+return \stdClass <- numstr ok return \stdClass <- numstr TypeError
+prop \stdClass <- numstr ok prop \stdClass <- numstr TypeError
+promoted \stdClass <- numstr ok promoted \stdClass <- numstr TypeError
+static \stdClass <- numstr ok static \stdClass <- numstr TypeError
+param \stdClass <- str ok param \stdClass <- str TypeError
+return \stdClass <- str ok return \stdClass <- str TypeError
+prop \stdClass <- str ok prop \stdClass <- str TypeError
+promoted \stdClass <- str ok promoted \stdClass <- str TypeError
+static \stdClass <- str ok static \stdClass <- str TypeError
+param \stdClass <- true ok param \stdClass <- true TypeError
+return \stdClass <- true ok return \stdClass <- true TypeError
+prop \stdClass <- true ok prop \stdClass <- true TypeError
+promoted \stdClass <- true ok promoted \stdClass <- true TypeError
+static \stdClass <- true ok static \stdClass <- true TypeError
+param \stdClass <- false ok param \stdClass <- false TypeError
+return \stdClass <- false ok return \stdClass <- false TypeError
+prop \stdClass <- false ok prop \stdClass <- false TypeError
+promoted \stdClass <- false ok promoted \stdClass <- false TypeError
+static \stdClass <- false ok static \stdClass <- false TypeError
+param \stdClass <- null ok param \stdClass <- null TypeError
+return \stdClass <- null ok return \stdClass <- null TypeError
+prop \stdClass <- null ok prop \stdClass <- null TypeError
+promoted \stdClass <- null ok promoted \stdClass <- null TypeError
+static \stdClass <- null ok static \stdClass <- null TypeError
+param \stdClass <- arr ok param \stdClass <- arr TypeError
+return \stdClass <- arr ok return \stdClass <- arr TypeError
+prop \stdClass <- arr ok prop \stdClass <- arr TypeError
+promoted \stdClass <- arr ok promoted \stdClass <- arr TypeError
+static \stdClass <- arr ok static \stdClass <- arr TypeError
+param \stdClass <- obj ok stdClass
+return \stdClass <- obj ok stdClass
+prop \stdClass <- obj ok stdClass
+promoted \stdClass <- obj ok stdClass
+param \stdClass <- closure ok param \stdClass <- closure TypeError
+return \stdClass <- closure ok return \stdClass <- closure TypeError
+prop \stdClass <- closure ok prop \stdClass <- closure TypeError
+promoted \stdClass <- closure ok promoted \stdClass <- closure TypeError
+param \stdClass <- cnt ok param \stdClass <- cnt TypeError
+return \stdClass <- cnt ok return \stdClass <- cnt TypeError
+prop \stdClass <- cnt ok prop \stdClass <- cnt TypeError
+promoted \stdClass <- cnt ok promoted \stdClass <- cnt TypeError
+param \stdClass <- max ok param \stdClass <- max TypeError
+return \stdClass <- max ok return \stdClass <- max TypeError
+prop \stdClass <- max ok prop \stdClass <- max TypeError
+promoted \stdClass <- max ok promoted \stdClass <- max TypeError
+static \stdClass <- max ok static \stdClass <- max TypeError
+param \stdClass <- fnname ok param \stdClass <- fnname TypeError
+return \stdClass <- fnname ok return \stdClass <- fnname TypeError
+prop \stdClass <- fnname ok prop \stdClass <- fnname TypeError
+promoted \stdClass <- fnname ok promoted \stdClass <- fnname TypeError
+static \stdClass <- fnname ok static \stdClass <- fnname TypeError
+param ?\stdClass <- int ok param ?\stdClass <- int TypeError
+return ?\stdClass <- int ok return ?\stdClass <- int TypeError
+prop ?\stdClass <- int ok prop ?\stdClass <- int TypeError
+promoted ?\stdClass <- int ok promoted ?\stdClass <- int TypeError
+static ?\stdClass <- int ok static ?\stdClass <- int TypeError
+param ?\stdClass <- float ok param ?\stdClass <- float TypeError
+return ?\stdClass <- float ok return ?\stdClass <- float TypeError
+prop ?\stdClass <- float ok prop ?\stdClass <- float TypeError
+promoted ?\stdClass <- float ok promoted ?\stdClass <- float TypeError
+static ?\stdClass <- float ok static ?\stdClass <- float TypeError
+param ?\stdClass <- ifloat ok param ?\stdClass <- ifloat TypeError
+return ?\stdClass <- ifloat ok return ?\stdClass <- ifloat TypeError
+prop ?\stdClass <- ifloat ok prop ?\stdClass <- ifloat TypeError
+promoted ?\stdClass <- ifloat ok promoted ?\stdClass <- ifloat TypeError
+static ?\stdClass <- ifloat ok static ?\stdClass <- ifloat TypeError
+param ?\stdClass <- numstr ok param ?\stdClass <- numstr TypeError
+return ?\stdClass <- numstr ok return ?\stdClass <- numstr TypeError
+prop ?\stdClass <- numstr ok prop ?\stdClass <- numstr TypeError
+promoted ?\stdClass <- numstr ok promoted ?\stdClass <- numstr TypeError
+static ?\stdClass <- numstr ok static ?\stdClass <- numstr TypeError
+param ?\stdClass <- str ok param ?\stdClass <- str TypeError
+return ?\stdClass <- str ok return ?\stdClass <- str TypeError
+prop ?\stdClass <- str ok prop ?\stdClass <- str TypeError
+promoted ?\stdClass <- str ok promoted ?\stdClass <- str TypeError
+static ?\stdClass <- str ok static ?\stdClass <- str TypeError
+param ?\stdClass <- true ok param ?\stdClass <- true TypeError
+return ?\stdClass <- true ok return ?\stdClass <- true TypeError
+prop ?\stdClass <- true ok prop ?\stdClass <- true TypeError
+promoted ?\stdClass <- true ok promoted ?\stdClass <- true TypeError
+static ?\stdClass <- true ok static ?\stdClass <- true TypeError
+param ?\stdClass <- false ok param ?\stdClass <- false TypeError
+return ?\stdClass <- false ok return ?\stdClass <- false TypeError
+prop ?\stdClass <- false ok prop ?\stdClass <- false TypeError
+promoted ?\stdClass <- false ok promoted ?\stdClass <- false TypeError
+static ?\stdClass <- false ok static ?\stdClass <- false TypeError
+param ?\stdClass <- null ok null
+return ?\stdClass <- null ok null
+prop ?\stdClass <- null ok null
+promoted ?\stdClass <- null ok null
+static ?\stdClass <- null ok null
+param ?\stdClass <- arr ok param ?\stdClass <- arr TypeError
+return ?\stdClass <- arr ok return ?\stdClass <- arr TypeError
+prop ?\stdClass <- arr ok prop ?\stdClass <- arr TypeError
+promoted ?\stdClass <- arr ok promoted ?\stdClass <- arr TypeError
+static ?\stdClass <- arr ok static ?\stdClass <- arr TypeError
+param ?\stdClass <- obj ok stdClass
+return ?\stdClass <- obj ok stdClass
+prop ?\stdClass <- obj ok stdClass
+promoted ?\stdClass <- obj ok stdClass
+param ?\stdClass <- closure ok param ?\stdClass <- closure TypeError
+return ?\stdClass <- closure ok return ?\stdClass <- closure TypeError
+prop ?\stdClass <- closure ok prop ?\stdClass <- closure TypeError
+promoted ?\stdClass <- closure ok promoted ?\stdClass <- closure TypeError
+param ?\stdClass <- cnt ok param ?\stdClass <- cnt TypeError
+return ?\stdClass <- cnt ok return ?\stdClass <- cnt TypeError
+prop ?\stdClass <- cnt ok prop ?\stdClass <- cnt TypeError
+promoted ?\stdClass <- cnt ok promoted ?\stdClass <- cnt TypeError
+param ?\stdClass <- max ok param ?\stdClass <- max TypeError
+return ?\stdClass <- max ok return ?\stdClass <- max TypeError
+prop ?\stdClass <- max ok prop ?\stdClass <- max TypeError
+promoted ?\stdClass <- max ok promoted ?\stdClass <- max TypeError
+static ?\stdClass <- max ok static ?\stdClass <- max TypeError
+param ?\stdClass <- fnname ok param ?\stdClass <- fnname TypeError
+return ?\stdClass <- fnname ok return ?\stdClass <- fnname TypeError
+prop ?\stdClass <- fnname ok prop ?\stdClass <- fnname TypeError
+promoted ?\stdClass <- fnname ok promoted ?\stdClass <- fnname TypeError
+static ?\stdClass <- fnname ok static ?\stdClass <- fnname TypeError
+param \Countable <- int ok param \Countable <- int TypeError
+return \Countable <- int ok return \Countable <- int TypeError
+prop \Countable <- int ok prop \Countable <- int TypeError
+promoted \Countable <- int ok promoted \Countable <- int TypeError
+static \Countable <- int ok static \Countable <- int TypeError
+param \Countable <- float ok param \Countable <- float TypeError
+return \Countable <- float ok return \Countable <- float TypeError
+prop \Countable <- float ok prop \Countable <- float TypeError
+promoted \Countable <- float ok promoted \Countable <- float TypeError
+static \Countable <- float ok static \Countable <- float TypeError
+param \Countable <- ifloat ok param \Countable <- ifloat TypeError
+return \Countable <- ifloat ok return \Countable <- ifloat TypeError
+prop \Countable <- ifloat ok prop \Countable <- ifloat TypeError
+promoted \Countable <- ifloat ok promoted \Countable <- ifloat TypeError
+static \Countable <- ifloat ok static \Countable <- ifloat TypeError
+param \Countable <- numstr ok param \Countable <- numstr TypeError
+return \Countable <- numstr ok return \Countable <- numstr TypeError
+prop \Countable <- numstr ok prop \Countable <- numstr TypeError
+promoted \Countable <- numstr ok promoted \Countable <- numstr TypeError
+static \Countable <- numstr ok static \Countable <- numstr TypeError
+param \Countable <- str ok param \Countable <- str TypeError
+return \Countable <- str ok return \Countable <- str TypeError
+prop \Countable <- str ok prop \Countable <- str TypeError
+promoted \Countable <- str ok promoted \Countable <- str TypeError
+static \Countable <- str ok static \Countable <- str TypeError
+param \Countable <- true ok param \Countable <- true TypeError
+return \Countable <- true ok return \Countable <- true TypeError
+prop \Countable <- true ok prop \Countable <- true TypeError
+promoted \Countable <- true ok promoted \Countable <- true TypeError
+static \Countable <- true ok static \Countable <- true TypeError
+param \Countable <- false ok param \Countable <- false TypeError
+return \Countable <- false ok return \Countable <- false TypeError
+prop \Countable <- false ok prop \Countable <- false TypeError
+promoted \Countable <- false ok promoted \Countable <- false TypeError
+static \Countable <- false ok static \Countable <- false TypeError
+param \Countable <- null ok param \Countable <- null TypeError
+return \Countable <- null ok return \Countable <- null TypeError
+prop \Countable <- null ok prop \Countable <- null TypeError
+promoted \Countable <- null ok promoted \Countable <- null TypeError
+static \Countable <- null ok static \Countable <- null TypeError
+param \Countable <- arr ok param \Countable <- arr TypeError
+return \Countable <- arr ok return \Countable <- arr TypeError
+prop \Countable <- arr ok prop \Countable <- arr TypeError
+promoted \Countable <- arr ok promoted \Countable <- arr TypeError
+static \Countable <- arr ok static \Countable <- arr TypeError
+param \Countable <- obj ok param \Countable <- obj TypeError
+return \Countable <- obj ok return \Countable <- obj TypeError
+prop \Countable <- obj ok prop \Countable <- obj TypeError
+promoted \Countable <- obj ok promoted \Countable <- obj TypeError
+param \Countable <- closure ok param \Countable <- closure TypeError
+return \Countable <- closure ok return \Countable <- closure TypeError
+prop \Countable <- closure ok prop \Countable <- closure TypeError
+promoted \Countable <- closure ok promoted \Countable <- closure TypeError
+param \Countable <- cnt ok Cnt
+return \Countable <- cnt ok Cnt
+prop \Countable <- cnt ok Cnt
+promoted \Countable <- cnt ok Cnt
+param \Countable <- max ok param \Countable <- max TypeError
+return \Countable <- max ok return \Countable <- max TypeError
+prop \Countable <- max ok prop \Countable <- max TypeError
+promoted \Countable <- max ok promoted \Countable <- max TypeError
+static \Countable <- max ok static \Countable <- max TypeError
+param \Countable <- fnname ok param \Countable <- fnname TypeError
+return \Countable <- fnname ok return \Countable <- fnname TypeError
+prop \Countable <- fnname ok prop \Countable <- fnname TypeError
+promoted \Countable <- fnname ok promoted \Countable <- fnname TypeError
+static \Countable <- fnname ok static \Countable <- fnname TypeError
+param int|null <- int ok int
+return int|null <- int ok int
+prop int|null <- int ok int
+promoted int|null <- int ok int
+static int|null <- int ok int
+param int|null <- float ok param int|null <- float TypeError
+return int|null <- float ok return int|null <- float TypeError
+prop int|null <- float ok prop int|null <- float TypeError
+promoted int|null <- float ok promoted int|null <- float TypeError
+static int|null <- float ok static int|null <- float TypeError
+param int|null <- ifloat ok param int|null <- ifloat TypeError
+return int|null <- ifloat ok return int|null <- ifloat TypeError
+prop int|null <- ifloat ok prop int|null <- ifloat TypeError
+promoted int|null <- ifloat ok promoted int|null <- ifloat TypeError
+static int|null <- ifloat ok static int|null <- ifloat TypeError
+param int|null <- numstr ok param int|null <- numstr TypeError
+return int|null <- numstr ok return int|null <- numstr TypeError
+prop int|null <- numstr ok prop int|null <- numstr TypeError
+promoted int|null <- numstr ok promoted int|null <- numstr TypeError
+static int|null <- numstr ok static int|null <- numstr TypeError
+param int|null <- str ok param int|null <- str TypeError
+return int|null <- str ok return int|null <- str TypeError
+prop int|null <- str ok prop int|null <- str TypeError
+promoted int|null <- str ok promoted int|null <- str TypeError
+static int|null <- str ok static int|null <- str TypeError
+param int|null <- true ok param int|null <- true TypeError
+return int|null <- true ok return int|null <- true TypeError
+prop int|null <- true ok prop int|null <- true TypeError
+promoted int|null <- true ok promoted int|null <- true TypeError
+static int|null <- true ok static int|null <- true TypeError
+param int|null <- false ok param int|null <- false TypeError
+return int|null <- false ok return int|null <- false TypeError
+prop int|null <- false ok prop int|null <- false TypeError
+promoted int|null <- false ok promoted int|null <- false TypeError
+static int|null <- false ok static int|null <- false TypeError
+param int|null <- null ok null
+return int|null <- null ok null
+prop int|null <- null ok null
+promoted int|null <- null ok null
+static int|null <- null ok null
+param int|null <- arr ok param int|null <- arr TypeError
+return int|null <- arr ok return int|null <- arr TypeError
+prop int|null <- arr ok prop int|null <- arr TypeError
+promoted int|null <- arr ok promoted int|null <- arr TypeError
+static int|null <- arr ok static int|null <- arr TypeError
+param int|null <- obj ok param int|null <- obj TypeError
+return int|null <- obj ok return int|null <- obj TypeError
+prop int|null <- obj ok prop int|null <- obj TypeError
+promoted int|null <- obj ok promoted int|null <- obj TypeError
+param int|null <- closure ok param int|null <- closure TypeError
+return int|null <- closure ok return int|null <- closure TypeError
+prop int|null <- closure ok prop int|null <- closure TypeError
+promoted int|null <- closure ok promoted int|null <- closure TypeError
+param int|null <- cnt ok param int|null <- cnt TypeError
+return int|null <- cnt ok return int|null <- cnt TypeError
+prop int|null <- cnt ok prop int|null <- cnt TypeError
+promoted int|null <- cnt ok promoted int|null <- cnt TypeError
+param int|null <- max ok int
+return int|null <- max ok int
+prop int|null <- max ok int
+promoted int|null <- max ok int
+static int|null <- max ok int
+param int|null <- fnname ok param int|null <- fnname TypeError
+return int|null <- fnname ok return int|null <- fnname TypeError
+prop int|null <- fnname ok prop int|null <- fnname TypeError
+promoted int|null <- fnname ok promoted int|null <- fnname TypeError
+static int|null <- fnname ok static int|null <- fnname TypeError
+param string|array <- int ok param string|array <- int TypeError
+return string|array <- int ok return string|array <- int TypeError
+prop string|array <- int ok prop string|array <- int TypeError
+promoted string|array <- int ok promoted string|array <- int TypeError
+static string|array <- int ok static string|array <- int TypeError
+param string|array <- float ok param string|array <- float TypeError
+return string|array <- float ok return string|array <- float TypeError
+prop string|array <- float ok prop string|array <- float TypeError
+promoted string|array <- float ok promoted string|array <- float TypeError
+static string|array <- float ok static string|array <- float TypeError
+param string|array <- ifloat ok param string|array <- ifloat TypeError
+return string|array <- ifloat ok return string|array <- ifloat TypeError
+prop string|array <- ifloat ok prop string|array <- ifloat TypeError
+promoted string|array <- ifloat ok promoted string|array <- ifloat TypeError
+static string|array <- ifloat ok static string|array <- ifloat TypeError
+param string|array <- numstr ok string
+return string|array <- numstr ok string
+prop string|array <- numstr ok string
+promoted string|array <- numstr ok string
+static string|array <- numstr ok string
+param string|array <- str ok string
+return string|array <- str ok string
+prop string|array <- str ok string
+promoted string|array <- str ok string
+static string|array <- str ok string
+param string|array <- true ok param string|array <- true TypeError
+return string|array <- true ok return string|array <- true TypeError
+prop string|array <- true ok prop string|array <- true TypeError
+promoted string|array <- true ok promoted string|array <- true TypeError
+static string|array <- true ok static string|array <- true TypeError
+param string|array <- false ok param string|array <- false TypeError
+return string|array <- false ok return string|array <- false TypeError
+prop string|array <- false ok prop string|array <- false TypeError
+promoted string|array <- false ok promoted string|array <- false TypeError
+static string|array <- false ok static string|array <- false TypeError
+param string|array <- null ok param string|array <- null TypeError
+return string|array <- null ok return string|array <- null TypeError
+prop string|array <- null ok prop string|array <- null TypeError
+promoted string|array <- null ok promoted string|array <- null TypeError
+static string|array <- null ok static string|array <- null TypeError
+param string|array <- arr ok array
+return string|array <- arr ok array
+prop string|array <- arr ok array
+promoted string|array <- arr ok array
+static string|array <- arr ok array
+param string|array <- obj ok param string|array <- obj TypeError
+return string|array <- obj ok return string|array <- obj TypeError
+prop string|array <- obj ok prop string|array <- obj TypeError
+promoted string|array <- obj ok promoted string|array <- obj TypeError
+param string|array <- closure ok param string|array <- closure TypeError
+return string|array <- closure ok return string|array <- closure TypeError
+prop string|array <- closure ok prop string|array <- closure TypeError
+promoted string|array <- closure ok promoted string|array <- closure TypeError
+param string|array <- cnt ok param string|array <- cnt TypeError
+return string|array <- cnt ok return string|array <- cnt TypeError
+prop string|array <- cnt ok prop string|array <- cnt TypeError
+promoted string|array <- cnt ok promoted string|array <- cnt TypeError
+param string|array <- max ok param string|array <- max TypeError
+return string|array <- max ok return string|array <- max TypeError
+prop string|array <- max ok prop string|array <- max TypeError
+promoted string|array <- max ok promoted string|array <- max TypeError
+static string|array <- max ok static string|array <- max TypeError
+param string|array <- fnname ok string
+return string|array <- fnname ok string
+prop string|array <- fnname ok string
+promoted string|array <- fnname ok string
+static string|array <- fnname ok string
+param false|int <- int ok int
+return false|int <- int ok int
+prop false|int <- int ok int
+promoted false|int <- int ok int
+static false|int <- int ok int
+param false|int <- float ok param false|int <- float TypeError
+return false|int <- float ok return false|int <- float TypeError
+prop false|int <- float ok prop false|int <- float TypeError
+promoted false|int <- float ok promoted false|int <- float TypeError
+static false|int <- float ok static false|int <- float TypeError
+param false|int <- ifloat ok param false|int <- ifloat TypeError
+return false|int <- ifloat ok return false|int <- ifloat TypeError
+prop false|int <- ifloat ok prop false|int <- ifloat TypeError
+promoted false|int <- ifloat ok promoted false|int <- ifloat TypeError
+static false|int <- ifloat ok static false|int <- ifloat TypeError
+param false|int <- numstr ok param false|int <- numstr TypeError
+return false|int <- numstr ok return false|int <- numstr TypeError
+prop false|int <- numstr ok prop false|int <- numstr TypeError
+promoted false|int <- numstr ok promoted false|int <- numstr TypeError
+static false|int <- numstr ok static false|int <- numstr TypeError
+param false|int <- str ok param false|int <- str TypeError
+return false|int <- str ok return false|int <- str TypeError
+prop false|int <- str ok prop false|int <- str TypeError
+promoted false|int <- str ok promoted false|int <- str TypeError
+static false|int <- str ok static false|int <- str TypeError
+param false|int <- true ok param false|int <- true TypeError
+return false|int <- true ok return false|int <- true TypeError
+prop false|int <- true ok prop false|int <- true TypeError
+promoted false|int <- true ok promoted false|int <- true TypeError
+static false|int <- true ok static false|int <- true TypeError
+param false|int <- false ok bool
+return false|int <- false ok bool
+prop false|int <- false ok bool
+promoted false|int <- false ok bool
+static false|int <- false ok bool
+param false|int <- null ok param false|int <- null TypeError
+return false|int <- null ok return false|int <- null TypeError
+prop false|int <- null ok prop false|int <- null TypeError
+promoted false|int <- null ok promoted false|int <- null TypeError
+static false|int <- null ok static false|int <- null TypeError
+param false|int <- arr ok param false|int <- arr TypeError
+return false|int <- arr ok return false|int <- arr TypeError
+prop false|int <- arr ok prop false|int <- arr TypeError
+promoted false|int <- arr ok promoted false|int <- arr TypeError
+static false|int <- arr ok static false|int <- arr TypeError
+param false|int <- obj ok param false|int <- obj TypeError
+return false|int <- obj ok return false|int <- obj TypeError
+prop false|int <- obj ok prop false|int <- obj TypeError
+promoted false|int <- obj ok promoted false|int <- obj TypeError
+param false|int <- closure ok param false|int <- closure TypeError
+return false|int <- closure ok return false|int <- closure TypeError
+prop false|int <- closure ok prop false|int <- closure TypeError
+promoted false|int <- closure ok promoted false|int <- closure TypeError
+param false|int <- cnt ok param false|int <- cnt TypeError
+return false|int <- cnt ok return false|int <- cnt TypeError
+prop false|int <- cnt ok prop false|int <- cnt TypeError
+promoted false|int <- cnt ok promoted false|int <- cnt TypeError
+param false|int <- max ok int
+return false|int <- max ok int
+prop false|int <- max ok int
+promoted false|int <- max ok int
+static false|int <- max ok int
+param false|int <- fnname ok param false|int <- fnname TypeError
+return false|int <- fnname ok return false|int <- fnname TypeError
+prop false|int <- fnname ok prop false|int <- fnname TypeError
+promoted false|int <- fnname ok promoted false|int <- fnname TypeError
+static false|int <- fnname ok static false|int <- fnname TypeError
+param true <- int ok param true <- int TypeError
+return true <- int ok return true <- int TypeError
+prop true <- int ok prop true <- int TypeError
+promoted true <- int ok promoted true <- int TypeError
+static true <- int ok static true <- int TypeError
+param true <- float ok param true <- float TypeError
+return true <- float ok return true <- float TypeError
+prop true <- float ok prop true <- float TypeError
+promoted true <- float ok promoted true <- float TypeError
+static true <- float ok static true <- float TypeError
+param true <- ifloat ok param true <- ifloat TypeError
+return true <- ifloat ok return true <- ifloat TypeError
+prop true <- ifloat ok prop true <- ifloat TypeError
+promoted true <- ifloat ok promoted true <- ifloat TypeError
+static true <- ifloat ok static true <- ifloat TypeError
+param true <- numstr ok param true <- numstr TypeError
+return true <- numstr ok return true <- numstr TypeError
+prop true <- numstr ok prop true <- numstr TypeError
+promoted true <- numstr ok promoted true <- numstr TypeError
+static true <- numstr ok static true <- numstr TypeError
+param true <- str ok param true <- str TypeError
+return true <- str ok return true <- str TypeError
+prop true <- str ok prop true <- str TypeError
+promoted true <- str ok promoted true <- str TypeError
+static true <- str ok static true <- str TypeError
+param true <- true ok bool
+return true <- true ok bool
+prop true <- true ok bool
+promoted true <- true ok bool
+static true <- true ok bool
+param true <- false ok param true <- false TypeError
+return true <- false ok return true <- false TypeError
+prop true <- false ok prop true <- false TypeError
+promoted true <- false ok promoted true <- false TypeError
+static true <- false ok static true <- false TypeError
+param true <- null ok param true <- null TypeError
+return true <- null ok return true <- null TypeError
+prop true <- null ok prop true <- null TypeError
+promoted true <- null ok promoted true <- null TypeError
+static true <- null ok static true <- null TypeError
+param true <- arr ok param true <- arr TypeError
+return true <- arr ok return true <- arr TypeError
+prop true <- arr ok prop true <- arr TypeError
+promoted true <- arr ok promoted true <- arr TypeError
+static true <- arr ok static true <- arr TypeError
+param true <- obj ok param true <- obj TypeError
+return true <- obj ok return true <- obj TypeError
+prop true <- obj ok prop true <- obj TypeError
+promoted true <- obj ok promoted true <- obj TypeError
+param true <- closure ok param true <- closure TypeError
+return true <- closure ok return true <- closure TypeError
+prop true <- closure ok prop true <- closure TypeError
+promoted true <- closure ok promoted true <- closure TypeError
+param true <- cnt ok param true <- cnt TypeError
+return true <- cnt ok return true <- cnt TypeError
+prop true <- cnt ok prop true <- cnt TypeError
+promoted true <- cnt ok promoted true <- cnt TypeError
+param true <- max ok param true <- max TypeError
+return true <- max ok return true <- max TypeError
+prop true <- max ok prop true <- max TypeError
+promoted true <- max ok promoted true <- max TypeError
+static true <- max ok static true <- max TypeError
+param true <- fnname ok param true <- fnname TypeError
+return true <- fnname ok return true <- fnname TypeError
+prop true <- fnname ok prop true <- fnname TypeError
+promoted true <- fnname ok promoted true <- fnname TypeError
+static true <- fnname ok static true <- fnname TypeError

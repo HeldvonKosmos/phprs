@@ -1,0 +1,10 @@
+# label | reason (DIALECT section); the recheck against PHP expects exactly these lines to differ
+int ++ max | integer overflow throws ArithmeticError (5.2)
+int -- min | integer overflow throws ArithmeticError (5.2)
+static ++ max | integer overflow throws ArithmeticError (5.2)
+numstr * 2 | no numeric strings in arithmetic (5.2)
+null + 1 | only int/float in arithmetic (5.2)
+undefined prop read | warnings are exceptions (5.3)
+dynamic prop write | no dynamic properties (4)
+array key on int | warnings are exceptions (5.3)
+string offset oob | warnings are exceptions (5.3)

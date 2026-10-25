@@ -1,0 +1,87 @@
+<?grd
+// TYP1: operations on typed values. ops.out is the dialect's expected output;
+// it equals PHP 8.4 with strict_types=1 except the lines in ops_deviations.txt.
+enum Suit: string { case H = 'h'; }
+abstract class A {}
+function f2(int $a, int $b): int { return $a + $b; }
+function attempt(string $label, \Closure $f): void {
+    try { $r = $f(); echo $label, " ok ", get_debug_type($r), " ", json_encode($r), "\n"; }
+    catch (\TypeError $e) { echo $label, " TypeError\n"; }
+    catch (\Error $e) { echo $label, " ", get_class($e), "\n"; }
+}
+final class T {
+    public int $i = 1;
+    public float $f = 1.0;
+    public string $s = 'a';
+    public ?int $n = null;
+    public array $a = [];
+    public int|string $u = 1;
+    public bool $b = false;
+    public readonly int $r;
+    public static int $si = 1;
+    public function __construct() { $this->r = 5; }
+}
+attempt('int += int', function () { $t = new T(); $t->i += 2; return $t->i; });
+attempt('int += float', function () { $t = new T(); $t->i += 1.5; return $t->i; });
+attempt('int *= 2.0', function () { $t = new T(); $t->i *= 2.0; return $t->i; });
+attempt('int /= 2', function () { $t = new T(); $t->i /= 2; return $t->i; });
+attempt('int .= x', function () { $t = new T(); $t->i .= 'x'; return $t->i; });
+attempt('float += int', function () { $t = new T(); $t->f += 1; return $t->f; });
+attempt('string .= int', function () { $t = new T(); $t->s .= 5; return $t->s; });
+attempt('string += 1', function () { $t = new T(); $t->s += 1; return $t->s; });
+attempt('int ++ max', function () { $t = new T(); $t->i = PHP_INT_MAX; $t->i++; return $t->i; });
+attempt('int -- min', function () { $t = new T(); $t->i = PHP_INT_MIN; $t->i--; return $t->i; });
+attempt('?int ++ null', function () { $t = new T(); $t->n++; return $t->n; });
+attempt('?int -- null', function () { $t = new T(); $t->n--; return $t->n; });
+attempt('array []= ', function () { $t = new T(); $t->a[] = 1; $t->a['k'] = 'v'; return $t->a; });
+attempt('int []=', function () { $t = new T(); $t->i[] = 1; return $t->i; });
+attempt('union = float', function () { $t = new T(); $t->u = 1.5; return $t->u; });
+attempt('union .= x', function () { $t = new T(); $t->u .= 'x'; return $t->u; });
+attempt('bool = 1', function () { $t = new T(); $t->b = 1; return $t->b; });
+attempt('bool = !', function () { $t = new T(); $t->b = !$t->b; return $t->b; });
+attempt('readonly write', function () { $t = new T(); $t->r = 6; return $t->r; });
+attempt('readonly ++', function () { $t = new T(); $t->r++; return $t->r; });
+attempt('static int = str', function () { T::$si = 'x'; return T::$si; });
+attempt('static int += 1', function () { T::$si += 1; return T::$si; });
+attempt('static int += 0.5', function () { T::$si += 0.5; return T::$si; });
+attempt('static ++ max', function () { T::$si = PHP_INT_MAX; T::$si++; return T::$si; });
+attempt('unset typed', function () { $t = new T(); unset($t->i); return $t->i; });
+attempt('uninit read', function () { $t = (new \ReflectionClass(T::class))->newInstanceWithoutConstructor(); return $t->r; });
+attempt('int ??= ', function () { $t = new T(); $t->n ??= 3; return $t->n; });
+attempt('int ??= str', function () { $t = new T(); $t->n ??= 'x'; return $t->n; });
+attempt('list assign', function () { $t = new T(); [$t->i, $t->s] = [7, 'z']; return [$t->i, $t->s]; });
+attempt('list assign bad', function () { $t = new T(); [$t->i, $t->s] = ['z', 7]; return [$t->i, $t->s]; });
+attempt('foreach into prop', function () { $t = new T(); foreach ([1, 2] as $t->i) {} return $t->i; });
+attempt('int % 0', function () { return 1 % 0; });
+attempt('intdiv min', function () { return intdiv(PHP_INT_MIN, -1); });
+attempt('str * 2', function () { return 'abc' * 2; });
+attempt('numstr * 2', function () { return '3' * 2; });
+attempt('null + 1', function () { return null + 1; });
+attempt('array + int', function () { return [1] + 1; });
+attempt('round(int)', function () { return round(5); });
+attempt('array_sum mixed', function () { return array_sum([1, '2', 3.5]); });
+attempt('in_array arg', function () { return in_array(1, 'x'); });
+attempt('implode int', function () { return implode(',', [1, 2.5, true, null]); });
+attempt('sprintf %d str', function () { return sprintf('%d', 'abc'); });
+attempt('count(int)', function () { return count(5); });
+attempt('closure param', function () { $f = fn (int $x): int => $x; return $f('5'); });
+attempt('closure return', function () { $f = fn (int $x): string => $x; return $f(5); });
+attempt('callable string', function () { return array_map('strtoupper', ['a']); });
+attempt('method on null', function () { $x = null; return $x->foo(); });
+attempt('nullsafe', function () { $x = null; return $x?->foo(); });
+attempt('undefined method', function () { return (new T())->nope(); });
+attempt('undefined prop read', function () { return (new T())->nope; });
+attempt('dynamic prop write', function () { $t = new T(); $t->nope = 1; return $t; });
+attempt('array key on int', function () { $x = 5; return $x[0]; });
+attempt('string offset', function () { $x = 'abc'; return $x[1]; });
+attempt('string offset oob', function () { $x = 'abc'; return $x[5]; });
+attempt('undefined index', function () { $a = []; return $a['x'] ?? 'd'; });
+attempt('enum from bad', function () { return Suit::from('X'); });
+attempt('enum tryFrom', function () { return Suit::tryFrom('X'); });
+attempt('match no arm', function () { return match (5) { 1 => 'a' }; });
+attempt('abstract instantiate', function () { return new A(); });
+attempt('interface instantiate', function () { return new \Countable(); });
+attempt('arg count', function () { return f2(1); });
+attempt('too many args', function () { return f2(1, 2, 3); });
+attempt('named unknown', function () { return f2(a: 1, c: 2); });
+attempt('spread string keys', function () { return f2(...['a' => 1, 'b' => 2]); });

@@ -1,0 +1,64 @@
+int += int ok int 3
+int += float TypeError
+int *= 2.0 TypeError
+int /= 2 TypeError
+int .= x TypeError
+float += int ok float 2
+string .= int ok string "a5"
+string += 1 TypeError
+int ++ max ArithmeticError
+int -- min ArithmeticError
+?int ++ null ok int 1
+?int -- null ok null null
+array []=  ok array {"0":1,"k":"v"}
+int []= Error
+union = float TypeError
+union .= x ok string "1x"
+bool = 1 TypeError
+bool = ! ok bool true
+readonly write Error
+readonly ++ Error
+static int = str TypeError
+static int += 1 ok int 2
+static int += 0.5 TypeError
+static ++ max ArithmeticError
+unset typed Error
+uninit read Error
+int ??=  ok int 3
+int ??= str TypeError
+list assign ok array [7,"z"]
+list assign bad TypeError
+foreach into prop ok int 2
+int % 0 DivisionByZeroError
+intdiv min ArithmeticError
+str * 2 TypeError
+numstr * 2 TypeError
+null + 1 TypeError
+array + int TypeError
+round(int) ok float 5
+array_sum mixed ok float 6.5
+in_array arg TypeError
+implode int ok string "1,2.5,1,"
+sprintf %d str ok string "0"
+count(int) TypeError
+closure param TypeError
+closure return TypeError
+callable string ok array ["A"]
+method on null Error
+nullsafe ok null null
+undefined method Error
+undefined prop read Error
+dynamic prop write Error
+array key on int Error
+string offset ok string "b"
+string offset oob UndefinedKeyError
+undefined index ok string "d"
+enum from bad ValueError
+enum tryFrom ok null null
+match no arm UnhandledMatchError
+abstract instantiate Error
+interface instantiate Error
+arg count TypeError
+too many args ok int 3
+named unknown Error
+spread string keys ok int 3

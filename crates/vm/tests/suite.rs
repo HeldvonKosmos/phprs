@@ -17,3 +17,5 @@ mod project;
 mod support;
 #[path = "suite/statics.rs"]
 mod statics;
+#[path = "suite/types.rs"]
+mod types;
