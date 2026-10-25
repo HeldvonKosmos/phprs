@@ -1,0 +1,77 @@
+<?php
+// c2_runtime: work that lives in runtime functions, where a JIT helps little
+// (JSON, strings, regex, large arrays). Compared WITHOUT JIT on both sides:
+// PHP interpreter against the dialect interpreter. User code is thin; the
+// time is in json_*, preg_*, string and array builtins and in building /
+// converting array structures.
+// Same source for PHP and dialect: lines marked `// grd: …` are replaced by
+// gen.sh in the dialect version. Output line 1: checksum; then phases in ms.
+
+$phases = ['json' => 0, 'strings' => 0, 'regex' => 0, 'arrays' => 0];
+$checksum = 0;
+$t = fn () => hrtime(true);
+$words = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa', 'lambda', 'my'];
+
+for ($round = 1; $round <= 20; $round++) {
+    // deterministic input
+    $rows = [];
+    for ($i = 0; $i < 3000; $i++) {
+        $w = $words[($i * 7 + $round) % 12];
+        $rows[] = ['id' => $i, 'name' => ucfirst($w) . ' ' . $i, 'email' => $w . $i . '@example.com', 'tags' => [$w, $words[($i + 3) % 12]], 'score' => ($i * 37 + $round) % 1000, 'active' => $i % 3 !== 0];
+    }
+
+    // JSON: encode, decode, re-encode a nested document
+    $t0 = $t();
+    $doc = json_encode(['round' => $round, 'rows' => $rows]);
+    $back = json_decode($doc, true);
+    $again = json_encode($back['rows']);
+    $phases['json'] += $t() - $t0;
+
+    // strings: formatting, joining, splitting, replacing, hashing
+    $t0 = $t();
+    $lines = [];
+    foreach ($back['rows'] as $r) {
+        $lines[] = sprintf('%05d|%-20s|%6.2f|%s', $r['id'], $r['name'], $r['score'] / 7, implode(',', $r['tags']));
+    }
+    $text = implode("\n", $lines);
+    $parts = explode('|', str_replace(["\n", ','], ['|', ';'], $text));
+    $upper = strtoupper(substr($text, 0, 20000));
+    $fmt = number_format(strlen($text) * 1.5, 2, ',', '.');
+    $hash = crc32(md5($text) . sha1($upper) . $fmt . count($parts));
+    $phases['strings'] += $t() - $t0;
+
+    // regex: match, replace, split over many short strings
+    $t0 = $t();
+    $valid = 0;
+    foreach ($back['rows'] as $r) {
+        if (preg_match('/^[a-z]+\d+@example\.com$/', $r['email'])) { $valid++; }
+    }
+    $masked = preg_replace('/\d{2,}/', '#', $text);
+    $tokens = preg_split('/[|;\s]+/', substr($masked, 0, 50000));
+    $phases['regex'] += $t() - $t0;
+
+    // arrays: map/filter/column/sort/keys/merge/slice on thousands of entries
+    $t0 = $t();
+    $scores = array_column($back['rows'], 'score', 'id');
+    $active = array_filter($back['rows'], fn ($r) => $r['active']);
+    $names = array_map(fn ($r) => $r['name'], $active);
+    $sortedScores = $scores;
+    arsort($sortedScores); // grd: $sortedScores = arsort($sortedScores);
+    $topIds = array_slice(array_keys($sortedScores), 0, 100);
+    $byTag = [];
+    foreach ($back['rows'] as $r) {
+        foreach ($r['tags'] as $tag) { $byTag[$tag][] = $r['id']; }
+    }
+    ksort($byTag); // grd: $byTag = ksort($byTag);
+    $merged = array_merge(array_values($names), $topIds, array_keys($byTag));
+    $unique = array_unique(array_map('strval', $merged));
+    $has = in_array('Gamma 42', $names, true) ? 1 : 0;
+    $phases['arrays'] += $t() - $t0;
+
+    $checksum = ($checksum * 31 + crc32($again) + $hash + $valid * 7 + count($tokens) + count($unique) + $has + array_sum($topIds) + count($byTag['beta'])) % 1000000007;
+}
+
+echo 'checksum ', $checksum, "\n";
+$total = 0;
+foreach ($phases as $name => $ns) { $total += $ns; echo $name, ' ', round($ns / 1e6, 2), "\n"; }
+echo 'total ', round($total / 1e6, 2), "\n";

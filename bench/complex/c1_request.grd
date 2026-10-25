@@ -1,0 +1,226 @@
+<?grd
+// GENERATED from c1_request.php by gen.sh — edit the .php file.
+// Complex request benchmark (PHP reference). Simulates 30 requests of an
+// order-processing endpoint with all typical time sinks: JSON parse/encode,
+// object hydration, regex validation, arithmetic, grouping in nested
+// associative arrays, sorting with closures, recursion (binary search tree),
+// array_map/filter/reduce, string formatting and hashing.
+// Money is integer cents so the checksum does not depend on float formatting.
+// Written so the same code is valid PHP and dialect: no array <=> (dialect
+// compares only numbers/strings), preg_match used only for truthiness (the
+// dialect returns the match array). Output line 1: checksum (must equal the
+// dialect version); then phase times in ms. Lines marked `// grd: …` are
+// replaced by gen.sh in the dialect version.
+
+final class Rng
+{
+    private int $s;
+    public function __construct(int $seed) { $this->s = $seed; }
+    public function next(): int
+    {
+        $this->s = ($this->s * 1103515245 + 12345) % 2147483648;
+        return $this->s;
+    }
+    public function between(int $min, int $max): int { return $min + $this->next() % ($max - $min + 1); }
+}
+
+final class Customer
+{
+    public function __construct(public int $id, public string $name, public string $email, public string $tier) {}
+    public function discountPercent(): int
+    {
+        return match ($this->tier) { 'gold' => 15, 'silver' => 8, 'bronze' => 3, default => 0 };
+    }
+}
+
+final class Line
+{
+    public function __construct(public string $sku, public string $category, public int $priceCents, public int $qty) {}
+    public function gross(): int { return $this->priceCents * $this->qty; }
+}
+
+final class Order
+{
+    public int $total = 0;
+    public int $tax = 0;
+    /** @param Line[] $lines */
+    public function __construct(public int $id, public Customer $customer, public array $lines) {}
+    public function compute(): void
+    {
+        $gross = array_reduce($this->lines, fn (int $c, Line $l) => $c + $l->gross(), 0);
+        $discount = intdiv($gross * $this->customer->discountPercent(), 100);
+        $net = $gross - $discount;
+        $this->tax = intdiv($net * 19, 100);
+        $this->total = $net + $this->tax;
+    }
+}
+
+final class Node
+{
+    public ?Node $left = null;
+    public ?Node $right = null;
+    public function __construct(public int $value) {}
+}
+
+function tree_insert(?Node $n, int $v): Node
+{
+    if ($n === null) { return new Node($v); }
+    if ($v < $n->value) { $n->left = tree_insert($n->left, $v); } else { $n->right = tree_insert($n->right, $v); }
+    return $n;
+}
+function tree_height(?Node $n): int
+{
+    return $n === null ? 0 : 1 + max(tree_height($n->left), tree_height($n->right));
+}
+function tree_sum_inorder(?Node $n, int $depth): int
+{
+    if ($n === null) { return 0; }
+    return tree_sum_inorder($n->left, $depth + 1) + $n->value * ($depth % 7 + 1) + tree_sum_inorder($n->right, $depth + 1);
+}
+
+function make_payload(Rng $r, int $orders): array
+{
+    $tiers = ['gold', 'silver', 'bronze', 'none'];
+    $cats = ['books', 'games', 'garden', 'kitchen', 'tools', 'toys'];
+    $items = [];
+    for ($i = 1; $i <= $orders; $i++) {
+        $cid = $r->between(1, 300);
+        $lines = [];
+        $n = $r->between(1, 6);
+        for ($k = 0; $k < $n; $k++) {
+            $letters = chr(65 + $r->between(0, 25)) . chr(65 + $r->between(0, 25)) . chr(65 + $r->between(0, 25));
+            $sku = $letters . '-' . str_pad((string) $r->between(0, 9999), 4, '0', STR_PAD_LEFT);
+            if ($r->between(0, 40) === 0) { $sku = strtolower($sku); } // some invalid SKUs
+            $lines[] = ['sku' => $sku, 'category' => $cats[$r->between(0, 5)], 'price' => $r->between(99, 49999), 'qty' => $r->between(1, 9)];
+        }
+        $items[] = [
+            'id' => $i,
+            'customer' => ['id' => $cid, 'name' => 'Customer ' . $cid, 'email' => 'c' . $cid . ($cid % 97 === 0 ? '' : '@example.com'), 'tier' => $tiers[$cid % 4]],
+            'lines' => $lines,
+        ];
+    }
+    return ['request' => 'orders', 'items' => $items];
+}
+
+$phases = ['build' => 0, 'json_encode' => 0, 'json_decode' => 0, 'hydrate' => 0, 'compute' => 0, 'sort' => 0, 'recursion' => 0, 'strings' => 0, 'output' => 0];
+$checksum = 0;
+$requests = 30;
+$t = fn () => hrtime(true);
+
+for ($req = 1; $req <= $requests; $req++) {
+    $r = new Rng($req * 7919);
+
+    // 1. the request body: build it, encode it (what a client sends), decode it
+    $t0 = $t();
+    $payload = make_payload($r, 2000);
+    $phases['build'] += $t() - $t0;
+    $t0 = $t();
+    $body = json_encode($payload);
+    $phases['json_encode'] += $t() - $t0;
+    $t0 = $t();
+    $data = json_decode($body, true);
+    $phases['json_decode'] += $t() - $t0;
+
+    // 2. hydrate objects and validate
+    $t0 = $t();
+    $customers = [];
+    $orders = [];
+    $errors = [];
+    foreach ($data['items'] as $item) {
+        $c = $item['customer'];
+        if (!array_key_exists($c['id'], $customers)) {
+            $customers[$c['id']] = new Customer($c['id'], $c['name'], $c['email'], $c['tier']);
+        }
+        $lines = [];
+        foreach ($item['lines'] as $l) {
+            if (!preg_match('/^[A-Z]{3}-\d{4}$/', $l['sku'])) { $errors[] = 'sku:' . $item['id'] . ':' . $l['sku']; continue; }
+            if ($l['qty'] < 1 || $l['qty'] > 9) { $errors[] = 'qty:' . $item['id']; continue; }
+            $lines[] = new Line($l['sku'], $l['category'], $l['price'], $l['qty']);
+        }
+        if (!str_contains($customers[$c['id']]->email, '@')) { $errors[] = 'email:' . $c['id']; }
+        if (count($lines) > 0) { $orders[] = new Order($item['id'], $customers[$c['id']], $lines); }
+    }
+    $phases['hydrate'] += $t() - $t0;
+
+    // 3. compute totals, group per customer and category
+    $t0 = $t();
+    $perCustomer = [];
+    $perCategory = [];
+    foreach ($orders as $o) {
+        $o->compute();
+        $cid = $o->customer->id;
+        if (!array_key_exists($cid, $perCustomer)) { $perCustomer[$cid] = ['orders' => 0, 'total' => 0, 'tax' => 0]; }
+        $perCustomer[$cid]['orders'] += 1;
+        $perCustomer[$cid]['total'] += $o->total;
+        $perCustomer[$cid]['tax'] += $o->tax;
+        foreach ($o->lines as $l) {
+            $cat = $l->category;
+            if (!array_key_exists($cat, $perCategory)) { $perCategory[$cat] = ['count' => 0, 'sum' => 0, 'min' => PHP_INT_MAX, 'max' => 0]; }
+            $g = $l->gross();
+            $perCategory[$cat]['count'] += $l->qty;
+            $perCategory[$cat]['sum'] += $g;
+            $perCategory[$cat]['min'] = min($perCategory[$cat]['min'], $g);
+            $perCategory[$cat]['max'] = max($perCategory[$cat]['max'], $g);
+        }
+    }
+    $big = array_filter($orders, fn (Order $o) => $o->total > 100000);
+    $totals = array_map(fn (Order $o) => $o->total, $orders);
+    $revenue = array_sum($totals);
+    $phases['compute'] += $t() - $t0;
+
+    // 4. sort
+    $t0 = $t();
+    $orders = usort($orders, fn (Order $a, Order $b) => $b->total <=> $a->total ?: $a->id <=> $b->id);
+    $top = array_slice($orders, 0, 50);
+    $perCategory = ksort($perCategory);
+    $sortedTotals = $totals;
+    $sortedTotals = sort($sortedTotals);
+    $median = $sortedTotals[intdiv(count($sortedTotals), 2)];
+    $phases['sort'] += $t() - $t0;
+
+    // 5. recursion: binary search tree over the totals
+    $t0 = $t();
+    $root = null;
+    foreach ($totals as $v) { $root = tree_insert($root, $v); }
+    $height = tree_height($root);
+    $weighted = tree_sum_inorder($root, 0);
+    $phases['recursion'] += $t() - $t0;
+
+    // 6. strings: report lines, formatting, hashing
+    $t0 = $t();
+    $report = [];
+    foreach ($top as $i => $o) {
+        $report[] = sprintf('%3d %-14s %10s %4d %s', $i + 1, $o->customer->name, number_format($o->total / 100, 2, ',', '.'), count($o->lines), strtoupper($o->customer->tier));
+    }
+    foreach ($perCategory as $cat => $s) {
+        $report[] = str_pad(ucfirst($cat), 10) . ' ' . str_repeat('#', intdiv($s['count'], 500)) . ' ' . $s['count'];
+    }
+    $text = str_replace('Customer', 'Kunde', implode("\n", $report));
+    $hash = 0;
+    foreach ($customers as $id => $cust) { $hash = ($hash + crc32(md5($cust->email . ':' . $id))) % 1000000007; }
+    $phases['strings'] += $t() - $t0;
+
+    // 7. response body
+    $t0 = $t();
+    $response = json_encode([
+        'request' => $req,
+        'revenue' => $revenue,
+        'median' => $median,
+        'big' => count($big),
+        'errors' => count($errors),
+        'firstErrors' => array_slice($errors, 0, 5),
+        'categories' => $perCategory,
+        'top' => array_map(fn (Order $o) => ['id' => $o->id, 'customer' => $o->customer->id, 'total' => $o->total], array_slice($top, 0, 10)),
+        'tree' => ['height' => $height, 'weighted' => $weighted],
+        'hash' => $hash,
+        'reportCrc' => crc32($text),
+    ]);
+    $phases['output'] += $t() - $t0;
+
+    $checksum = ($checksum * 31 + crc32($response)) % 1000000007;
+}
+
+echo 'checksum ', $checksum, "\n";
+$total = 0;
+foreach ($phases as $name => $ns) { $total += $ns; echo $name, ' ', round($ns / 1e6, 2), "\n"; }
+echo 'total ', round($total / 1e6, 2), "\n";
