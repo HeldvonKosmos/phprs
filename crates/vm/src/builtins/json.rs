@@ -129,18 +129,10 @@ fn encode(vm: &mut Vm, v: &Val, flags: i64, depth: usize, max_depth: usize, out:
             if !f.is_finite() {
                 return Err(JsonErr::Json(7, "Inf and NaN cannot be JSON encoded".into()));
             }
-            let s = if *f == f.trunc() && f.abs() < 1e15 {
-                if flags & PRESERVE_ZERO_FRACTION != 0 { format!("{:.1}", f) } else { format!("{}", *f as i64) }
-            } else {
-                let s = format!("{f}");
-                if s.contains('e') {
-                    let (m, e) = s.split_once('e').unwrap();
-                    let ev: i32 = e.parse().unwrap_or(0);
-                    format!("{m}e{}{}", if ev < 0 { "-" } else { "+" }, ev.abs())
-                } else {
-                    s
-                }
-            };
+            let mut s = crate::value::repr_float(*f, b'e');
+            if flags & PRESERVE_ZERO_FRACTION != 0 && !s.contains(['.', 'e']) {
+                s.push_str(".0");
+            }
             out.extend_from_slice(s.as_bytes());
         }
         Val::Str(s) => encode_string(s.as_bytes(), flags, out)?,

@@ -11,7 +11,7 @@ mod string;
 
 pub use array::{ArrayKey, PhpArray};
 pub use compare::{compare, identical};
-pub use convert::{format_float, parse_numeric, Numeric};
+pub use convert::{format_float, parse_numeric, repr_float, Numeric};
 pub use object::{ClassId, ObjHandle, ObjectStore, PhpObject};
 pub use string::PhpString;
 

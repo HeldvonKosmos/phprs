@@ -50,38 +50,12 @@ fn indent(out: &mut Vec<u8>, n: usize) {
     out.extend(std::iter::repeat_n(b' ', n));
 }
 
-fn dump_float(f: f64) -> String {
-    if f.is_nan() {
-        return "NAN".into();
-    }
-    if f.is_infinite() {
-        return if f > 0.0 { "INF".into() } else { "-INF".into() };
-    }
-    if f == 0.0 {
-        return if f.is_sign_negative() { "-0".into() } else { "0".into() };
-    }
-    if f == f.trunc() && f.abs() < 1e15 {
-        return format!("{}", f as i64);
-    }
-    // shortest round-trip digits (serialize_precision = -1); like PHP's
-    // zend_gcvt with 17 digits, exponential form when the decimal exponent
-    // is below -4 or above 16, positional otherwise
-    let e = format!("{f:e}");
-    let (m, exp) = e.split_once('e').unwrap_or((&e, "0"));
-    let ev: i32 = exp.parse().unwrap_or(0);
-    if !(-4..=16).contains(&ev) {
-        let m = if m.contains('.') { m.to_string() } else { format!("{m}.0") };
-        return format!("{m}E{}{}", if ev < 0 { "-" } else { "+" }, ev.abs());
-    }
-    format!("{f}")
-}
-
 pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) -> Result<(), Throw> {
     match v {
         Val::Null => out.extend_from_slice(b"NULL\n"),
         Val::Bool(b) => out.extend_from_slice(format!("bool({b})\n").as_bytes()),
         Val::Int(i) => out.extend_from_slice(format!("int({i})\n").as_bytes()),
-        Val::Float(f) => out.extend_from_slice(format!("float({})\n", dump_float(*f)).as_bytes()),
+        Val::Float(f) => out.extend_from_slice(format!("float({})\n", crate::value::repr_float(*f, b'E')).as_bytes()),
         Val::Str(s) => {
             out.extend_from_slice(format!("string({}) \"", s.len()).as_bytes());
             out.extend_from_slice(s.as_bytes());
@@ -250,7 +224,7 @@ pub(crate) fn var_export(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) 
         Val::Bool(b) => out.extend_from_slice(if *b { b"true" } else { b"false" }),
         Val::Int(i) => out.extend_from_slice(i.to_string().as_bytes()),
         Val::Float(f) => {
-            let s = dump_float(*f);
+            let s = crate::value::repr_float(*f, b'E');
             out.extend_from_slice(s.as_bytes());
             if !s.contains('.') && !s.contains('E') && !s.contains('N') && !s.contains('I') {
                 out.extend_from_slice(b".0");

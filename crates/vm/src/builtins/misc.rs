@@ -489,7 +489,7 @@ fn serialize(vm: &mut Vm, v: &Val, out: &mut Vec<u8>, st: &mut Serialized) -> Re
         Val::Null => out.extend_from_slice(b"N;"),
         Val::Bool(b) => out.extend_from_slice(format!("b:{};", *b as u8).as_bytes()),
         Val::Int(i) => out.extend_from_slice(format!("i:{i};").as_bytes()),
-        Val::Float(f) => out.extend_from_slice(format!("d:{};", if *f == f.trunc() && f.abs() < 1e15 { format!("{}", *f as i64) } else { format!("{f}") }).as_bytes()),
+        Val::Float(f) => out.extend_from_slice(format!("d:{};", crate::value::repr_float(*f, b'E')).as_bytes()),
         Val::Str(s) => {
             out.extend_from_slice(format!("s:{}:\"", s.len()).as_bytes());
             out.extend_from_slice(s.as_bytes());

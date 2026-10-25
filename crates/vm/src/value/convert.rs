@@ -150,6 +150,34 @@ pub fn format_float(f: f64) -> String {
     out
 }
 
+/// A float as PHP prints it with `serialize_precision = -1` (var_dump,
+/// var_export, json_encode, serialize): shortest round-trip digits like
+/// zend_gcvt with 17 digits, integral values below 1e15 without fraction,
+/// exponential form when the decimal exponent is below -4 or above 16;
+/// `exp` is the exponent letter (`E`, json uses `e`).
+pub fn repr_float(f: f64, exp_char: u8) -> String {
+    if f.is_nan() {
+        return "NAN".into();
+    }
+    if f.is_infinite() {
+        return if f > 0.0 { "INF".into() } else { "-INF".into() };
+    }
+    if f == 0.0 {
+        return if f.is_sign_negative() { "-0".into() } else { "0".into() };
+    }
+    if f == f.trunc() && f.abs() < 1e15 {
+        return format!("{}", f as i64);
+    }
+    let e = format!("{f:e}");
+    let (m, exp) = e.split_once('e').unwrap_or((&e, "0"));
+    let ev: i32 = exp.parse().unwrap_or(0);
+    if !(-4..=16).contains(&ev) {
+        let m = if m.contains('.') { m.to_string() } else { format!("{m}.0") };
+        return format!("{m}{}{}{}", exp_char as char, if ev < 0 { "-" } else { "+" }, ev.abs());
+    }
+    format!("{f}")
+}
+
 impl Val {
     /// PHP truthiness.
     pub fn to_bool(&self) -> bool {
