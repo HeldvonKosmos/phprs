@@ -248,6 +248,17 @@ impl UnitBuilder {
                 self.unit.ops.push(fused);
                 Some(n - 2)
             }
+            Op::FetchDim if n >= 1 && !self.label_boundary(n - 1) => {
+                let two = n >= 2 && !self.label_boundary(n - 2);
+                let fused = match (two.then(|| &self.unit.ops[n - 2]), &self.unit.ops[n - 1]) {
+                    (Some(Op::LoadSlot(a)), Op::LoadSlot(k)) => (Op::FetchDimSS { a: *a, k: *k }, n - 2),
+                    (_, Op::LoadSlot(k)) => (Op::FetchDimS(*k), n - 1),
+                    _ => return None,
+                };
+                self.unit.ops.truncate(fused.1);
+                self.unit.ops.push(fused.0);
+                Some(fused.1)
+            }
             Op::JumpIfFalse(target) if n >= 1 => {
                 let fused = match &self.unit.ops[n - 1] {
                     Op::BinSS { a, b, op } if is_cmp(*op) => Op::JumpUnlessSS { a: *a, b: *b, op: *op, target: *target },

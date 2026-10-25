@@ -204,6 +204,10 @@ pub enum Op {
     /// arr, key → val (UndefinedKeyError if missing)
     FetchDim,
     FetchDimQuiet,
+    /// Superinstructions: `FetchDim` with the container and key loaded from
+    /// slots (`$a[$i]`), or only the key (`$expr[$i]`, container on the stack).
+    FetchDimSS { a: Slot, k: Slot },
+    FetchDimS(Slot),
     /// obj → val
     FetchProp(StrId),
     FetchPropQuiet(StrId),

@@ -339,6 +339,36 @@ impl Vm {
                             continue;
                         }
                     }
+                    Op::FetchDimSS { a, k } => {
+                        if let (Some(Val::Array(arr)), Some(key)) = (&self.slot_stack[slot_base + *a as usize], &self.slot_stack[slot_base + *k as usize]) {
+                            let found = match key {
+                                Val::Int(i) => arr.get(&ArrayKey::Int(*i)),
+                                Val::Str(s) => arr.get(&ArrayKey::from_string(s)),
+                                _ => None,
+                            };
+                            if let Some(v) = found {
+                                let v = v.clone();
+                                self.stack.push(v);
+                                ip += 1;
+                                continue;
+                            }
+                        }
+                    }
+                    Op::FetchDimS(k) => {
+                        if let (Some(Val::Array(arr)), Some(key)) = (self.stack.last(), &self.slot_stack[slot_base + *k as usize]) {
+                            let found = match key {
+                                Val::Int(i) => arr.get(&ArrayKey::Int(*i)),
+                                Val::Str(s) => arr.get(&ArrayKey::from_string(s)),
+                                _ => None,
+                            };
+                            if let Some(v) = found {
+                                let v = v.clone();
+                                *self.stack.last_mut().expect("container") = v;
+                                ip += 1;
+                                continue;
+                            }
+                        }
+                    }
                     Op::FetchDim | Op::FetchDimQuiet => {
                         let n = self.stack.len();
                         if let Val::Array(a) = &self.stack[n - 2] {
@@ -528,6 +558,17 @@ impl Vm {
             Val::Object(h) => Ok(self.objects.get(*h).class),
             Val::Str(s) => self.lookup_class(s.as_bytes()).ok_or_else(|| Throw::error(format!("Class \"{}\" not found", s))),
             other => Err(Throw::error(format!("Cannot use value of type {} as class name", other.type_name()))),
+        }
+    }
+
+    /// `LoadSlot` with its error for an undefined variable.
+    fn load_slot_checked(&self, fidx: usize, module: &Rc<Module>, unit: &CodeUnit, s: Slot) -> Result<Val, Throw> {
+        match &self.slot_stack[self.frames[fidx].slot_base + s as usize] {
+            Some(v) => Ok(v.clone()),
+            None => {
+                let name = unit.slot_names.get(s as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")))
+            }
         }
     }
 
@@ -793,6 +834,18 @@ impl Vm {
                 let k = self.pop();
                 let c = self.pop();
                 let v = self.fetch_dim(c, k, true)?;
+                self.push(v);
+            }
+            Op::FetchDimSS { a, k } => {
+                let c = self.load_slot_checked(fidx, module, unit, *a)?;
+                let k = self.load_slot_checked(fidx, module, unit, *k)?;
+                let v = self.fetch_dim(c, k, false)?;
+                self.push(v);
+            }
+            Op::FetchDimS(k) => {
+                let k = self.load_slot_checked(fidx, module, unit, *k)?;
+                let c = self.pop();
+                let v = self.fetch_dim(c, k, false)?;
                 self.push(v);
             }
             Op::FetchProp(name) | Op::FetchPropQuiet(name) => {
