@@ -266,6 +266,9 @@ impl Compiler {
                 return self.err(p.span(), "Property-Hooks sind nicht unterstützt");
             }
             let pname = var_name(p.variable.name).to_vec();
+            if params.iter().any(|q| self.module.str(q.name) == pname.as_slice()) {
+                return self.err(p.span(), format!("Redefinition of parameter ${}", String::from_utf8_lossy(&pname)));
+            }
             let slot = self.ub().slot(&pname);
             let ty = match &p.hint {
                 Some(h) => Some(self.type_hint(h)?),
@@ -288,6 +291,23 @@ impl Compiler {
                 }
             }
             let variadic = p.ellipsis.is_some();
+            // PHP's rules for promoted constructor parameters
+            if promote.is_some() {
+                let is_ctor = spec.is_method && spec.name.eq_ignore_ascii_case(b"__construct");
+                if !is_ctor {
+                    return self.err(p.span(), "Cannot declare promoted property outside a constructor");
+                }
+                if matches!(spec.body, FnBody::Signature) {
+                    return self.err(p.span(), "Cannot declare promoted property in an abstract constructor");
+                }
+                if variadic {
+                    return self.err(p.span(), "Cannot declare variadic promoted property");
+                }
+                if matches!(ty, Some(TypeHint::Callable)) {
+                    let class = String::from_utf8_lossy(&self.current_class().map(|c| c.name.clone()).unwrap_or_default()).into_owned();
+                    return self.err(p.span(), format!("Property {class}::${} cannot have type callable", String::from_utf8_lossy(&pname)));
+                }
+            }
             let has_default = p.default_value.is_some();
             if !has_default && !variadic && !seen_optional {
                 required = index as u32 + 1;
@@ -766,7 +786,12 @@ impl Compiler {
                     let j = self.emit(Op::JumpIfTrue(0));
                     case_jumps.push((j, ci));
                 }
-                SwitchCase::Default(_) => default_index = Some(ci),
+                SwitchCase::Default(d) => {
+                    if default_index.is_some() {
+                        return self.err(d.span(), "Switch statements may only contain one default clause");
+                    }
+                    default_index = Some(ci)
+                }
             }
         }
         let to_default = self.emit(Op::Jump(0));

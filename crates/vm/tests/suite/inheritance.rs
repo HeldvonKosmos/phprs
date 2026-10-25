@@ -170,6 +170,20 @@ fn type_and_return_checks_match_php() {
 #[test]
 fn placement_kind_and_trait_checks_match_php() {
     let cases: &[(&str, &str)] = &[
+        (r#"final final class A {}"#, r#"Multiple final modifiers are not allowed"#),
+        (r#"abstract abstract class A {}"#, r#"Multiple abstract modifiers are not allowed"#),
+        (r#"readonly readonly class A {}"#, r#"Multiple readonly modifiers are not allowed"#),
+        (r#"switch (1) { default: break; default: break; }"#, r#"Switch statements may only contain one default clause"#),
+        (r#"function __construct(public $p) {}"#, r#"Cannot declare promoted property outside a constructor"#),
+        (r#"abstract class A { abstract public function __construct(public $p); }"#, r#"Cannot declare promoted property in an abstract constructor"#),
+        (r#"interface I { public function __construct(public $p); }"#, r#"Cannot declare promoted property in an abstract constructor"#),
+        (r#"class A { public function f(public $p) {} }"#, r#"Cannot declare promoted property outside a constructor"#),
+        (r#"class A { public function __construct(public $p, public $p) {} }"#, r#"Redefinition of parameter $p"#),
+        (r#"function f($a, $a) {}"#, r#"Redefinition of parameter $a"#),
+        (r#"class A { public $p; public function __construct(public $p) {} }"#, r#"Cannot redeclare A::$p"#),
+        (r#"class A { public function __construct(public ...$p) {} }"#, r#"Cannot declare variadic promoted property"#),
+        (r#"class A { public function __construct(public callable $p) {} }"#, r#"Property A::$p cannot have type callable"#),
+        (r#"class A { public function __construct(public int $p = 1, private readonly string $q = '') {} } echo (new A())->p;"#, r#"1ok"#),
         (r#"echo 1; namespace A;"#, r#"Namespace declaration statement has to be the very first statement or after any declare call in the script"#),
         (r#"declare(strict_types=1); namespace A;"#, r#"ok"#),
         (r#"namespace A; echo 1; namespace B;"#, r#"1ok"#),

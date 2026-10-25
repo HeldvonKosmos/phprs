@@ -34,7 +34,11 @@ impl Compiler {
         let mut is_final = false;
         let mut is_readonly = false;
         for m in c.modifiers.iter() {
+            let twice = |what: &str| format!("Multiple {what} modifiers are not allowed");
             match m {
+                Modifier::Abstract(_) if is_abstract => return self.err(m.span(), twice("abstract")),
+                Modifier::Final(_) if is_final => return self.err(m.span(), twice("final")),
+                Modifier::Readonly(_) if is_readonly => return self.err(m.span(), twice("readonly")),
                 Modifier::Abstract(_) => is_abstract = true,
                 Modifier::Final(_) => is_final = true,
                 Modifier::Readonly(_) => is_readonly = true,
