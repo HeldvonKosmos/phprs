@@ -776,6 +776,24 @@ impl<'a, 'b> Gen<'a, 'b> {
                 let r = self.bin(*bop, x, y, ip, &pre);
                 stack.push(r);
             }
+            Op::BinTS { s, op: bop } => {
+                let x = stack.pop().expect("lhs");
+                let y = self.read_slot(*s);
+                let r = self.bin(*bop, x, y, ip, &pre);
+                stack.push(r);
+            }
+            Op::BinTI { imm, op: bop } => {
+                let x = stack.pop().expect("lhs");
+                let y = V::I(self.ic(*imm as i64));
+                let r = self.bin(*bop, x, y, ip, &pre);
+                stack.push(r);
+            }
+            Op::BinTC { c, op: bop } => {
+                let x = stack.pop().expect("lhs");
+                let y = self.const_v(&module.consts[*c as usize]);
+                let r = self.bin(*bop, x, y, ip, &pre);
+                stack.push(r);
+            }
             Op::JumpUnlessSS { a, b, op: bop, target } => {
                 let (x, y) = (self.read_slot(*a), self.read_slot(*b));
                 let V::B(c) = self.bin(*bop, x, y, ip, &pre) else { unreachable!() };

@@ -237,16 +237,24 @@ impl UnitBuilder {
             return None;
         }
         match op {
-            Op::Bin(bop) if n >= 2 && !self.label_boundary(n - 1) => {
-                let fused = match (&self.unit.ops[n - 2], &self.unit.ops[n - 1]) {
-                    (Op::LoadSlot(a), Op::LoadSlot(b)) => Op::BinSS { a: *a, b: *b, op: *bop },
-                    (Op::LoadSlot(a), Op::PushInt(i)) if i32::try_from(*i).is_ok() => Op::BinSI { a: *a, imm: *i as i32, op: *bop },
-                    (Op::LoadSlot(a), Op::PushConst(c)) => Op::BinSC { a: *a, c: *c, op: *bop },
+            // a label on an operand load is fine: the fused op starting there
+            // does the same work; only a label on the Bin itself (checked above)
+            // or between two fused loads forbids it
+            Op::Bin(bop) if n >= 1 => {
+                let two = n >= 2 && !self.label_boundary(n - 1);
+                let (fused, at) = match (two.then(|| &self.unit.ops[n - 2]), &self.unit.ops[n - 1]) {
+                    (Some(Op::LoadSlot(a)), Op::LoadSlot(b)) => (Op::BinSS { a: *a, b: *b, op: *bop }, n - 2),
+                    (Some(Op::LoadSlot(a)), Op::PushInt(i)) if i32::try_from(*i).is_ok() => (Op::BinSI { a: *a, imm: *i as i32, op: *bop }, n - 2),
+                    (Some(Op::LoadSlot(a)), Op::PushConst(c)) => (Op::BinSC { a: *a, c: *c, op: *bop }, n - 2),
+                    // OPT1: the left operand is already on the stack
+                    (_, Op::LoadSlot(b)) => (Op::BinTS { s: *b, op: *bop }, n - 1),
+                    (_, Op::PushInt(i)) if i32::try_from(*i).is_ok() => (Op::BinTI { imm: *i as i32, op: *bop }, n - 1),
+                    (_, Op::PushConst(c)) => (Op::BinTC { c: *c, op: *bop }, n - 1),
                     _ => return None,
                 };
-                self.unit.ops.truncate(n - 2);
+                self.unit.ops.truncate(at);
                 self.unit.ops.push(fused);
-                Some(n - 2)
+                Some(at)
             }
             Op::FetchDim if n >= 1 && !self.label_boundary(n - 1) => {
                 let two = n >= 2 && !self.label_boundary(n - 2);
@@ -259,6 +267,12 @@ impl UnitBuilder {
                 self.unit.ops.push(fused.0);
                 Some(fused.1)
             }
+            // OPT1: a comparison already yields a bool
+            Op::ToBool if n >= 1 => match &self.unit.ops[n - 1] {
+                Op::Bin(b) | Op::BinSS { op: b, .. } | Op::BinSI { op: b, .. } | Op::BinSC { op: b, .. } if is_cmp(*b) => Some(n - 1),
+                Op::Un(UnOp::Not) | Op::PushTrue | Op::PushFalse | Op::ToBool => Some(n - 1),
+                _ => None,
+            },
             Op::JumpIfFalse(target) if n >= 1 => {
                 let fused = match &self.unit.ops[n - 1] {
                     Op::BinSS { a, b, op } if is_cmp(*op) => Op::JumpUnlessSS { a: *a, b: *b, op: *op, target: *target },

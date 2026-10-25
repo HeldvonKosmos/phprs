@@ -280,8 +280,6 @@ impl Vm {
                     Op::Bin(bop) => {
                         let n = self.stack.len();
                         if let Some(r) = num_fast(*bop, &self.stack[n - 2], &self.stack[n - 1]) {
-                            let tags = super::type_tag(&self.stack[n - 2]) | (super::type_tag(&self.stack[n - 1]) << 4);
-                            self.profiles[icx].types[ip] |= tags;
                             // both operands are numbers: pop and overwrite instead of
                             // truncate (an out-of-line drop loop)
                             self.stack.pop();
@@ -294,9 +292,38 @@ impl Vm {
                         if let Some(x) = &self.slot_stack[slot_base + *a as usize]
                             && let Some(r) = num_fast(*bop, x, &Val::Int(*imm as i64))
                         {
-                            let tags = super::type_tag(x) | (1 << 4);
-                            self.profiles[icx].types[ip] |= tags;
                             self.stack.push(r);
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    // OPT1: stack top with a slot, an immediate or a numeric constant
+                    Op::BinTS { s, op: bop } => {
+                        if let Some(y) = &self.slot_stack[slot_base + *s as usize]
+                            && let Some(r) = num_fast(*bop, self.stack.last().expect("lhs"), y)
+                        {
+                            *self.stack.last_mut().expect("lhs") = r;
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::BinTI { imm, op: bop } => {
+                        if let Some(r) = num_fast(*bop, self.stack.last().expect("lhs"), &Val::Int(*imm as i64)) {
+                            *self.stack.last_mut().expect("lhs") = r;
+                            ip += 1;
+                            continue;
+                        }
+                    }
+                    Op::BinTC { c, op: bop } => {
+                        let y = match &module.consts[*c as usize] {
+                            Const::Int(i) => Some(Val::Int(*i)),
+                            Const::Float(f) => Some(Val::Float(*f)),
+                            _ => None,
+                        };
+                        if let Some(y) = y
+                            && let Some(r) = num_fast(*bop, self.stack.last().expect("lhs"), &y)
+                        {
+                            *self.stack.last_mut().expect("lhs") = r;
                             ip += 1;
                             continue;
                         }
@@ -305,8 +332,6 @@ impl Vm {
                         if let (Some(x), Some(y)) = (&self.slot_stack[slot_base + *a as usize], &self.slot_stack[slot_base + *b as usize])
                             && let Some(r) = num_fast(*bop, x, y)
                         {
-                            let tags = super::type_tag(x) | (super::type_tag(y) << 4);
-                            self.profiles[icx].types[ip] |= tags;
                             self.stack.push(r);
                             ip += 1;
                             continue;
@@ -672,10 +697,6 @@ impl Vm {
             Op::Bin(bop) => {
                 let b = self.pop();
                 let a = self.pop();
-                {
-                    let icx = self.frames[fidx].ic;
-                    self.profiles[icx].types[ip] |= super::type_tag(&a) | (super::type_tag(&b) << 4);
-                }
                 if let Some(r) = num_fast(*bop, &a, &b) {
                     self.push(r);
                     return Ok(Flow::Next);
@@ -690,10 +711,6 @@ impl Vm {
                     let name = unit.slot_names.get(if self.slot_stack[self.frames[fidx].slot_base + *a as usize].is_none() { *a } else { *b } as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
-                {
-                    let icx = self.frames[fidx].ic;
-                    self.profiles[icx].types[ip] |= super::type_tag(&x) | (super::type_tag(&y) << 4);
-                }
                 let r = self.fast_bin(*bop, x, y)?;
                 self.push(r);
             }
@@ -702,10 +719,6 @@ impl Vm {
                     let name = unit.slot_names.get(*a as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
-                {
-                    let icx = self.frames[fidx].ic;
-                    self.profiles[icx].types[ip] |= super::type_tag(&x) | (1 << 4);
-                }
                 let r = self.fast_bin(*bop, x, Val::Int(*imm as i64))?;
                 self.push(r);
             }
@@ -715,10 +728,26 @@ impl Vm {
                     return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
                 };
                 let y = self.const_to_val(midx, *c);
-                {
-                    let icx = self.frames[fidx].ic;
-                    self.profiles[icx].types[ip] |= super::type_tag(&x) | (super::type_tag(&y) << 4);
-                }
+                let r = self.fast_bin(*bop, x, y)?;
+                self.push(r);
+            }
+            Op::BinTS { s, op: bop } => {
+                let Some(y) = self.slot_stack[self.frames[fidx].slot_base + *s as usize].clone() else {
+                    let name = unit.slot_names.get(*s as usize).map(|n| module.str_lossy(*n)).unwrap_or_default();
+                    return Err(Throw::new("UndefinedVariableError", format!("Undefined variable ${name}")));
+                };
+                let x = self.pop();
+                let r = self.fast_bin(*bop, x, y)?;
+                self.push(r);
+            }
+            Op::BinTI { imm, op: bop } => {
+                let x = self.pop();
+                let r = self.fast_bin(*bop, x, Val::Int(*imm as i64))?;
+                self.push(r);
+            }
+            Op::BinTC { c, op: bop } => {
+                let y = self.const_to_val(midx, *c);
+                let x = self.pop();
                 let r = self.fast_bin(*bop, x, y)?;
                 self.push(r);
             }

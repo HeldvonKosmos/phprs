@@ -380,20 +380,53 @@ impl Compiler {
         Ok(())
     }
 
+    /// OPT1: a condition compiled straight into jumps. Returns the jumps
+    /// to patch to the "false" target; `a && b` and `a || b` jump without
+    /// building a bool first (same truthiness and evaluation order).
+    pub(crate) fn compile_false_jumps(&mut self, e: &Expression<'_>) -> CResult<Vec<usize>> {
+        use BinaryOperator as O;
+        match e {
+            Expression::Parenthesized(p) => self.compile_false_jumps(p.expression),
+            Expression::Binary(b) if matches!(b.operator, O::And(_) | O::LowAnd(_)) => {
+                let mut jumps = self.compile_false_jumps(b.lhs)?;
+                jumps.extend(self.compile_false_jumps(b.rhs)?);
+                Ok(jumps)
+            }
+            Expression::Binary(b) if matches!(b.operator, O::Or(_) | O::LowOr(_)) => {
+                self.compile_expr(b.lhs)?;
+                let taken = self.emit(Op::JumpIfTrue(0));
+                let jumps = self.compile_false_jumps(b.rhs)?;
+                let t = self.ub().here();
+                self.ub().patch(taken, t);
+                Ok(jumps)
+            }
+            _ => {
+                self.compile_expr(e)?;
+                Ok(vec![self.emit(Op::JumpIfFalse(0))])
+            }
+        }
+    }
+
+    pub(crate) fn patch_all(&mut self, jumps: &[usize], label: crate::bytecode::Label) {
+        for j in jumps {
+            self.ub().patch(*j, label);
+        }
+    }
+
     fn compile_conditional(&mut self, c: &Conditional<'_>) -> CResult<()> {
-        self.compile_expr(c.condition)?;
         match c.then {
             Some(then) => {
-                let j = self.emit(Op::JumpIfFalse(0));
+                let j = self.compile_false_jumps(c.condition)?;
                 self.compile_expr(then)?;
                 let end = self.emit(Op::Jump(0));
                 let l = self.ub().here();
-                self.ub().patch(j, l);
+                self.patch_all(&j, l);
                 self.compile_expr(c.r#else)?;
                 let e = self.ub().here();
                 self.ub().patch(end, e);
             }
             None => {
+                self.compile_expr(c.condition)?;
                 let j = self.emit(Op::JumpIfTrueKeep(0));
                 self.compile_expr(c.r#else)?;
                 let e = self.ub().here();

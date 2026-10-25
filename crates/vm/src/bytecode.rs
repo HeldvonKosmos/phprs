@@ -298,6 +298,12 @@ pub enum Op {
     /// the template (constant array with these keys, already hashed) and
     /// fills in the top `n` values in key order.
     ArrayTemplate { tpl: ConstId, n: u32 },
+    /// OPT1: `top op $slot` (the stack top is the left operand).
+    BinTS { s: Slot, op: BinOp },
+    /// OPT1: `top op const`.
+    BinTC { c: ConstId, op: BinOp },
+    /// OPT1: `top op imm`.
+    BinTI { imm: i32, op: BinOp },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -528,8 +528,7 @@ impl Compiler {
 
     fn compile_if(&mut self, i: &If<'_>) -> CResult<()> {
         let mut end_jumps = Vec::new();
-        self.compile_expr(i.condition)?;
-        let mut next = self.emit(Op::JumpIfFalse(0));
+        let mut next = self.compile_false_jumps(i.condition)?;
         match &i.body {
             IfBody::Statement(b) => {
                 self.compile_statement(b.statement)?;
@@ -539,16 +538,15 @@ impl Compiler {
                 }
                 for (k, ei) in b.else_if_clauses.iter().enumerate() {
                     let l = self.ub().here();
-                    self.ub().patch(next, l);
-                    self.compile_expr(ei.condition)?;
-                    next = self.emit(Op::JumpIfFalse(0));
+                    self.patch_all(&next, l);
+                    next = self.compile_false_jumps(ei.condition)?;
                     self.compile_statement(ei.statement)?;
                     if k + 1 < b.else_if_clauses.len() || b.else_clause.is_some() {
                         end_jumps.push(self.emit(Op::Jump(0)));
                     }
                 }
                 let l = self.ub().here();
-                self.ub().patch(next, l);
+                self.patch_all(&next, l);
                 if let Some(e) = &b.else_clause {
                     self.compile_statement(e.statement)?;
                 }
@@ -561,16 +559,15 @@ impl Compiler {
                 }
                 for (k, ei) in b.else_if_clauses.iter().enumerate() {
                     let l = self.ub().here();
-                    self.ub().patch(next, l);
-                    self.compile_expr(ei.condition)?;
-                    next = self.emit(Op::JumpIfFalse(0));
+                    self.patch_all(&next, l);
+                    next = self.compile_false_jumps(ei.condition)?;
                     self.compile_statements(ei.statements.iter())?;
                     if k + 1 < b.else_if_clauses.len() || b.else_clause.is_some() {
                         end_jumps.push(self.emit(Op::Jump(0)));
                     }
                 }
                 let l = self.ub().here();
-                self.ub().patch(next, l);
+                self.patch_all(&next, l);
                 if let Some(e) = &b.else_clause {
                     self.compile_statements(e.statements.iter())?;
                 }
@@ -635,8 +632,7 @@ impl Compiler {
 
     fn compile_while(&mut self, w: &While<'_>) -> CResult<()> {
         let cond = self.ub().here();
-        self.compile_expr(w.condition)?;
-        let exit = self.emit(Op::JumpIfFalse(0));
+        let exit = self.compile_false_jumps(w.condition)?;
         self.push_loop(false);
         match &w.body {
             WhileBody::Statement(s) => self.compile_statement(s)?,
@@ -644,7 +640,7 @@ impl Compiler {
         }
         self.emit(Op::Jump(cond));
         let end = self.ub().here();
-        self.ub().patch(exit, end);
+        self.patch_all(&exit, end);
         self.pop_loop(cond, end);
         Ok(())
     }
@@ -670,8 +666,7 @@ impl Compiler {
         let n = f.conditions.len();
         for (k, e) in f.conditions.iter().enumerate() {
             if k + 1 == n {
-                self.compile_expr(e)?;
-                exit = Some(self.emit(Op::JumpIfFalse(0)));
+                exit = Some(self.compile_false_jumps(e)?);
             } else {
                 self.compile_expr_w(e, Want::Discard)?;
             }
@@ -688,7 +683,7 @@ impl Compiler {
         self.emit(Op::Jump(cond));
         let end = self.ub().here();
         if let Some(x) = exit {
-            self.ub().patch(x, end);
+            self.patch_all(&x, end);
         }
         self.pop_loop(cont, end);
         Ok(())

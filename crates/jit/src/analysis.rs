@@ -342,6 +342,20 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let y = const_ty(cx.module.consts.get(*c as usize)?)?;
                     s.stack.push(num_result(*bop, x, y).ok()?);
                 }
+                Op::BinTS { s: sl, op: bop } => {
+                    let y = load!(*sl);
+                    let x = pop!();
+                    s.stack.push(num_result(*bop, x, y).ok()?);
+                }
+                Op::BinTI { op: bop, .. } => {
+                    let x = pop!();
+                    s.stack.push(num_result(*bop, x, Ty::Int).ok()?);
+                }
+                Op::BinTC { c, op: bop } => {
+                    let x = pop!();
+                    let y = const_ty(cx.module.consts.get(*c as usize)?)?;
+                    s.stack.push(num_result(*bop, x, y).ok()?);
+                }
                 Op::JumpUnlessSS { a, b, op: bop, target } => {
                     let (x, y) = (load!(*a), load!(*b));
                     if num_result(*bop, x, y).ok()? != Ty::Bool {

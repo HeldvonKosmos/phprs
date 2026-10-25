@@ -45,8 +45,8 @@ pub struct CodeProfile {
     pub calls: u32,
     pub backedges: u32,
     pub hot: bool,
-    /// Per op: observed operand types of binary ops, low nibble = lhs,
-    /// high nibble = rhs (1 int, 2 float, 4 string, 8 other).
+    /// Per op: element kinds seen at dim fetches (`jit::KIND_*`, JIT2b);
+    /// other ops leave it 0.
     pub types: Vec<u8>,
     /// Per op: loop region at this header could not be compiled (JIT).
     pub jit_no_loop: Vec<bool>,
@@ -54,16 +54,6 @@ pub struct CodeProfile {
 
 pub const HOT_CALLS: u32 = 1_000;
 pub const HOT_BACKEDGES: u32 = 10_000;
-
-#[inline]
-pub(crate) fn type_tag(v: &Val) -> u8 {
-    match v {
-        Val::Int(_) => 1,
-        Val::Float(_) => 2,
-        Val::Str(_) => 4,
-        _ => 8,
-    }
-}
 
 /// Hash map for the VM's own tables (names, selectors, classes): foldhash
 /// instead of SipHash (HASH1). Keys come from code, not from requests.
