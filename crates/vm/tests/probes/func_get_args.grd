@@ -1,0 +1,4 @@
+<?php
+function f(int $a, int $b = 2, int ...$rest): array { return func_get_args(); }
+function g(string $s = 'x'): array { $s = 'changed'; return func_get_args(); }
+echo json_encode([f(1), f(1, 5), f(1, 5, 7, 8), g(), g('y')]), "\n";

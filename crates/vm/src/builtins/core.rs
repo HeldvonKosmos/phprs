@@ -39,6 +39,28 @@ pub fn register(vm: &mut Vm) {
         let f = vm.frames.last().ok_or_else(|| Throw::error("func_num_args() must be called from a function"))?;
         Ok(Val::Int(f.arg_present.count_ones() as i64))
     });
+    // the arguments the calling user function received: the passed parameters
+    // in order (current values, as in PHP), then the variadic ones
+    vm.register_native("func_get_args", |vm, _| {
+        let f = vm.frames.last().ok_or_else(|| Throw::error("func_get_args() cannot be called from the global scope"))?;
+        let unit = &f.module.units[f.unit as usize];
+        let mut out = PhpArray::new();
+        for (i, p) in unit.params.iter().enumerate() {
+            let value = vm.slot_stack[f.slot_base + p.slot as usize].clone().unwrap_or(Val::Null);
+            if p.variadic {
+                if let Val::Array(rest) = value {
+                    for v in rest.values() {
+                        out.push(v.clone());
+                    }
+                }
+            } else if i < 64 && f.arg_present & (1u64 << i) != 0 {
+                out.push(value);
+            } else {
+                break;
+            }
+        }
+        Ok(Val::array(out))
+    });
     vm.register_native("class_exists", |vm, a| Ok(Val::Bool(args::string(a, 0, "class_exists").ok().and_then(|s| vm.lookup_class(s.as_bytes())).is_some_and(|c| vm.class(c).kind == crate::bytecode::ClassKind::Class))));
     vm.register_native("interface_exists", |vm, a| Ok(Val::Bool(args::string(a, 0, "interface_exists").ok().and_then(|s| vm.lookup_class(s.as_bytes())).is_some_and(|c| vm.class(c).kind == crate::bytecode::ClassKind::Interface))));
     vm.register_native("trait_exists", |vm, a| Ok(Val::Bool(args::string(a, 0, "trait_exists").ok().and_then(|s| vm.lookup_class(s.as_bytes())).is_some_and(|c| vm.class(c).kind == crate::bytecode::ClassKind::Trait))));
