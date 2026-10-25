@@ -190,6 +190,9 @@ pub struct Vm {
     /// Reports the values the host context holds (the framework's request state).
     pub host_tracer: Option<gc::TraceFn>,
     pub gc_stats: gc::GcStats,
+    /// Class named by a type hint, per (module, name): `check_type` compares
+    /// class ids instead of names (None: no such class).
+    pub(crate) hint_classes: FastMap<(usize, StrId), Option<ClassId>>,
     pub(crate) frames: Vec<Frame>,
     /// Local variable slots of all live frames (RUNTIME_ARCHITECTURE §5.1).
     pub(crate) slot_stack: Vec<Option<Val>>,
@@ -274,6 +277,7 @@ impl Vm {
             gc_roots: Vec::new(),
             host_tracer: None,
             gc_stats: gc::GcStats::default(),
+            hint_classes: Default::default(),
             frames: Vec::new(),
             slot_stack: Vec::new(),
             stack: Vec::new(),

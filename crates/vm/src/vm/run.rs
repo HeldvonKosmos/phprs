@@ -420,13 +420,36 @@ impl Vm {
                             let e = self.ics[icx][ip];
                             if e.class == Some(class) {
                                 let value = self.stack.last().expect("value");
-                                let fits = match &self.class(class).props[e.a as usize].ty {
-                                    Some(TypeHint::Nullable(t)) => matches!(value, Val::Null) || super::path::scalar_type_matches(t, value),
-                                    Some(t) => super::path::scalar_type_matches(t, value),
-                                    None => true,
+                                let value_class = match value {
+                                    Val::Object(o) => Some(self.objects.get(*o).class),
+                                    _ => None,
                                 };
+                                // scalars (also null for ?T) directly; `Node $p` / `?Node $p`
+                                // with an object by class id (no name comparison)
+                                let (mut fits, class_hint) = {
+                                    let prop = &self.class(class).props[e.a as usize];
+                                    match &prop.ty {
+                                        None => (true, None),
+                                        Some(t) => {
+                                            let (inner, nullable) = match t {
+                                                TypeHint::Nullable(i) => (&**i, true),
+                                                t => (t, false),
+                                            };
+                                            let direct = (nullable && value.is_null()) || super::path::scalar_type_matches(inner, value);
+                                            let hint = match (inner, value_class) {
+                                                (TypeHint::Class(n), Some(_)) if !direct => Some((*n, prop.module)),
+                                                _ => None,
+                                            };
+                                            (direct, hint)
+                                        }
+                                    }
+                                };
+                                if let (Some((n, m)), Some(vc)) = (class_hint, value_class) {
+                                    let m = self.modules[m as usize].clone();
+                                    fits = self.hint_class(&m, n).is_some_and(|c| c == vc || self.instance_of(vc, c));
+                                }
                                 if fits {
-                                    let value = value.clone();
+                                    let value = self.stack.last().expect("value").clone();
                                     self.objects.get_mut(h).slots[e.a as usize] = Some(value);
                                     ip += 1;
                                     continue;

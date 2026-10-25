@@ -169,6 +169,22 @@ impl Vm {
         }
     }
 
+    /// The class a type hint names, resolved once per (module, name).
+    pub(crate) fn hint_class(&mut self, module: &Rc<Module>, name: StrId) -> Option<ClassId> {
+        let key = (Rc::as_ptr(module) as usize, name);
+        if let Some(c) = self.hint_classes.get(&key) {
+            return *c;
+        }
+        let hint = module.str(name);
+        let hint = hint.strip_prefix(b"\\").unwrap_or(hint).to_vec();
+        let c = self.lookup_class(&hint);
+        // only remember found classes: one declared later must still be found
+        if c.is_some() {
+            self.hint_classes.insert(key, c);
+        }
+        c
+    }
+
     /// `Some(value)` if `v` matches `t` (with int→float widening), else `None`.
     pub(crate) fn check_type(&mut self, v: &Val, t: &TypeHint, module: &Rc<Module>, class_ctx: Option<ClassId>) -> Option<Val> {
         match t {
@@ -204,14 +220,8 @@ impl Vm {
             TypeHint::Class(name) => match v {
                 Val::Object(h) => {
                     let class = self.objects.get(*h).class;
-                    let hint = module.str(*name);
-                    let hint = hint.strip_prefix(b"\\").unwrap_or(hint);
-                    // the common case, the object is of exactly the hinted class: no name lookup
-                    if self.class(class).name.eq_ignore_ascii_case(hint) {
-                        return Some(v.clone());
-                    }
-                    let target = self.lookup_class(hint)?;
-                    self.instance_of(class, target).then(|| v.clone())
+                    let target = self.hint_class(module, *name)?;
+                    (class == target || self.instance_of(class, target)).then(|| v.clone())
                 }
                 _ => None,
             },
