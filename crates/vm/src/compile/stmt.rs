@@ -232,6 +232,10 @@ impl Compiler {
             uses: Vec::new(),
             line,
         };
+        if let Some(prev) = self.declared_functions.get(&fq.to_ascii_lowercase()) {
+            return self.err(f.span(), format!("Cannot redeclare function {}() (previously declared in {}:{prev})", String::from_utf8_lossy(&fq), self.module.file));
+        }
+        self.declared_functions.insert(fq.to_ascii_lowercase(), line);
         let unit = self.compile_function_like(spec)?;
         let attributes = self.compile_attributes(&f.attribute_lists)?;
         let name = self.intern(&fq);
@@ -859,6 +863,10 @@ impl Compiler {
         Ok(match h {
             Hint::Identifier(id) => {
                 let fq = self.names.resolve_class(id.value());
+                // self/static/parent need a class, except in closures (they can be bound)
+                if matches!(fq.as_slice(), b"self" | b"static" | b"parent") && self.current_class().is_none() && !self.units.last().is_some_and(|u| u.is_closure) {
+                    return self.err(h.span(), format!("Cannot use \"{}\" when no class scope is active", String::from_utf8_lossy(&fq)));
+                }
                 match fq.as_slice() {
                     b"self" => TypeHint::SelfT,
                     b"static" => TypeHint::Static,
@@ -905,6 +913,10 @@ impl Compiler {
             Hint::False(_) => TypeHint::False,
             Hint::Array(_) => TypeHint::Array,
             Hint::Callable(_) => TypeHint::Callable,
+            Hint::Static(_) | Hint::Self_(_) | Hint::Parent(_) if self.current_class().is_none() && !self.units.last().is_some_and(|u| u.is_closure) => {
+                let w = match h { Hint::Static(_) => "static", Hint::Self_(_) => "self", _ => "parent" };
+                return self.err(h.span(), format!("Cannot use \"{w}\" when no class scope is active"));
+            }
             Hint::Static(_) => TypeHint::Static,
             Hint::Self_(_) => TypeHint::SelfT,
             Hint::Parent(_) => TypeHint::Parent,

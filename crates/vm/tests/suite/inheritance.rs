@@ -163,3 +163,48 @@ fn type_and_return_checks_match_php() {
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+
+/// PHP's checks of where namespaces, class names and self/static may appear,
+/// of the kinds of parents, interfaces and traits, and of trait members that
+/// clash with the class or another trait. Expected output is PHP 8.4's.
+#[test]
+fn placement_kind_and_trait_checks_match_php() {
+    let cases: &[(&str, &str)] = &[
+        (r#"echo 1; namespace A;"#, r#"Namespace declaration statement has to be the very first statement or after any declare call in the script"#),
+        (r#"declare(strict_types=1); namespace A;"#, r#"ok"#),
+        (r#"namespace A; echo 1; namespace B;"#, r#"1ok"#),
+        (r#"class int {}"#, r#"Cannot use "int" as a class name as it is reserved"#),
+        (r#"class Mixed {}"#, r#"Cannot use "Mixed" as a class name as it is reserved"#),
+        (r#"interface iterable {}"#, r#"Cannot use "iterable" as an interface name as it is reserved"#),
+        (r#"trait never {}"#, r#"Cannot use "never" as a trait name as it is reserved"#),
+        (r#"enum void {}"#, r#"Cannot use "void" as an enum name as it is reserved"#),
+        (r#"class abc {} class A { use abc; }"#, r#"A cannot use abc - it is not a trait"#),
+        (r#"interface I {} class A { use I; }"#, r#"A cannot use I - it is not a trait"#),
+        (r#"trait T { const C = 1; } class A { use T; const C = 2; }"#, r#"A and T define the same constant (C) in the composition of A. However, the definition differs and is considered incompatible. Class was composed"#),
+        (r#"trait T { const C = 1; } class A { use T; const C = 1; }"#, r#"ok"#),
+        (r#"trait T { public $x = 1; } class A { use T; public $x = 2; }"#, r#"A and T define the same property ($x) in the composition of A. However, the definition differs and is considered incompatible. Class was composed"#),
+        (r#"trait T { public $x = 1; } class A { use T; public $x = 1; }"#, r#"ok"#),
+        (r#"trait T { public int $x = 1; } class A { use T; public string $x = '1'; }"#, r#"A and T define the same property ($x) in the composition of A. However, the definition differs and is considered incompatible. Class was composed"#),
+        (r#"trait T1 { const C = 1; } trait T2 { const C = 2; } class A { use T1, T2; }"#, r#"T1 and T2 define the same constant (C) in the composition of A. However, the definition differs and is considered incompatible. Class was composed"#),
+        (r#"trait T1 { const C = 1; } trait T2 { const C = 1; } class A { use T1, T2; }"#, r#"ok"#),
+        (r#"function f(): self {}"#, r#"Cannot use "self" when no class scope is active"#),
+        (r#"function f(): static {}"#, r#"Cannot use "static" when no class scope is active"#),
+        (r#"function f(self $x) {}"#, r#"Cannot use "self" when no class scope is active"#),
+        (r#"function f(parent $x) {}"#, r#"Cannot use "parent" when no class scope is active"#),
+        (r#"$c = function (): static { return $this; };"#, r#"ok"#),
+        (r#"$c = fn (self $x) => 1;"#, r#"ok"#),
+        (r#"class A implements Iterator, IteratorAggregate {}"#, r#"Class A cannot implement both Iterator and IteratorAggregate at the same time"#),
+        (r#"interface I {} class A extends I {}"#, r#"Class A cannot extend interface I"#),
+        (r#"class A {} class B implements A {}"#, r#"B cannot implement A - it is not an interface"#),
+        (r#"trait T {} class A extends T {}"#, r#"Class A cannot extend trait T"#),
+    ];
+    let mut failures = Vec::new();
+    for (src, expected) in cases {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
+        if got != *expected {
+            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}

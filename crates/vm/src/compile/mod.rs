@@ -352,6 +352,8 @@ pub struct Compiler {
     pub(crate) report: Option<Vec<CompileError>>,
     /// GRD021: variables without a static type, per function (typecheck).
     pub(crate) mixed_vars: HashMap<u32, std::collections::HashSet<Vec<u8>>>,
+    /// Functions declared in this file (name lowercased → line), for redeclarations.
+    pub(crate) declared_functions: HashMap<Vec<u8>, u32>,
 }
 
 impl Compiler {
@@ -368,6 +370,7 @@ impl Compiler {
             anon_class_counter: 0,
             report: None,
             mixed_vars: HashMap::new(),
+            declared_functions: HashMap::new(),
         }
     }
 
@@ -476,6 +479,17 @@ impl Compiler {
     // ---- entry ----------------------------------------------------------
 
     pub fn compile_program(&mut self, program: &Program<'_>) -> CResult<()> {
+        // the first namespace must be the first statement (declare and the opening tag excepted)
+        let mut code_before = false;
+        for st in program.statements.iter() {
+            match st {
+                mago_syntax::cst::Statement::OpeningTag(_) | mago_syntax::cst::Statement::Declare(_) | mago_syntax::cst::Statement::Noop(_) => {}
+                mago_syntax::cst::Statement::Inline(i) if i.value.iter().all(|b| b.is_ascii_whitespace()) => {}
+                mago_syntax::cst::Statement::Namespace(n) if code_before => return self.err(n.span(), "Namespace declaration statement has to be the very first statement or after any declare call in the script"),
+                mago_syntax::cst::Statement::Namespace(_) => break,
+                _ => code_before = true,
+            }
+        }
         self.push_unit("{main}".to_string(), 1);
         self.ub().mixed = self.mixed_vars.get(&u32::MAX).cloned().unwrap_or_default();
         self.compile_statements(program.statements.iter())?;

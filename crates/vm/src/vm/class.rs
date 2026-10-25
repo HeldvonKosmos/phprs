@@ -199,6 +199,11 @@ impl Vm {
         // inherit
         if let Some(p) = parent {
             let pc = self.class(p);
+            match pc.kind {
+                ClassKind::Interface => return Err(Throw::error(format!("Class {} cannot extend interface {}", String::from_utf8_lossy(&name), String::from_utf8_lossy(&pc.name)))),
+                ClassKind::Trait => return Err(Throw::error(format!("Class {} cannot extend trait {}", String::from_utf8_lossy(&name), String::from_utf8_lossy(&pc.name)))),
+                _ => {}
+            }
             if pc.is_final {
                 return Err(Throw::error(format!("Class {} cannot extend final class {}", String::from_utf8_lossy(&name), String::from_utf8_lossy(&pc.name))));
             }
@@ -210,17 +215,46 @@ impl Vm {
         }
         for i in &decl.interfaces {
             let iid = self.lookup_class(module.str(*i)).expect("interface linked");
+            if self.class(iid).kind != ClassKind::Interface {
+                return Err(Throw::error(format!("{} cannot implement {} - it is not an interface", String::from_utf8_lossy(&name), String::from_utf8_lossy(&self.class(iid).name))));
+            }
             self.add_interface(&mut rt, iid);
         }
+        if decl.kind == ClassKind::Class
+            && let (Some(it), Some(agg)) = (self.lookup_class(b"Iterator"), self.lookup_class(b"IteratorAggregate"))
+            && rt.interfaces.contains(&it)
+            && rt.interfaces.contains(&agg)
+        {
+            return Err(Throw::error(format!("Class {} cannot implement both Iterator and IteratorAggregate at the same time", String::from_utf8_lossy(&name))));
+        }
+        // members taken from traits: name → trait, to report conflicting definitions
+        let mut trait_consts: HashMap<Vec<u8>, ClassId> = HashMap::new();
+        let mut trait_props: HashMap<Vec<u8>, ClassId> = HashMap::new();
         // traits: copy members as if declared here
         for t in &decl.traits {
             let tid = self.lookup_class(module.str(*t)).expect("trait linked");
+            if self.class(tid).kind != ClassKind::Trait {
+                return Err(Throw::error(format!("{} cannot use {} - it is not a trait", String::from_utf8_lossy(&name), String::from_utf8_lossy(&self.class(tid).name))));
+            }
             let tc = self.class(tid);
             let tmod = tc.module;
             for (k, c) in &tc.consts {
+                if let Some(&other) = trait_consts.get(k)
+                    && !self.same_const(&rt.consts[k], c, module, midx)
+                {
+                    return Err(trait_conflict(&self.class(other).name, &tc.name, "constant", k, &name));
+                }
+                trait_consts.insert(k.clone(), tid);
                 rt.consts.insert(k.clone(), ConstInfo { declaring: id, ..c.clone() });
             }
             for p in tc.props.clone() {
+                if let Some(&other) = trait_props.get(&p.name)
+                    && let Some(&idx) = rt.prop_index.get(&p.name)
+                    && !self.same_prop(&rt.props[idx], &p, module, midx)
+                {
+                    return Err(trait_conflict(&self.class(other).name, &tc.name, "property", &[b"$".as_slice(), &p.name].concat(), &name));
+                }
+                trait_props.insert(p.name.clone(), tid);
                 let mut p = p;
                 p.declaring = id;
                 p.module = tmod;
@@ -246,6 +280,12 @@ impl Vm {
         // own members
         for c in &decl.consts {
             let cname = module.str(c.name).to_vec();
+            if let Some(&t) = trait_consts.get(&cname) {
+                let own = ConstInfo { value: None, init: c.value.clone(), module: midx, visibility: c.visibility, declaring: id, is_final: c.is_final };
+                if !self.same_const(&own, &rt.consts[&cname], module, midx) {
+                    return Err(trait_conflict(&name, &self.class(t).name, "constant", &cname, &name));
+                }
+            }
             if let Some(existing) = rt.consts.get(&cname)
                 && existing.is_final
                 && existing.declaring != id
@@ -270,6 +310,12 @@ impl Vm {
                     module: midx,
                     attributes: p.attributes.clone(),
                 };
+                if let Some(&t) = trait_props.get(&pname)
+                    && let Some(&idx) = rt.prop_index.get(&pname)
+                    && !self.same_prop(&info, &rt.props[idx], module, midx)
+                {
+                    return Err(trait_conflict(&name, &self.class(t).name, "property", &[b"$".as_slice(), &pname].concat(), &name));
+                }
                 if let Some(&idx) = rt.prop_index.get(&pname)
                     && rt.props[idx].declaring != id
                 {
@@ -699,3 +745,71 @@ fn add_prop(rt: &mut RtClass, p: PropInfo) {
         }
     }
 }
+
+/// PHP's error for a trait member that clashes with the class or another trait.
+fn trait_conflict(first: &[u8], trait_name: &[u8], what: &str, member: &[u8], class: &[u8]) -> Throw {
+    let (f, t, m, c) = (String::from_utf8_lossy(first), String::from_utf8_lossy(trait_name), String::from_utf8_lossy(member), String::from_utf8_lossy(class));
+    Throw::error(format!("{f} and {t} define the same {what} ({m}) in the composition of {c}. However, the definition differs and is considered incompatible. Class was composed"))
+}
+
+impl Vm {
+    /// The literal value of an initialiser, when it is one (`None` for expressions).
+    fn init_literal(&self, init: &Init, module: u32, cur: &Module, cur_idx: u32) -> Option<Const> {
+        let Init::Const(c) = init else { return None };
+        let m: &Module = if module == cur_idx { cur } else { self.modules.get(module as usize)? };
+        m.consts.get(*c as usize).cloned()
+    }
+
+    /// Two constant definitions are compatible: same visibility, finality and value.
+    fn same_const(&self, a: &ConstInfo, b: &ConstInfo, cur: &Module, cur_idx: u32) -> bool {
+        if a.visibility != b.visibility || a.is_final != b.is_final {
+            return false;
+        }
+        match (self.init_literal(&a.init, a.module, cur, cur_idx), self.init_literal(&b.init, b.module, cur, cur_idx)) {
+            (Some(x), Some(y)) => x == y,
+            _ => true,
+        }
+    }
+
+    /// Two property definitions are compatible: same visibility, readonly, type and default.
+    fn same_prop(&self, a: &PropInfo, b: &PropInfo, cur: &Module, cur_idx: u32) -> bool {
+        if a.visibility != b.visibility || a.readonly != b.readonly {
+            return false;
+        }
+        let ty = |p: &PropInfo| -> Option<String> {
+            let m: &Module = if p.module == cur_idx { cur } else { self.modules.get(p.module as usize)? };
+            p.ty.as_ref().map(|t| type_key(t, m))
+        };
+        if ty(a) != ty(b) {
+            return false;
+        }
+        match (&a.default, &b.default) {
+            (None, None) => true,
+            (Some(x), Some(y)) => match (self.init_literal(x, a.module, cur, cur_idx), self.init_literal(y, b.module, cur, cur_idx)) {
+                (Some(x), Some(y)) => x == y,
+                _ => true,
+            },
+            _ => false,
+        }
+    }
+}
+
+/// A type as text with class names resolved (to compare types of different modules).
+fn type_key(t: &TypeHint, m: &Module) -> String {
+    match t {
+        TypeHint::Class(n) => String::from_utf8_lossy(m.str(*n)).to_ascii_lowercase(),
+        TypeHint::Nullable(i) => format!("?{}", type_key(i, m)),
+        TypeHint::Union(p) => {
+            let mut v: Vec<String> = p.iter().map(|x| type_key(x, m)).collect();
+            v.sort();
+            v.join("|")
+        }
+        TypeHint::Intersection(p) => {
+            let mut v: Vec<String> = p.iter().map(|x| type_key(x, m)).collect();
+            v.sort();
+            v.join("&")
+        }
+        other => format!("{other:?}"),
+    }
+}
+

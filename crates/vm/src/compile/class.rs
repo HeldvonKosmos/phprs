@@ -19,6 +19,9 @@ struct Members {
 
 impl Compiler {
     pub(crate) fn compile_class(&mut self, c: &Class<'_>) -> CResult<()> {
+        if reserved_class_name(c.name.value) {
+            return self.err(c.name.span(), format!("Cannot use \"{}\" as a class name as it is reserved", String::from_utf8_lossy(c.name.value)));
+        }
         let fq = self.names.declare(c.name.value);
         let parent = match &c.extends {
             Some(e) => {
@@ -136,6 +139,9 @@ impl Compiler {
     }
 
     pub(crate) fn compile_interface(&mut self, i: &Interface<'_>) -> CResult<()> {
+        if reserved_class_name(i.name.value) {
+            return self.err(i.name.span(), format!("Cannot use \"{}\" as an interface name as it is reserved", String::from_utf8_lossy(i.name.value)));
+        }
         let fq = self.names.declare(i.name.value);
         let mut interfaces = Vec::new();
         if let Some(e) = &i.extends {
@@ -172,6 +178,9 @@ impl Compiler {
     }
 
     pub(crate) fn compile_trait(&mut self, t: &Trait<'_>) -> CResult<()> {
+        if reserved_class_name(t.name.value) {
+            return self.err(t.name.span(), format!("Cannot use \"{}\" as a trait name as it is reserved", String::from_utf8_lossy(t.name.value)));
+        }
         let fq = self.names.declare(t.name.value);
         let attributes = self.compile_attributes(&t.attribute_lists)?;
         let line = self.line(t.span());
@@ -201,6 +210,9 @@ impl Compiler {
     }
 
     pub(crate) fn compile_enum(&mut self, e: &Enum<'_>) -> CResult<()> {
+        if reserved_class_name(e.name.value) {
+            return self.err(e.name.span(), format!("Cannot use \"{}\" as an enum name as it is reserved", String::from_utf8_lossy(e.name.value)));
+        }
         let fq = self.names.declare(e.name.value);
         let interfaces = self.interface_names(e.implements.as_ref())?;
         let backing = match &e.backing_type_hint {
@@ -686,5 +698,11 @@ impl MagicType {
     fn contains_all(self, t: &TypeHint) -> bool {
         Self::members(t).iter().all(|m| self.admits(m))
     }
+}
+
+/// PHP's reserved class names (zend_compile.c reserved_class_names).
+pub(crate) fn reserved_class_name(name: &[u8]) -> bool {
+    const RESERVED: [&str; 15] = ["bool", "false", "float", "int", "null", "parent", "self", "static", "string", "true", "void", "never", "iterable", "object", "mixed"];
+    RESERVED.iter().any(|r| r.as_bytes().eq_ignore_ascii_case(name))
 }
 
