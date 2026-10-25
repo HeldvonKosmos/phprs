@@ -198,11 +198,19 @@ pub(crate) fn now_micros() -> (i64, i64) {
 }
 
 /// `ts` moved by `[y, m, d, h, i, s] * sign` in zone `z` (calendar arithmetic).
+/// DateTime::add/sub as PHP (timelib's add_wall/sub_wall): years, months and
+/// days move the local wall clock; hours, minutes and seconds are elapsed
+/// time added to the instant, so they cross a DST change correctly
+/// (03:00 EDT - 1 hour = 01:00 EST, not the missing 02:00).
 pub(crate) fn date_add(ts: i64, parts: [i64; 6], sign: i64, z: &Zone) -> i64 {
     let v: Vec<i64> = parts.iter().map(|x| x * sign).collect();
-    let l = z.to_local(ts);
-    let moved = add_months(l, v[0] * 12 + v[1]) + Duration::days(v[2]) + Duration::hours(v[3]) + Duration::minutes(v[4]) + Duration::seconds(v[5]);
-    z.from_local(moved)
+    let ts = if v[0] != 0 || v[1] != 0 || v[2] != 0 {
+        let l = z.to_local(ts);
+        z.from_local(add_months(l, v[0] * 12 + v[1]) + Duration::days(v[2]))
+    } else {
+        ts
+    };
+    ts + v[3] * 3600 + v[4] * 60 + v[5]
 }
 
 /// `[y, m, d, h, i, s, days, invert]` between two instants, like DateTime::diff.

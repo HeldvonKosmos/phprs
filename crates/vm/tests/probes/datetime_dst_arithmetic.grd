@@ -1,0 +1,18 @@
+<?grd
+// DateTime::add/sub across DST changes as PHP: years, months and days move the
+// wall clock, hours/minutes/seconds are elapsed time.
+date_default_timezone_set('America/New_York');
+$fmt = 'Y-m-d H:i:s T';
+$d = new DateTime('2006-04-02 04:00:00');
+for ($i = 0; $i < 3; $i++) { $d->sub(new DateInterval('PT1H')); echo $d->format($fmt), "\n"; }
+$d = new DateTime('2006-10-29 00:30:00');
+for ($i = 0; $i < 4; $i++) { $d->add(new DateInterval('PT30M')); echo $d->format($fmt), "\n"; }
+foreach (['P1D', 'PT24H', 'P1DT1H', 'P1M', 'P1Y2M3DT4H5M6S'] as $spec) {
+    $a = new DateTimeImmutable('2006-04-01 02:30:00');
+    echo $spec, ' + ', $a->add(new DateInterval($spec))->format($fmt), ' | - ', $a->sub(new DateInterval($spec))->format($fmt), "\n";
+}
+$a = new DateTimeImmutable('2024-01-31 12:00:00');
+echo $a->add(new DateInterval('P1M'))->format($fmt), "\n";
+$iv = new DateInterval('PT2H');
+$iv->invert = 1;
+echo (new DateTimeImmutable('2006-10-29 03:00:00'))->add($iv)->format($fmt), "\n";
