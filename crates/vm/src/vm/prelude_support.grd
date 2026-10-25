@@ -1055,7 +1055,7 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
         return $this->where((string) $key, $operator, $value)->isNotEmpty();
     }
 
-    public function unique(string|callable|null $key = null): static
+    public function unique(string|callable|null $key = null, bool $strict = false): static
     {
         $retrieve = $this->valueRetriever($key);
         $seen = [];
@@ -1207,6 +1207,454 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
     public function unless(mixed $value, callable $callback, ?callable $default = null): static
     {
         return $this->when(!$value, $callback, $default);
+    }
+
+    // ---- S1b ---------------------------------------------------------------
+
+    public function add(mixed $item): static { $this->items[] = $item; return $this; }
+
+    /** The key of the first item that equals $value (or passes the callback), or null. */
+    protected function keyOf(mixed $value, bool $strict): string|int|null
+    {
+        foreach ($this->items as $k => $item) {
+            if ($value instanceof \Closure ? $value($item, $k) : ($strict ? $item === $value : self::looseEquals($item, $value))) { return $k; }
+        }
+        return null;
+    }
+
+    /** PHP's loose == for the scalars Laravel compares (numbers and numeric strings). */
+    protected static function looseEquals(mixed $a, mixed $b): bool
+    {
+        if (is_numeric($a) && is_numeric($b)) { return (float) $a === (float) $b; }
+        if (is_scalar($a) && is_scalar($b)) { return (string) $a === (string) $b; }
+        return $a === $b;
+    }
+
+    public function after(mixed $value, bool $strict = false): mixed
+    {
+        $key = $this->keyOf($value, $strict);
+        if ($key === null) { return null; }
+        $keys = array_keys($this->items);
+        $pos = array_search($key, $keys, true);
+        return $pos === false || $pos + 1 >= count($keys) ? null : $this->items[$keys[$pos + 1]];
+    }
+
+    public function before(mixed $value, bool $strict = false): mixed
+    {
+        $key = $this->keyOf($value, $strict);
+        if ($key === null) { return null; }
+        $keys = array_keys($this->items);
+        $pos = array_search($key, $keys, true);
+        return $pos === false || $pos === 0 ? null : $this->items[$keys[$pos - 1]];
+    }
+
+    public function chunkWhile(callable $callback): static
+    {
+        $chunks = [];
+        $current = null;
+        foreach ($this->items as $k => $v) {
+            if ($current !== null && !$callback($v, $k, $current)) {
+                $chunks[] = $current;
+                $current = null;
+            }
+            $current = $current === null ? new static([$k => $v]) : $current->put($k, $v);
+        }
+        if ($current !== null) { $chunks[] = $current; }
+        return new static($chunks);
+    }
+
+    public function collapseWithKeys(): static
+    {
+        $out = [];
+        foreach ($this->items as $item) { $out = array_replace($out, self::arrayOf($item)); }
+        return new static($out);
+    }
+
+    public function combine(mixed $values): static { return new static(array_combine($this->items, self::arrayOf($values))); }
+
+    public function concat(iterable $source): static
+    {
+        $out = new static($this->items);
+        foreach ($source as $item) { $out = $out->push($item); }
+        return $out;
+    }
+
+    public function containsOneItem(?callable $callback = null): bool { return ($callback === null ? $this->count() : $this->filter($callback)->count()) === 1; }
+    public function containsManyItems(?callable $callback = null): bool { return ($callback === null ? $this->count() : $this->filter($callback)->count()) > 1; }
+    public function hasSole(?callable $callback = null): bool { return $this->containsOneItem($callback); }
+    public function hasMany(?callable $callback = null): bool { return $this->containsManyItems($callback); }
+
+    public function containsStrict(mixed $key, mixed $value = null): bool
+    {
+        if (func_num_args() === 2) { return $this->contains(fn (mixed $item): bool => data_get($item, $key) === $value); }
+        if ($key instanceof \Closure) { return $this->first($key) !== null; }
+        return in_array($key, $this->items, true);
+    }
+
+    public function doesntContain(mixed $key, mixed $operator = null, mixed $value = null): bool { return !$this->contains(...array_slice([$key, $operator, $value], 0, func_num_args())); }
+    public function some(mixed $key, mixed $operator = null, mixed $value = null): bool { return $this->contains(...array_slice([$key, $operator, $value], 0, func_num_args())); }
+
+    public function crossJoin(mixed ...$lists): static
+    {
+        $results = [[]];
+        foreach (array_merge([$this->items], array_map(fn (mixed $l): array => self::arrayOf($l), $lists)) as $list) {
+            $next = [];
+            foreach ($results as $product) {
+                foreach ($list as $item) { $next[] = array_merge($product, [$item]); }
+            }
+            $results = $next;
+        }
+        return new static($results);
+    }
+
+    public function diff(mixed $items): static { return new static(array_diff($this->items, self::arrayOf($items))); }
+    public function diffAssoc(mixed $items): static { return new static(array_diff_assoc($this->items, self::arrayOf($items))); }
+    public function diffKeys(mixed $items): static { return new static(array_diff_key($this->items, self::arrayOf($items))); }
+    public function intersect(mixed $items): static { return new static(array_intersect($this->items, self::arrayOf($items))); }
+    public function intersectAssoc(mixed $items): static { return new static(array_intersect_assoc($this->items, self::arrayOf($items))); }
+    public function intersectByKeys(mixed $items): static { return new static(array_intersect_key($this->items, self::arrayOf($items))); }
+
+    public function dot(): static { return new static(Arr::dot($this->items)); }
+    public function undot(): static { return new static(Arr::undot($this->items)); }
+
+    public function duplicates(string|callable|null $callback = null, bool $strict = false): static
+    {
+        $values = $callback === null ? $this->items : $this->map($this->valueRetriever($callback))->all();
+        $seen = [];
+        $out = [];
+        foreach ($values as $k => $v) {
+            $found = false;
+            foreach ($seen as $s) {
+                if ($strict ? $s === $v : self::looseEquals($s, $v)) { $found = true; break; }
+            }
+            if ($found) { $out[$k] = $v; } else { $seen[] = $v; }
+        }
+        return new static($out);
+    }
+
+    public function duplicatesStrict(string|callable|null $callback = null): static { return $this->duplicates($callback, true); }
+
+    public function eachSpread(callable $callback): static
+    {
+        foreach ($this->items as $k => $chunk) {
+            $args = self::arrayOf($chunk);
+            $args[] = $k;
+            if ($callback(...array_values($args)) === false) { break; }
+        }
+        return $this;
+    }
+
+    public function mapSpread(callable $callback): static
+    {
+        $out = [];
+        foreach ($this->items as $k => $chunk) {
+            $args = self::arrayOf($chunk);
+            $args[] = $k;
+            $out[$k] = $callback(...array_values($args));
+        }
+        return new static($out);
+    }
+
+    public function mapToDictionary(callable $callback): static
+    {
+        $out = [];
+        foreach ($this->items as $k => $item) {
+            foreach ($callback($item, $k) as $key => $value) {
+                $group = $out[$key] ?? [];
+                $group[] = $value;
+                $out[$key] = $group;
+            }
+        }
+        return new static($out);
+    }
+
+    public function mapToGroups(callable $callback): static { return $this->mapToDictionary($callback)->map(fn (array $g): static => new static($g)); }
+
+    public function flatMap(callable $callback): static { return $this->map($callback)->collapse(); }
+
+    public function firstOrFail(?callable $callback = null): mixed
+    {
+        foreach ($this->items as $k => $item) {
+            if ($callback === null || $callback($item, $k)) { return $item; }
+        }
+        throw new ItemNotFoundException();
+    }
+
+    public function sole(mixed $key = null, mixed $operator = null, mixed $value = null): mixed
+    {
+        $items = $key === null ? $this : ($key instanceof \Closure ? $this->filter($key) : $this->where($key, $operator, $value));
+        $count = $items->count();
+        if ($count === 0) { throw new ItemNotFoundException(); }
+        if ($count > 1) { throw new MultipleItemsFoundException($count); }
+        return $items->first();
+    }
+
+    public function forPage(int $page, int $perPage): static { return $this->slice(max(0, ($page - 1) * $perPage), $perPage); }
+
+    public function hasAny(mixed $key): bool
+    {
+        foreach ((array) $key as $k) {
+            if (array_key_exists($k, $this->items)) { return true; }
+        }
+        return false;
+    }
+
+    public function median(string|array|null $key = null): float|int|null
+    {
+        $values = ($key === null ? $this : $this->pluck($key))->filter(fn (mixed $v): bool => $v !== null)->sort()->values();
+        $count = $values->count();
+        if ($count === 0) { return null; }
+        $middle = intdiv($count, 2);
+        if ($count % 2 === 1) { return $values->get($middle); }
+        return (new static([$values->get($middle - 1), $values->get($middle)]))->avg();
+    }
+
+    public function mode(string|array|null $key = null): ?array
+    {
+        if ($this->count() === 0) { return null; }
+        $counts = [];
+        foreach (($key === null ? $this : $this->pluck($key))->all() as $v) { $counts[$v] = ($counts[$v] ?? 0) + 1; }
+        $highest = max($counts);
+        $out = [];
+        foreach ($counts as $v => $n) {
+            if ($n === $highest) { $out[] = $v; }
+        }
+        return (new static($out))->sort()->values()->all();
+    }
+
+    public function mergeRecursive(mixed $items): static { return new static(array_merge_recursive($this->items, self::arrayOf($items))); }
+
+    public function multiply(int $multiplier): static
+    {
+        $out = [];
+        for ($i = 0; $i < $multiplier; $i++) {
+            foreach ($this->items as $item) { $out[] = $item; }
+        }
+        return new static($out);
+    }
+
+    public function nth(int $step, int $offset = 0): static
+    {
+        $out = [];
+        $position = 0;
+        foreach (array_slice($this->items, $offset) as $item) {
+            if ($position % $step === 0) { $out[] = $item; }
+            $position++;
+        }
+        return new static($out);
+    }
+
+    public function pad(int $size, mixed $value): static { return new static(array_pad($this->items, $size, $value)); }
+
+    public function percentage(callable $callback, int $precision = 2): ?float
+    {
+        if ($this->count() === 0) { return null; }
+        return round($this->filter($callback)->count() / $this->count() * 100, $precision);
+    }
+
+    public function pipeThrough(array $callbacks): mixed
+    {
+        return array_reduce($callbacks, fn (mixed $carry, callable $callback): mixed => $callback($carry), $this);
+    }
+
+    public function reduceWithKeys(callable $callback, mixed $initial = null): mixed
+    {
+        $carry = $initial;
+        foreach ($this->items as $k => $v) { $carry = $callback($carry, $v, $k); }
+        return $carry;
+    }
+
+    public function reduceSpread(callable $callback, mixed ...$initial): array
+    {
+        $carry = $initial;
+        foreach ($this->items as $k => $v) {
+            $result = $callback(...array_merge($carry, [$v, $k]));
+            if (!is_array($result)) {
+                throw new \UnexpectedValueException(sprintf("%s::reduceSpread expects reducer to return an array, but got a '%s' instead.", static::class, get_debug_type($result)));
+            }
+            $carry = $result;
+        }
+        return $carry;
+    }
+
+    public function replace(mixed $items): static { return new static(array_replace($this->items, self::arrayOf($items))); }
+    public function replaceRecursive(mixed $items): static { return new static(self::replaceDeep($this->items, self::arrayOf($items))); }
+
+    protected static function replaceDeep(array $base, array $with): array
+    {
+        foreach ($with as $k => $v) {
+            $base[$k] = is_array($v) && is_array($base[$k] ?? null) ? self::replaceDeep($base[$k], $v) : $v;
+        }
+        return $base;
+    }
+
+    public function select(mixed $keys): static
+    {
+        $keys = is_array($keys) ? $keys : func_get_args();
+        return $this->map(function (mixed $item) use ($keys): array {
+            $out = [];
+            foreach ($keys as $k) {
+                if (is_array($item) ? array_key_exists($k, $item) : (is_object($item) && isset($item->$k))) { $out[$k] = data_get($item, $k); }
+            }
+            return $out;
+        });
+    }
+
+    protected function predicate(mixed $value): \Closure
+    {
+        return $value instanceof \Closure ? $value : fn (mixed $item): bool => $item === $value;
+    }
+
+    public function skipUntil(mixed $value): static
+    {
+        $test = $this->predicate($value);
+        $out = [];
+        $taking = false;
+        foreach ($this->items as $k => $item) {
+            if (!$taking && $test($item, $k)) { $taking = true; }
+            if ($taking) { $out[$k] = $item; }
+        }
+        return new static($out);
+    }
+
+    public function skipWhile(mixed $value): static
+    {
+        $test = $this->predicate($value);
+        return $this->skipUntil(fn (mixed $item, string|int $k): bool => !$test($item, $k));
+    }
+
+    public function takeUntil(mixed $value): static
+    {
+        $test = $this->predicate($value);
+        $out = [];
+        foreach ($this->items as $k => $item) {
+            if ($test($item, $k)) { break; }
+            $out[$k] = $item;
+        }
+        return new static($out);
+    }
+
+    public function takeWhile(mixed $value): static
+    {
+        $test = $this->predicate($value);
+        return $this->takeUntil(fn (mixed $item, string|int $k): bool => !$test($item, $k));
+    }
+
+    public function sliding(int $size = 2, int $step = 1): static
+    {
+        $chunks = (int) floor(($this->count() - $size) / $step) + 1;
+        $out = [];
+        for ($i = 0; $i < $chunks; $i++) { $out[] = $this->slice($i * $step, $size); }
+        return new static($out);
+    }
+
+    public function sortKeysDesc(): static { return $this->sortKeys(true); }
+    public function sortKeysUsing(callable $callback): static { return new static(uksort($this->items, $callback)); }
+
+    public function split(int $numberOfGroups): static
+    {
+        if ($this->isEmpty()) { return new static([]); }
+        $groupSize = intdiv($this->count(), $numberOfGroups);
+        $remain = $this->count() % $numberOfGroups;
+        $start = 0;
+        $groups = [];
+        $values = array_values($this->items);
+        for ($i = 0; $i < $numberOfGroups; $i++) {
+            $size = $groupSize + ($i < $remain ? 1 : 0);
+            if ($size > 0) { $groups[] = new static(array_slice($values, $start, $size)); }
+            $start += $size;
+        }
+        return new static($groups);
+    }
+
+    public function splitIn(int $numberOfGroups): static { return $this->chunk((int) ceil($this->count() / $numberOfGroups)); }
+
+    public function union(mixed $items): static { return new static($this->items + self::arrayOf($items)); }
+    public function uniqueStrict(string|callable|null $key = null): static { return $this->unique($key, true); }
+
+    public function value(string $key, mixed $default = null): mixed
+    {
+        $first = $this->first(fn (mixed $item): bool => data_get($item, $key) !== null);
+        return $first === null ? ($default instanceof \Closure ? $default() : $default) : data_get($first, $key);
+    }
+
+    public function whenEmpty(callable $callback, ?callable $default = null): mixed { return $this->when($this->isEmpty(), $callback, $default); }
+    public function whenNotEmpty(callable $callback, ?callable $default = null): mixed { return $this->when($this->isNotEmpty(), $callback, $default); }
+    public function unlessEmpty(callable $callback, ?callable $default = null): mixed { return $this->whenNotEmpty($callback, $default); }
+    public function unlessNotEmpty(callable $callback, ?callable $default = null): mixed { return $this->whenEmpty($callback, $default); }
+
+    public function whereBetween(string $key, array $values): static
+    {
+        return $this->filter(fn (mixed $item): bool => data_get($item, $key) >= reset_value($values) && data_get($item, $key) <= end_value($values));
+    }
+
+    public function whereNotBetween(string $key, array $values): static
+    {
+        return $this->filter(fn (mixed $item): bool => data_get($item, $key) < reset_value($values) || data_get($item, $key) > end_value($values));
+    }
+
+    public function whereNotIn(string $key, array $values): static { return $this->reject(fn (mixed $item): bool => in_array(data_get($item, $key), $values, false) || self::inLoose(data_get($item, $key), $values)); }
+    public function whereNull(?string $key = null): static { return $this->filter(fn (mixed $item): bool => ($key === null ? $item : data_get($item, $key)) === null); }
+    public function whereStrict(string $key, mixed $value): static { return $this->filter(fn (mixed $item): bool => data_get($item, $key) === $value); }
+    public function whereInStrict(string $key, array $values): static { return $this->filter(fn (mixed $item): bool => in_array(data_get($item, $key), $values, true)); }
+    public function whereNotInStrict(string $key, array $values): static { return $this->reject(fn (mixed $item): bool => in_array(data_get($item, $key), $values, true)); }
+
+    protected static function inLoose(mixed $value, array $values): bool
+    {
+        foreach ($values as $v) {
+            if (self::looseEquals($value, $v)) { return true; }
+        }
+        return false;
+    }
+
+    public function zip(mixed ...$items): static
+    {
+        $arrays = array_map(fn (mixed $i): array => array_values(self::arrayOf($i)), $items);
+        $out = [];
+        foreach (array_values($this->items) as $i => $item) {
+            $row = [$item];
+            foreach ($arrays as $a) { $row[] = $a[$i] ?? null; }
+            $out[] = new static($row);
+        }
+        return new static($out);
+    }
+
+    public function unshift(mixed ...$values): static { $this->items = array_merge($values, $this->items); return $this; }
+    public function toPrettyJson(int $options = 0): string { return json_encode($this->jsonSerialize(), JSON_PRETTY_PRINT | $options); }
+
+    /** Removes and returns a slice; the collection keeps the rest (and the replacement). */
+    public function splice(int $offset, ?int $length = null, mixed $replacement = []): static
+    {
+        $values = array_values($this->items);
+        $count = count($values);
+        $start = $offset < 0 ? max(0, $count + $offset) : min($offset, $count);
+        $len = $length === null ? $count - $start : ($length < 0 ? max(0, $count + $length - $start) : $length);
+        $removed = array_slice($values, $start, $len);
+        $this->items = array_merge(array_slice($values, 0, $start), self::arrayOf($replacement), array_slice($values, $start + $len));
+        return new static($removed);
+    }
+
+    public function pull(string|int $key, mixed $default = null): mixed
+    {
+        $value = $this->get($key, $default);
+        unset($this->items[$key]);
+        return $value;
+    }
+
+    public function transform(callable $callback): static { $this->items = $this->map($callback)->all(); return $this; }
+
+    public function forget(mixed $keys): static
+    {
+        foreach ((array) $keys as $k) { unset($this->items[$k]); }
+        return $this;
+    }
+
+    public function getOrPut(string|int $key, mixed $value): mixed
+    {
+        if (array_key_exists($key, $this->items)) { return $this->items[$key]; }
+        $v = $value instanceof \Closure ? $value() : $value;
+        $this->items[$key] = $v;
+        return $v;
     }
 
     public function getIterator(): \Iterator { return new \ArrayIterator($this->items); }
@@ -1403,5 +1851,21 @@ function iterator_to_array_values(iterable $values): array
     $out = [];
     foreach ($values as $v) { $out[] = $v; }
     return $out;
+}
+
+/** First value of an array (no internal pointer in the dialect). */
+function reset_value(array $a): mixed { return $a === [] ? null : $a[array_key_first($a)]; }
+
+/** Last value of an array. */
+function end_value(array $a): mixed { return $a === [] ? null : $a[array_key_last($a)]; }
+
+class ItemNotFoundException extends \RuntimeException {}
+
+class MultipleItemsFoundException extends \RuntimeException
+{
+    public function __construct(public int $count = 0)
+    {
+        parent::__construct("{$count} items were found.");
+    }
 }
 
