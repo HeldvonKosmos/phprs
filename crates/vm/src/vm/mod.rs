@@ -177,6 +177,8 @@ pub struct Vm {
     pub(crate) consts_in_progress: Vec<(ClassId, Vec<u8>)>,
     /// `run` calls currently nested (calls from Rust back into the VM).
     pub(crate) nested_runs: u32,
+    /// Running magic property methods: (object, property, kind) — PHP's guards.
+    pub(crate) magic_guards: Vec<(ObjHandle, Vec<u8>, u8)>,
     /// Built string and array constants per module (`const_to_val`).
     pub(crate) const_cache: Vec<Vec<Option<Val>>>,
     pub output: Vec<u8>,
@@ -236,6 +238,7 @@ impl Vm {
             fast_natives: [u32::MAX; 4],
             consts_in_progress: Vec::new(),
             nested_runs: 0,
+            magic_guards: Vec::new(),
             const_cache: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),

@@ -143,7 +143,7 @@ impl Vm {
                         let key = PhpString::from(name.as_slice());
                         if let Some(v) = self.objects.get_mut(*h).dynamic.get_mut(&key) {
                             std::mem::take(v)
-                        } else if self.class(class).find_method(b"__get").is_some() {
+                        } else if self.class(class).find_method(b"__get").is_some() && !self.magic_guarded(*h, name, MAGIC_GET) {
                             return Err(Throw::error(format!("Indirect modification of overloaded property {}::${}", String::from_utf8_lossy(&self.class(class).name), String::from_utf8_lossy(name))));
                         } else {
                             Val::Null
@@ -329,13 +329,13 @@ impl Vm {
                         return Ok(result);
                     }
                 }
-                if self.class(class).find_method(b"__set").is_some() {
+                if self.class(class).find_method(b"__set").is_some() && !self.magic_guarded(h, name, MAGIC_SET) {
                     let old = match mode {
                         WriteMode::Assign => Val::Null,
                         _ => self.read_prop(h, name, true)?,
                     };
                     let (new, result) = self.apply_mode(mode, old, value)?;
-                    self.call_method_sync(h, b"__set", vec![Val::bytes(name), new])?;
+                    self.call_magic(h, b"__set", MAGIC_SET, name, vec![Val::bytes(name), new])?;
                     return Ok(result);
                 }
                 match lookup {
@@ -406,10 +406,12 @@ impl Vm {
                         return Ok(v);
                     }
                 }
-                let has_get = self.class(class).find_method(b"__get").is_some();
-                let has_isset = self.class(class).find_method(b"__isset").is_some();
+                // inside __get/__isset for this property of this object the property is
+                // read directly (PHP's guards), so a magic method can read its own name
+                let has_get = self.class(class).find_method(b"__get").is_some() && !self.magic_guarded(h, name, MAGIC_GET);
+                let has_isset = self.class(class).find_method(b"__isset").is_some() && !self.magic_guarded(h, name, MAGIC_ISSET);
                 if quiet && has_isset {
-                    let set = self.call_method_sync(h, b"__isset", vec![Val::bytes(name)])?;
+                    let set = self.call_magic(h, b"__isset", MAGIC_ISSET, name, vec![Val::bytes(name)])?;
                     if !set.to_bool() {
                         return Ok(Val::Null);
                     }
@@ -418,7 +420,7 @@ impl Vm {
                     }
                 }
                 if has_get {
-                    return self.call_method_sync(h, b"__get", vec![Val::bytes(name)]);
+                    return self.call_magic(h, b"__get", MAGIC_GET, name, vec![Val::bytes(name)]);
                 }
                 if quiet {
                     return Ok(Val::Null);
@@ -517,8 +519,9 @@ impl Vm {
                         let key = PhpString::from(name.as_slice());
                         if self.objects.get_mut(h).dynamic.shift_remove(&key).is_none()
                             && self.class(class).find_method(b"__unset").is_some()
+                            && !self.magic_guarded(h, &name, MAGIC_UNSET)
                         {
-                            self.call_method_sync(h, b"__unset", vec![Val::Str(key)])?;
+                            self.call_magic(h, b"__unset", MAGIC_UNSET, &name, vec![Val::Str(key)])?;
                         }
                     }
                 }
@@ -671,3 +674,61 @@ pub(crate) fn scalar_type_matches(t: &TypeHint, v: &Val) -> bool {
             | (TypeHint::Mixed, _)
     )
 }
+
+/// Kinds of magic property methods, for their guards.
+pub(crate) const MAGIC_GET: u8 = 0;
+pub(crate) const MAGIC_SET: u8 = 1;
+pub(crate) const MAGIC_ISSET: u8 = 2;
+pub(crate) const MAGIC_UNSET: u8 = 3;
+
+impl Vm {
+    /// `isset($o->name)` as PHP's has_property: a visible property counts when it
+    /// is not null, a native class answers through its handlers, otherwise
+    /// `__isset` decides (unless it already runs for this property); `__get` is
+    /// never called.
+    pub(crate) fn isset_prop(&mut self, obj: Val, name: &[u8]) -> Result<bool, Throw> {
+        let Val::Object(h) = obj else { return Ok(false) };
+        let class = self.objects.get(h).class;
+        let scope = self.scope_class();
+        let lookup = self.lookup_prop(class, name, scope);
+        if let super::class::PropLookup::Slot(idx) = lookup {
+            return Ok(matches!(&self.objects.get(h).slots[idx], Some(v) if !v.is_null()));
+        }
+        if matches!(lookup, super::class::PropLookup::Undeclared)
+            && let Some(v) = self.objects.get(h).dynamic.get(&PhpString::from(name))
+        {
+            return Ok(!v.is_null());
+        }
+        if let Some(n) = self.native_info(class) {
+            if let Some(isset) = n.handlers.isset
+                && let Some(set) = isset(self, h, name)?
+            {
+                return Ok(set);
+            }
+            if let Some(get) = n.handlers.get
+                && let Some(v) = get(self, h, name)?
+            {
+                return Ok(!v.is_null());
+            }
+        }
+        if self.class(class).find_method(b"__isset").is_some() && !self.magic_guarded(h, name, MAGIC_ISSET) {
+            return Ok(self.call_magic(h, b"__isset", MAGIC_ISSET, name, vec![Val::bytes(name)])?.to_bool());
+        }
+        Ok(false)
+    }
+
+    /// Whether `__get`/`__set`/`__isset`/`__unset` already runs for this
+    /// property of this object (then the access goes to the property itself).
+    pub(crate) fn magic_guarded(&self, h: ObjHandle, name: &[u8], kind: u8) -> bool {
+        self.magic_guards.iter().any(|(g, n, k)| *g == h && *k == kind && n == name)
+    }
+
+    /// Call a magic property method with its guard set.
+    fn call_magic(&mut self, h: ObjHandle, method: &[u8], kind: u8, name: &[u8], args: Vec<Val>) -> Result<Val, Throw> {
+        self.magic_guards.push((h, name.to_vec(), kind));
+        let r = self.call_method_sync(h, method, args);
+        self.magic_guards.pop();
+        r
+    }
+}
+

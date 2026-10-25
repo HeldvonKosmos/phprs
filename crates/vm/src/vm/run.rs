@@ -692,6 +692,19 @@ impl Vm {
                 let v = self.fetch_prop_value(obj, &n, quiet)?;
                 self.push(v);
             }
+            Op::IssetProp(name) => {
+                let obj = self.pop();
+                let n = module.str(*name).to_vec();
+                let set = self.isset_prop(obj, &n)?;
+                self.push(Val::Bool(set));
+            }
+            Op::IssetPropDyn => {
+                let name = self.pop();
+                let obj = self.pop();
+                let n = self.to_string_val(&name)?.as_bytes().to_vec();
+                let set = self.isset_prop(obj, &n)?;
+                self.push(Val::Bool(set));
+            }
             Op::FetchStaticProp(cr, name) => {
                 let class = self.resolve_class_ref(cr, midx)?;
                 let n = module.str(*name).to_vec();

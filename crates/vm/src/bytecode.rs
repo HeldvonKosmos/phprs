@@ -213,6 +213,11 @@ pub enum Op {
     /// obj, name → val
     FetchPropDyn,
     FetchPropDynQuiet,
+    /// `isset($o->name)`, the last property of an isset: pushes a bool. Like PHP's
+    /// has_property: the value if visible, else `__isset` (never `__get`).
+    IssetProp(StrId),
+    /// `isset($o->$name)`: name on the stack above the object.
+    IssetPropDyn,
     FetchStaticProp(ClassRef, StrId),
     FetchClassConst(ClassRef, StrId),
     /// Global constant with optional global fallback for namespaced code.

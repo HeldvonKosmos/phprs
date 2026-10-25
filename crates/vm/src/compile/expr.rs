@@ -475,6 +475,39 @@ impl Compiler {
         }
     }
 
+    /// One value of `isset(...)` as a bool: a property at the end asks the object
+    /// whether it is set (`__isset`, never `__get`), everything else is a quiet
+    /// read compared with null.
+    fn compile_isset_value(&mut self, e: &Expression<'_>) -> CResult<()> {
+        let (object, sel) = match e {
+            Expression::Parenthesized(p) => return self.compile_isset_value(p.expression),
+            Expression::Access(Access::Property(p)) => (p.object, &p.property),
+            Expression::Access(Access::NullSafeProperty(p)) => (p.object, &p.property),
+            _ => {
+                self.compile_quiet(e)?;
+                self.emit(Op::IsNotNull);
+                return Ok(());
+            }
+        };
+        self.compile_quiet(object)?;
+        match sel {
+            ClassLikeMemberSelector::Identifier(id) => {
+                let name = self.intern(id.value);
+                self.emit(Op::IssetProp(name));
+            }
+            ClassLikeMemberSelector::Variable(v) => {
+                self.compile_variable_read(v, false)?;
+                self.emit(Op::IssetPropDyn);
+            }
+            ClassLikeMemberSelector::Expression(x) => {
+                self.compile_expr(x.expression)?;
+                self.emit(Op::IssetPropDyn);
+            }
+            ClassLikeMemberSelector::Missing(s) => return self.err(*s, "Property-Name fehlt"),
+        }
+        Ok(())
+    }
+
     fn compile_prop_fetch(&mut self, sel: &ClassLikeMemberSelector<'_>, quiet: bool) -> CResult<()> {
         match sel {
             ClassLikeMemberSelector::Identifier(id) => {
@@ -1030,8 +1063,7 @@ impl Compiler {
                 let mut false_jumps = Vec::new();
                 let n = i.values.len();
                 for (k, v) in i.values.iter().enumerate() {
-                    self.compile_quiet(v)?;
-                    self.emit(Op::IsNotNull);
+                    self.compile_isset_value(v)?;
                     if k + 1 < n {
                         false_jumps.push(self.emit(Op::JumpIfFalse(0)));
                     }

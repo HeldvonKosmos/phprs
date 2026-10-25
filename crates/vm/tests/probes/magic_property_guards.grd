@@ -1,0 +1,44 @@
+<?grd
+// PHP's guards: inside __get/__set/__isset/__unset for a property of an
+// object, accessing that same property of that object does not call the
+// magic method again (no endless recursion). Without dynamic properties,
+// which the dialect forbids: values live in a declared array.
+final class Bag
+{
+    public array $log = [];
+    private array $data = [];
+    public function __get(string $name): mixed
+    {
+        $this->log[] = "get $name";
+        if ($name === 'alias') {
+            return $this->target;
+        }
+        return $this->data[$name] ?? $this->$name ?? "default-$name";
+    }
+    public function __set(string $name, mixed $value): void
+    {
+        $this->log[] = "set $name";
+        $this->data[$name] = $value;
+    }
+    public function __isset(string $name): bool
+    {
+        $this->log[] = "isset $name";
+        return isset($this->data[$name]) || isset($this->$name);
+    }
+    public function __unset(string $name): void
+    {
+        $this->log[] = "unset $name";
+        unset($this->$name);
+        unset($this->data[$name]);
+    }
+}
+$b = new Bag();
+echo $b->color, "\n";
+$b->color = 'red';
+echo $b->color, "\n";
+var_dump(isset($b->size), isset($b->color));
+unset($b->color);
+echo $b->color, "\n";
+$b->target = 'T';
+echo $b->alias, "\n";
+echo implode(', ', $b->log), "\n";

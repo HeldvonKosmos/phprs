@@ -1,0 +1,7 @@
+default-color
+red
+bool(false)
+bool(true)
+default-color
+T
+get color, isset color, set color, get color, isset size, isset color, unset color, get color, isset color, set target, get alias, get target
