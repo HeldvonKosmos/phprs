@@ -1259,7 +1259,9 @@ impl Vm {
                     _ => return Err(Throw::error("foreach iterator state missing")),
                 };
                 let mut state = self.iters[idx].take().expect("iterator");
+                self.iters_taken.push(idx);
                 let r = self.iter_next(&mut state);
+                self.iters_taken.pop();
                 self.iters[idx] = Some(state);
                 match r? {
                     Some((k, v)) => {

@@ -108,7 +108,11 @@ impl Vm {
     }
 
     pub(crate) fn alloc_iter(&mut self, state: IterState) -> usize {
-        if let Some(i) = self.iters.iter().position(Option::is_none) {
+        // a slot whose iterator is taken out while it advances (IterNext) looks
+        // empty but is in use: a foreach inside the generator it resumes must
+        // not get it
+        let free = (0..self.iters.len()).find(|i| self.iters[*i].is_none() && !self.iters_taken.contains(i));
+        if let Some(i) = free {
             self.iters[i] = Some(state);
             i
         } else {

@@ -1,0 +1,12 @@
+DateTime 0
+a=X inner=X
+b=Y inner=Y
+int(0)
+int(42)
+int(26)
+int(10)
+int(3)
+int(0)
+base_convert(): Argument #2 ($from_base) must be between 2 and 36 (inclusive)
+base_convert(): Argument #3 ($to_base) must be between 2 and 36 (inclusive)
+string(4) "1011"

@@ -187,6 +187,8 @@ pub struct Vm {
     pub(crate) const_cache: Vec<Vec<Option<Val>>>,
     pub output: Vec<u8>,
     pub(crate) iters: Vec<Option<IterState>>,
+    /// Iterator slots taken out while their iterator advances (see `alloc_iter`).
+    pub(crate) iters_taken: Vec<usize>,
     /// Inline caches: one `Vec<IcEntry>` per unit (index = `ic_base[module] + unit`), indexed by op.
     pub(crate) ics: Vec<Vec<IcEntry>>,
     pub(crate) ic_base: Vec<usize>,
@@ -248,6 +250,7 @@ impl Vm {
             const_cache: Vec::new(),
             output: Vec::new(),
             iters: Vec::new(),
+            iters_taken: Vec::new(),
             ics: Vec::new(),
             ic_base: Vec::new(),
             profiles: Vec::new(),

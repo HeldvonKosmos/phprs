@@ -1,0 +1,25 @@
+<?grd
+// Cases that panicked the interpreter (found by the php-src probes, R1):
+// reflection of a native class, foreach inside a generator that a foreach
+// resumes, and invalid bases of intval/base_convert.
+$r = new ReflectionClass('DateTime');
+echo $r->getName(), ' ', count($r->getAttributes()), "\n";
+final class Bag implements IteratorAggregate
+{
+    public function __construct(private array $items) {}
+    public function getIterator(): Traversable
+    {
+        foreach ($this->items as $k => $v) {
+            yield $k => strtoupper($v);
+        }
+    }
+}
+foreach (new Bag(['a' => 'x', 'b' => 'y']) as $k => $v) {
+    foreach (new Bag(['inner' => $v]) as $ik => $iv) {
+        echo "$k=$v $ik=$iv\n";
+    }
+}
+var_dump(intval('42', 1), intval('42', 0), intval('0x1A', 0), intval('012', 0), intval('0b11', 0), intval('42', 37));
+foreach ([[1, 10], [10, 37], [10, 2]] as [$from, $to]) {
+    try { var_dump(base_convert('11', $from, $to)); } catch (ValueError $e) { echo $e->getMessage(), "\n"; }
+}

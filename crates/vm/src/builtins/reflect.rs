@@ -128,6 +128,10 @@ fn vis_str(v: Visibility) -> &'static str {
 }
 
 fn type_info(vm: &Vm, t: &TypeHint, module: u32) -> Val {
+    // types of native classes are not described here
+    if module == crate::vm::native::NATIVE_MODULE {
+        return Val::Null;
+    }
     let m = vm.modules[module as usize].clone();
     fn named(name: String, nullable: bool, builtin: bool) -> Val {
         let mut a = PhpArray::new();
@@ -164,6 +168,10 @@ fn type_info(vm: &Vm, t: &TypeHint, module: u32) -> Val {
 }
 
 fn attrs_to_val(vm: &Vm, attrs: &[crate::bytecode::AttributeDecl], module: u32) -> Val {
+    // native classes (module NATIVE_MODULE) carry no attributes
+    if attrs.is_empty() || module == crate::vm::native::NATIVE_MODULE {
+        return Val::empty_array();
+    }
     let m = &vm.modules[module as usize];
     Val::array(PhpArray::from_values(attrs.iter().map(|a| {
         let mut e = PhpArray::new();

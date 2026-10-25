@@ -68,8 +68,15 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("number_format", number_format);
     vm.register_native("base_convert", |_, a| {
         let s = args::string(a, 0, "base_convert")?;
-        let from = args::int(a, 1, "base_convert")? as u32;
-        let to = args::int(a, 2, "base_convert")? as u32;
+        let from = args::int(a, 1, "base_convert")?;
+        let to = args::int(a, 2, "base_convert")?;
+        if !(2..=36).contains(&from) {
+            return Err(Throw::value_error("base_convert(): Argument #2 ($from_base) must be between 2 and 36 (inclusive)"));
+        }
+        if !(2..=36).contains(&to) {
+            return Err(Throw::value_error("base_convert(): Argument #3 ($to_base) must be between 2 and 36 (inclusive)"));
+        }
+        let (from, to) = (from as u32, to as u32);
         let v = u128::from_str_radix(&s.to_string_lossy().to_lowercase(), from).unwrap_or(0);
         Ok(Val::from(to_radix(v, to)))
     });

@@ -128,9 +128,20 @@ fn intval(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
                 Some(r) => (true, r),
                 None => (false, t.strip_prefix('+').unwrap_or(t)),
             };
+            // base 0 detects it from the prefix like PHP (0x, 0o or 0, 0b, else 10);
+            // other bases outside 2..36 give 0 as in PHP
+            let b = if b == 0 {
+                let l = t.to_ascii_lowercase();
+                if l.starts_with("0x") { 16 } else if l.starts_with("0b") { 2 } else if l.starts_with("0o") || (l.starts_with('0') && l.len() > 1) { 8 } else { 10 }
+            } else {
+                b
+            };
+            if !(2..=36).contains(&b) {
+                return Ok(Val::Int(0));
+            }
             let t = match b {
                 16 => t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")).unwrap_or(t),
-                8 => t.strip_prefix("0o").or_else(|| t.strip_prefix("0O")).unwrap_or(t),
+                8 => t.strip_prefix("0o").or_else(|| t.strip_prefix("0O")).or_else(|| t.strip_prefix('0')).unwrap_or(t),
                 2 => t.strip_prefix("0b").or_else(|| t.strip_prefix("0B")).unwrap_or(t),
                 _ => t,
             };
