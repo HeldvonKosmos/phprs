@@ -32,6 +32,11 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .static_method("aliasMiddleware", |vm, c| {
             let name = string_arg(&c, 0, "Route::aliasMiddleware")?;
             let class = string_arg(&c, 1, "Route::aliasMiddleware")?;
+            // MW1 (D1): aliases are for the framework's own middleware; a project
+            // names its middleware class in the route. Deprecated, warned in development.
+            if ctx(vm).debug && ctx(vm).routes.aliases.get(&name) != Some(&class) {
+                tracing::warn!(target: "opengrid", alias = %name, class = %class, "Route::aliasMiddleware is deprecated for project middleware: put the class in the route ('middleware' => [{}::class])", class.rsplit('\\').next().unwrap_or(&class));
+            }
             ctx(vm).routes.aliases.insert(name, class);
             Ok(Val::Null)
         })
