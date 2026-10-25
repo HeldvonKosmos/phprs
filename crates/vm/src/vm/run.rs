@@ -998,6 +998,17 @@ impl Vm {
             }
             Op::CallMethodSel { sel, spec } => {
                 let argspec = &unit.arg_specs[*spec as usize];
+                // FRAME1: cached user method with positional arguments: bind them from the stack
+                if argspec.is_simple() {
+                    let n = argspec.count();
+                    if let Val::Object(h) = self.stack[self.stack.len() - n - 1] {
+                        let class = self.objects.get(h).class;
+                        let e = self.ics[self.frames[fidx].ic][ip];
+                        if e.class == Some(class) && e.b != super::IC_NATIVE && self.push_frame_from_stack(e.a, e.b, n, 1, if e.flag { None } else { Some(h) }, Some(ClassId(e.c)), Some(class))? {
+                            return Ok(Flow::Switch);
+                        }
+                    }
+                }
                 let (args, named) = self.pop_args(midx, argspec)?;
                 let obj = self.pop();
                 let Val::Object(h) = obj else {
@@ -1073,9 +1084,27 @@ impl Vm {
                 }
             }
             Op::CallStaticSel { class, sel, spec } => {
-                let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
-                let cid = self.resolve_class_ref(class, midx)?;
+                let argspec = &unit.arg_specs[*spec as usize];
+                // a dynamic class (`$class::m()`) sits on the stack below the arguments
+                let early = if matches!(class, ClassRef::Dynamic) { None } else { Some(self.resolve_class_ref(class, midx)?) };
                 let forwarding = matches!(class, ClassRef::SelfRef | ClassRef::Parent | ClassRef::Static);
+                // FRAME1: cached user static method with positional arguments: bind them from the stack
+                if let Some(cid) = early
+                    && argspec.is_simple()
+                {
+                    let e = self.ics[self.frames[fidx].ic][ip];
+                    if e.class == Some(cid) && e.b != super::IC_NATIVE {
+                        let static_class = if forwarding { self.frames[fidx].static_class.unwrap_or(cid) } else { cid };
+                        if self.push_frame_from_stack(e.a, e.b, argspec.count(), 0, None, Some(ClassId(e.c)), Some(static_class))? {
+                            return Ok(Flow::Switch);
+                        }
+                    }
+                }
+                let (args, named) = self.pop_args(midx, argspec)?;
+                let cid = match early {
+                    Some(cid) => cid,
+                    None => self.resolve_class_ref(class, midx)?,
+                };
                 // CALL1: public static methods are cached per call site and class
                 // (`Route::get`, `DB::table`, `Str::lower`): visibility and scope do not matter
                 let icx = self.frames[fidx].ic;
@@ -1502,6 +1531,9 @@ impl Vm {
     /// The return value after the type check (int → float widening for a
     /// float return type, as in PHP), or the TypeError.
     fn check_return(&mut self, v: Val, t: &TypeHint, module: &Rc<Module>, fidx: usize, unit: &CodeUnit) -> Result<Val, Throw> {
+        if super::path::scalar_type_matches(t, &v) {
+            return Ok(v);
+        }
         let class_ctx = self.frames[fidx].class;
         let static_ctx = self.frames[fidx].static_class;
         let checked = match t {

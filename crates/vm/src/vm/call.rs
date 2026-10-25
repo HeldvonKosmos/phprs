@@ -153,6 +153,8 @@ impl Vm {
     pub(crate) fn coerce_param(&mut self, module: &Rc<Module>, unit: &CodeUnit, p: &Param, v: Val, class_ctx: Option<ClassId>) -> Result<Val, Throw> {
         match &p.ty {
             None => Ok(v),
+            // FRAME1: the common case (int to int, …) needs neither a clone nor the full check
+            Some(t) if super::path::scalar_type_matches(t, &v) => Ok(v),
             Some(t) => match self.check_type(&v, t, module, class_ctx) {
                 Some(v) => Ok(v),
                 None => Err(Throw::type_error(format!(
@@ -272,13 +274,73 @@ impl Vm {
 
     // ---- frames ------------------------------------------------------------------
 
+    /// FRAME1: push a frame whose positional arguments are the top `n` values
+    /// of the operand stack, bound straight into the new slots (no argument
+    /// Vec); `drop_below` more values under them (the receiver of a method
+    /// call) are removed too. Returns false with the stack untouched when the
+    /// callee needs the general path (generator, variadic, too many arguments).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn push_frame_from_stack(&mut self, module_idx: u32, unit_id: UnitId, n: usize, drop_below: usize, this: Option<ObjHandle>, class: Option<ClassId>, static_class: Option<ClassId>) -> Result<bool, Throw> {
+        let module = self.modules[module_idx as usize].clone();
+        let unit = &module.units[unit_id as usize];
+        if unit.is_generator || n > unit.params.len() || unit.params.iter().any(|p| p.variadic) {
+            return Ok(false);
+        }
+        let num_slots = unit.num_slots;
+        let base = self.slot_stack.len();
+        self.slot_stack.resize(base + num_slots as usize, None);
+        let at = self.stack.len() - n;
+        for i in 0..n {
+            let v = std::mem::take(&mut self.stack[at + i]);
+            let p = &unit.params[i];
+            match self.coerce_param(&module, unit, p, v, class) {
+                Ok(v) => self.slot_stack[base + p.slot as usize] = Some(v),
+                Err(e) => {
+                    self.slot_stack.truncate(base);
+                    self.stack.truncate(at - drop_below);
+                    return Err(e);
+                }
+            }
+        }
+        self.stack.truncate(at - drop_below);
+        if unit.params[n..].iter().any(|p| !p.has_default) {
+            self.slot_stack.truncate(base);
+            return Err(Throw::argument_count(format!("Too few arguments to function {}(), {} passed and at least {} expected", unit.name, n, unit.required_params)));
+        }
+        let ic = self.ic_base[module_idx as usize] + unit_id as usize;
+        let prof = &mut self.profiles[ic];
+        prof.calls = prof.calls.saturating_add(1);
+        if prof.calls >= super::HOT_CALLS {
+            prof.hot = true;
+        }
+        self.frames.push(Frame {
+            module,
+            module_idx,
+            unit: unit_id,
+            ip: 0,
+            slot_base: base,
+            num_slots,
+            this,
+            class,
+            static_class,
+            stack_base: self.stack.len(),
+            arg_present: if n >= 64 { u64::MAX } else { (1u64 << n) - 1 },
+            pending: Pending::None,
+            generator: None,
+            ic,
+            return_override: None,
+        });
+        Ok(true)
+    }
+
     /// Push a frame for `target`. Generators are not started: a Generator
     /// object is returned instead.
     pub(crate) fn push_frame(&mut self, target: CallTarget, args: Vec<Val>, named: Vec<(Vec<u8>, Val)>) -> Result<Option<Val>, Throw> {
         let module = self.modules[target.module as usize].clone();
         let unit = &module.units[target.unit as usize];
+        let (num_slots, pbase, is_generator) = (unit.num_slots, unit.params.len(), unit.is_generator);
         let base = self.slot_stack.len();
-        self.slot_stack.resize(base + unit.num_slots as usize, None);
+        self.slot_stack.resize(base + num_slots as usize, None);
         let present = match self.bind_args(&module, unit, args, named, target.class, base) {
             Ok(p) => p,
             Err(e) => {
@@ -294,19 +356,19 @@ impl Vm {
                 prof.hot = true;
             }
         }
-        let pbase = unit.params.len();
         for (i, c) in target.captures.into_iter().enumerate() {
-            if pbase + i < unit.num_slots as usize {
+            if pbase + i < num_slots as usize {
                 self.slot_stack[base + pbase + i] = c;
             }
         }
+        // the Rc moves into the frame (FRAME1: no second reference count round trip)
         let frame = Frame {
-            module: module.clone(),
+            module,
             module_idx: target.module,
             unit: target.unit,
             ip: 0,
             slot_base: base,
-            num_slots: unit.num_slots,
+            num_slots,
             this: target.this,
             class: target.class,
             static_class: target.static_class,
@@ -317,7 +379,7 @@ impl Vm {
             ic,
             return_override: target.return_override,
         };
-        if unit.is_generator {
+        if is_generator {
             let saved = self.slot_stack.split_off(base);
             let h = self.make_generator(frame, saved)?;
             return Ok(Some(Val::Object(h)));

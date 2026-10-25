@@ -1,0 +1,12 @@
+<?php
+// Static calls on a class from a variable: the class name is evaluated before the arguments.
+final class Repo {
+    public static function find(string $key, int $n = 1): string { return static::class . ":$key:$n"; }
+}
+function cls(): string { echo "[class]"; return 'Repo'; }
+function arg(string $v): string { echo "[arg $v]"; return $v; }
+$c = 'Repo';
+for ($i = 0; $i < 3; $i++) { echo $c::find('k' . $i, $i), "\n"; }
+echo cls()::find(arg('x')), "\n";
+$o = new Repo();
+echo $o::find('obj'), "\n";
