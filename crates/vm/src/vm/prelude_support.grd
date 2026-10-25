@@ -206,6 +206,334 @@ final class Str
     {
         return $before . $value . ($after ?? $before);
     }
+
+    // ---- S1b ---------------------------------------------------------------
+
+    public static function betweenFirst(string $subject, string $from, string $to): string
+    {
+        if ($from === '' || $to === '') { return $subject; }
+        return self::before(self::after($subject, $from), $to);
+    }
+
+    public static function charAt(string $subject, int $index): string|false
+    {
+        $length = mb_strlen($subject);
+        if ($index < 0 ? $index < -$length : $index > $length - 1) { return false; }
+        return mb_substr($subject, $index, 1);
+    }
+
+    public static function chopStart(string $subject, string|array $needle): string
+    {
+        foreach ((array) $needle as $n) {
+            if ($n !== '' && str_starts_with($subject, $n)) { return substr($subject, strlen($n)); }
+        }
+        return $subject;
+    }
+
+    public static function chopEnd(string $subject, string|array $needle): string
+    {
+        foreach ((array) $needle as $n) {
+            if ($n !== '' && str_ends_with($subject, $n)) { return substr($subject, 0, -strlen($n)); }
+        }
+        return $subject;
+    }
+
+    public static function deduplicate(string $string, string|array $characters = ' '): string
+    {
+        foreach ((array) $characters as $c) {
+            $string = preg_replace('/' . preg_quote($c, '/') . '+/u', $c, $string);
+        }
+        return $string;
+    }
+
+    public static function doesntContain(string $haystack, string|array $needles, bool $ignoreCase = false): bool { return !self::contains($haystack, $needles, $ignoreCase); }
+    public static function doesntStartWith(string $haystack, string|array $needles): bool { return !self::startsWith($haystack, $needles); }
+    public static function doesntEndWith(string $haystack, string|array $needles): bool { return !self::endsWith($haystack, $needles); }
+
+    /** Text around the first occurrence of $phrase; omission marks cut text, null when not found. */
+    public static function excerpt(string $text, string $phrase = '', array $options = []): ?string
+    {
+        $radius = (int) ($options['radius'] ?? 100);
+        $omission = (string) ($options['omission'] ?? '...');
+        $m = preg_match('/^(.*?)(' . preg_quote($phrase, '/') . ')(.*)$/iu', $text);
+        if ($m === false || $m === []) { return null; }
+        $before = ltrim((string) $m[1]);
+        $start = ltrim(mb_substr($before, max(mb_strlen($before) - $radius, 0), $radius));
+        if ($start !== $before) { $start = $omission . $start; }
+        $after = rtrim((string) $m[3]);
+        $end = rtrim(mb_substr($after, 0, $radius));
+        if ($end !== $after) { $end = $end . $omission; }
+        return $start . $m[2] . $end;
+    }
+
+    public static function toBase64(string $string): string { return base64_encode($string); }
+    public static function fromBase64(string $string, bool $strict = false): string|false { return base64_decode($string, $strict); }
+
+    public static function ucsplit(string $string): array { return preg_split('/(?=\p{Lu})/u', $string, -1, PREG_SPLIT_NO_EMPTY); }
+
+    public static function headline(string $value): string
+    {
+        $parts = preg_split('/\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY);
+        $parts = count($parts) > 1 ? $parts : self::ucsplit(implode('_', $parts));
+        $titled = [];
+        foreach ($parts as $p) { $titled[] = self::title($p); }
+        $collapsed = str_replace(['-', '_', ' '], '_', implode('_', $titled));
+        return implode(' ', array_values(array_filter(explode('_', $collapsed), fn (string $w): bool => $w !== '')));
+    }
+
+    public static function isAscii(string $value): bool { return preg_match('/^[\x00-\x7F]*$/', $value) !== []; }
+
+    public static function isMatch(string|array $pattern, string $value): bool
+    {
+        foreach ((array) $pattern as $p) {
+            if (preg_match((string) $p, $value) !== []) { return true; }
+        }
+        return false;
+    }
+
+    public static function isUrl(mixed $value, array $protocols = []): bool
+    {
+        if (!is_string($value)) { return false; }
+        $scheme = $protocols === [] ? '[a-z][a-z0-9+.\-]*' : implode('|', array_map(fn (string $p): string => preg_quote($p, '~'), $protocols));
+        return preg_match('~^(' . $scheme . ')://([^\s/?#@]+@)?([\pL\pN\pS\pM\-_.]+|\[[0-9a-f:.]+\])(:[0-9]+)?([/?#][^\s]*)?$~iu', $value) !== [];
+    }
+
+    public static function trim(string $value, ?string $charlist = null): string { return $charlist === null ? preg_replace('~^[\s\x{FEFF}\x{200B}\x{200E}]+|[\s\x{FEFF}\x{200B}\x{200E}]+$~u', '', $value) : trim($value, $charlist); }
+    public static function ltrim(string $value, ?string $charlist = null): string { return $charlist === null ? preg_replace('~^[\s\x{FEFF}\x{200B}\x{200E}]+~u', '', $value) : ltrim($value, $charlist); }
+    public static function rtrim(string $value, ?string $charlist = null): string { return $charlist === null ? preg_replace('~[\s\x{FEFF}\x{200B}\x{200E}]+$~u', '', $value) : rtrim($value, $charlist); }
+
+    /** The first group (or the whole match) of $pattern, '' when it does not match. */
+    public static function match(string $pattern, string $subject): string
+    {
+        $m = preg_match($pattern, $subject);
+        if ($m === false || $m === []) { return ''; }
+        return (string) ($m[1] ?? $m[0]);
+    }
+
+    public static function matchAll(string $pattern, string $subject): Collection
+    {
+        $all = preg_match_all($pattern, $subject);
+        if ($all === false || ($all[0] ?? []) === []) { return new Collection([]); }
+        return new Collection($all[1] ?? $all[0]);
+    }
+
+    public static function numbers(string $value): string { return preg_replace('/[^0-9]/', '', $value); }
+    public static function pascal(string $value): string { return self::studly($value); }
+
+    public static function position(string $haystack, string $needle, int $offset = 0): int|false { return mb_strpos($haystack, $needle, $offset); }
+
+    public static function remove(string|array $search, string $subject, bool $caseSensitive = true): string
+    {
+        return $caseSensitive ? str_replace($search, '', $subject) : str_ireplace($search, '', $subject);
+    }
+
+    public static function repeat(string $string, int $times): string { return str_repeat($string, $times); }
+
+    public static function replaceArray(string $search, array $replace, string $subject): string
+    {
+        [$result, $segments] = \Arr::shift(explode($search, $subject));
+        $values = array_values($replace);
+        foreach ($segments as $i => $segment) {
+            $result .= (array_key_exists($i, $values) ? (string) $values[$i] : $search) . $segment;
+        }
+        return $result;
+    }
+
+    public static function replaceStart(string $search, string $replace, string $subject): string
+    {
+        if ($search === '') { return $subject; }
+        return str_starts_with($subject, $search) ? self::replaceFirst($search, $replace, $subject) : $subject;
+    }
+
+    public static function replaceEnd(string $search, string $replace, string $subject): string
+    {
+        if ($search === '') { return $subject; }
+        return str_ends_with($subject, $search) ? self::replaceLast($search, $replace, $subject) : $subject;
+    }
+
+    public static function replaceLast(string $search, string $replace, string $subject): string
+    {
+        if ($search === '') { return $subject; }
+        $pos = strrpos($subject, $search);
+        return $pos === false ? $subject : substr_replace($subject, $replace, $pos, strlen($search));
+    }
+
+    public static function replaceMatches(string|array $pattern, string|array $replace, string $subject, int $limit = -1): string
+    {
+        return preg_replace($pattern, $replace, $subject, $limit);
+    }
+
+    public static function reverse(string $value): string { return implode('', array_reverse(mb_str_split($value))); }
+
+    public static function substr(string $string, int $start, ?int $length = null): string { return mb_substr($string, $start, $length); }
+    public static function substrCount(string $haystack, string $needle, int $offset = 0, ?int $length = null): int
+    {
+        return $length === null ? substr_count($haystack, $needle, $offset) : substr_count($haystack, $needle, $offset, $length);
+    }
+
+    public static function substrReplace(string $string, string $replace, int $offset = 0, ?int $length = null): string
+    {
+        return $length === null ? substr_replace($string, $replace, $offset) : substr_replace($string, $replace, $offset, $length);
+    }
+
+    public static function swap(array $map, string $subject): string { return strtr($subject, $map); }
+
+    public static function take(string $string, int $limit): string { return $limit < 0 ? mb_substr($string, $limit) : mb_substr($string, 0, $limit); }
+
+    public static function ucwords(string $string, string $separators = " \t\r\n\f\v"): string { return ucwords($string, $separators); }
+
+    public static function unwrap(string $value, string $before, ?string $after = null): string
+    {
+        if (self::startsWith($value, $before)) { $value = mb_substr($value, mb_strlen($before)); }
+        $after = $after ?? $before;
+        if (self::endsWith($value, $after)) { $value = mb_substr($value, 0, -mb_strlen($after)); }
+        return $value;
+    }
+
+    /** Words as str_word_count counts them: letters, apostrophes and hyphens. */
+    public static function wordCount(string $string, ?string $characters = null): int
+    {
+        $extra = $characters === null ? '' : preg_quote($characters, '/');
+        $m = preg_match_all('/[A-Za-z\'\-' . $extra . ']+/', $string);
+        return $m === false ? 0 : count($m[0] ?? []);
+    }
+
+    public static function wordWrap(string $string, int $characters = 75, string $break = "\n", bool $cutLongWords = false): string
+    {
+        return wordwrap($string, $characters, $break, $cutLongWords);
+    }
+
+    public static function convertCase(string $string, int $mode = MB_CASE_FOLD): string { return mb_convert_case($string, $mode); }
+
+    public static function initials(string $value, bool $capitalize = false): string
+    {
+        $out = '';
+        foreach (preg_split('/\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY) as $part) { $out .= mb_substr($part, 0, 1); }
+        return $capitalize ? self::upper($out) : $out;
+    }
+
+    /** Title case in APA style: minor words of up to three letters stay lower case inside a title. */
+    public static function apa(string $value): string
+    {
+        if (trim($value) === '') { return $value; }
+        $minor = ['and', 'as', 'but', 'for', 'if', 'nor', 'or', 'so', 'yet', 'a', 'an', 'the', 'at', 'by', 'in', 'of', 'off', 'on', 'per', 'to', 'up', 'via', 'et', 'ou', 'un', 'une', 'la', 'le', 'les', 'de', 'du', 'des', 'par', 'à'];
+        $endPunctuation = ['.', '!', '?', ':', '—', ','];
+        $words = preg_split('/\s+/u', $value, -1, PREG_SPLIT_NO_EMPTY);
+        $out = [];
+        foreach ($words as $i => $word) {
+            $lower = mb_strtolower($word);
+            if (str_contains($lower, '-')) {
+                $parts = [];
+                foreach (explode('-', $lower) as $part) {
+                    $parts[] = in_array($part, $minor, true) && mb_strlen($part) <= 3 ? $part : self::ucfirst($part);
+                }
+                $out[] = implode('-', $parts);
+            } elseif (in_array($lower, $minor, true) && mb_strlen($lower) <= 3 && !($i === 0 || in_array(mb_substr($words[$i - 1], -1), $endPunctuation, true))) {
+                $out[] = $lower;
+            } else {
+                $out[] = self::ucfirst($lower);
+            }
+        }
+        return implode(' ', $out);
+    }
+
+    public static function plural(string $value, int|array|\Countable $count = 2): string
+    {
+        if (is_array($count) || $count instanceof \Countable) { $count = count($count); }
+        if (abs($count) === 1 || Inflector::uncountable($value)) { return $value; }
+        return Inflector::matchCase(Inflector::plural($value), $value);
+    }
+
+    public static function singular(string $value): string
+    {
+        if (Inflector::uncountable($value)) { return $value; }
+        return Inflector::matchCase(Inflector::singular($value), $value);
+    }
+
+    /** The last word of a StudlyCase name in the plural. */
+    public static function pluralStudly(string $value, int|array|\Countable $count = 2): string
+    {
+        [$last, $parts] = \Arr::pop(preg_split('/(.)(?=[A-Z])/u', $value, -1, PREG_SPLIT_DELIM_CAPTURE));
+        return implode('', $parts) . self::plural($last, $count);
+    }
+
+    public static function pluralPascal(string $value, int|array|\Countable $count = 2): string { return self::pluralStudly($value, $count); }
+}
+
+/** English plural and singular forms (S1b): irregular words, uncountable words, suffix rules. */
+final class Inflector
+{
+    private const IRREGULAR = [
+        'person' => 'people', 'man' => 'men', 'woman' => 'women', 'child' => 'children', 'foot' => 'feet', 'tooth' => 'teeth',
+        'goose' => 'geese', 'mouse' => 'mice', 'louse' => 'lice', 'ox' => 'oxen', 'leaf' => 'leaves', 'life' => 'lives',
+        'knife' => 'knives', 'wife' => 'wives', 'half' => 'halves', 'self' => 'selves', 'elf' => 'elves', 'loaf' => 'loaves',
+        'thief' => 'thieves', 'wolf' => 'wolves', 'calf' => 'calves', 'shelf' => 'shelves', 'criterion' => 'criteria',
+        'phenomenon' => 'phenomena', 'datum' => 'data', 'medium' => 'media', 'curriculum' => 'curricula', 'cactus' => 'cacti',
+        'focus' => 'foci', 'fungus' => 'fungi', 'nucleus' => 'nuclei', 'radius' => 'radii', 'stimulus' => 'stimuli',
+        'syllabus' => 'syllabi', 'alumnus' => 'alumni', 'axis' => 'axes', 'index' => 'indices', 'matrix' => 'matrices',
+        'vertex' => 'vertices', 'appendix' => 'appendices', 'quiz' => 'quizzes', 'zombie' => 'zombies', 'move' => 'moves',
+        'sex' => 'sexes', 'genus' => 'genera', 'corpus' => 'corpora', 'die' => 'dice', 'echo' => 'echoes', 'hero' => 'heroes',
+        'potato' => 'potatoes', 'tomato' => 'tomatoes', 'veto' => 'vetoes', 'torpedo' => 'torpedoes', 'status' => 'statuses',
+        'campus' => 'campuses', 'virus' => 'viruses', 'octopus' => 'octopuses', 'bus' => 'buses', 'gas' => 'gases',
+    ];
+
+    private const UNCOUNTABLE = [
+        'sheep', 'fish', 'deer', 'series', 'species', 'money', 'rice', 'information', 'equipment', 'news', 'feedback',
+        'audio', 'data', 'evidence', 'furniture', 'knowledge', 'luggage', 'traffic', 'music', 'police', 'software',
+        'hardware', 'homework', 'advice', 'chassis', 'moose', 'swine', 'bison', 'salmon', 'trout', 'aircraft', 'offspring',
+        'jeans', 'pants', 'scissors', 'metadata', 'cattle', 'staff', 'compensation', 'education', 'emoji', 'gold',
+        'love', 'nutrition', 'plankton', 'pokemon', 'progress', 'research', 'sugar', 'weather', 'wheat', 'wood', 'wool',
+        'coreopsis', 'deer', 'cookie',
+    ];
+
+    public static function uncountable(string $value): bool
+    {
+        $word = mb_strtolower(preg_replace('/^.*?([a-z]+)$/i', '$1', $value));
+        return in_array($word, self::UNCOUNTABLE, true) && $word !== 'cookie';
+    }
+
+    public static function plural(string $word): string
+    {
+        $lower = mb_strtolower($word);
+        if (array_key_exists($lower, self::IRREGULAR)) { return self::IRREGULAR[$lower]; }
+        if (in_array($lower, self::IRREGULAR, true)) { return $lower; }
+        foreach ([
+            ['/(quiz)$/i', '$1zes'], ['/(matr|vert|ind)(ix|ex)$/i', '$1ices'], ['/(x|ch|ss|sh|zz)$/i', '$1es'],
+            ['/([^aeiouy]|qu)y$/i', '$1ies'], ['/(?:([^f])fe|([lr])f)$/i', '$1$2ves'], ['/sis$/i', 'ses'],
+            ['/([ti])um$/i', '$1a'], ['/(alias|status|bus|campus)$/i', '$1es'], ['/(octop|vir)us$/i', '$1uses'],
+            ['/(ax|test)is$/i', '$1es'], ['/s$/i', 's'], ['/$/', 's'],
+        ] as [$pattern, $replacement]) {
+            if (preg_match($pattern, $lower) !== []) { return preg_replace($pattern, $replacement, $lower, 1); }
+        }
+        return $lower . 's';
+    }
+
+    public static function singular(string $word): string
+    {
+        $lower = mb_strtolower($word);
+        $flip = array_flip(self::IRREGULAR);
+        if (array_key_exists($lower, $flip)) { return (string) $flip[$lower]; }
+        if (array_key_exists($lower, self::IRREGULAR)) { return $lower; }
+        foreach ([
+            ['/(quiz)zes$/i', '$1'], ['/(matr)ices$/i', '$1ix'], ['/(vert|ind)ices$/i', '$1ex'], ['/(alias|status|bus|campus)es$/i', '$1'],
+            ['/(octop|vir)uses$/i', '$1us'], ['/(cris|ax|test)es$/i', '$1is'], ['/(analy|ba|diagno|parenthe|progno|synop|the)ses$/i', '$1sis'],
+            ['/([ti])a$/i', '$1um'], ['/(x|ch|ss|sh|zz)es$/i', '$1'], ['/([^aeiouy]|qu)ies$/i', '$1y'],
+            ['/([lr])ves$/i', '$1f'], ['/([^f])ves$/i', '$1fe'], ['/(ss)$/i', '$1'], ['/s$/i', ''],
+        ] as [$pattern, $replacement]) {
+            if (preg_match($pattern, $lower) !== []) { return preg_replace($pattern, $replacement, $lower, 1); }
+        }
+        return $lower;
+    }
+
+    /** The case pattern of $comparison applied to $value: UPPER, Ucfirst or as is. */
+    public static function matchCase(string $value, string $comparison): string
+    {
+        if (mb_strtoupper($comparison) === $comparison && mb_strtolower($comparison) !== $comparison) { return mb_strtoupper($value); }
+        if (mb_strtoupper(mb_substr($comparison, 0, 1)) === mb_substr($comparison, 0, 1) && mb_strtolower(mb_substr($comparison, 0, 1)) !== mb_substr($comparison, 0, 1)) {
+            return mb_strtoupper(mb_substr($value, 0, 1)) . mb_substr($value, 1);
+        }
+        return $value;
+    }
 }
 
 final class Arr

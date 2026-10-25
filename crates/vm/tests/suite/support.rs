@@ -1,7 +1,8 @@
 //! S1: OpenGrid\Support (Str, Arr, Collection, collect, data_get) behaves
 //! like Laravel's Illuminate\Support. `support/cases.txt` holds expressions;
 //! `support/cases.out` is what Laravel's own classes printed for them
-//! (`support/driver.php` runs them from refs/, PHP 8.4). Each line here must
+//! (`support/driver_vendor.php` runs them with the vendor directory of the
+//! Laravel comparison application, PHP 8.4). Each line here must
 //! print the same JSON. When php and refs are available, the expectations
 //! are checked against Laravel again.
 
@@ -40,13 +41,15 @@ fn support_classes_match_laravel() {
 
 #[test]
 fn support_expectations_are_laravel_output() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../refs/framework/laravel-framework/src");
+    // Laravel 13.38 with its real dependencies: the vendor directory of the
+    // Laravel comparison application (bench/framework/laravel/setup.sh)
+    let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../bench/laravel-app/vendor");
     let php = Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success());
-    if !php || !src.join("Illuminate/Collections/Collection.php").exists() {
-        eprintln!("skipped: php or refs/framework/laravel-framework not available");
+    if !php || !vendor.join("autoload.php").exists() {
+        eprintln!("skipped: php or bench/laravel-app/vendor not available (run bench/framework/laravel/setup.sh)");
         return;
     }
-    let out = Command::new("php").arg(dir().join("driver.php")).arg(&src).arg(dir().join("cases.txt")).output().expect("php");
+    let out = Command::new("php").arg(dir().join("driver_vendor.php")).arg(&vendor).arg(dir().join("cases.txt")).output().expect("php");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout), std::fs::read_to_string(dir().join("cases.out")).unwrap(), "cases.out is stale; regenerate with driver.php");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), std::fs::read_to_string(dir().join("cases.out")).unwrap(), "cases.out is stale; regenerate with driver_vendor.php");
 }
