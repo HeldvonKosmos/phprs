@@ -514,16 +514,24 @@ fn merge_recursive(out: &mut PhpArray, arr: &PhpArray) {
     }
 }
 
+/// Largest array PHP builds (HT_MAX_SIZE on 64-bit); range() refuses before.
+const MAX_ARRAY_SIZE: f64 = (1u64 << 30) as f64;
+
 fn range(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
     args::count(a, 2, "range")?;
     let step_v = a.get(2).cloned().unwrap_or(Val::Int(1));
+    let increasing_negative = || Throw::value_error("range(): Argument #3 ($step) must be greater than 0 for increasing ranges");
+    // two one-byte strings are a range of characters, digits included (PHP 8.3+)
     if let (Val::Str(s), Val::Str(e)) = (&a[0], &a[1])
         && s.len() == 1
         && e.len() == 1
-        && !(s.as_bytes()[0].is_ascii_digit() && e.as_bytes()[0].is_ascii_digit())
     {
         let (x, y) = (s.as_bytes()[0] as i64, e.as_bytes()[0] as i64);
-        let step = step_v.to_int()?.abs().max(1);
+        let step = step_v.to_int()?;
+        if step < 0 && x < y {
+            return Err(increasing_negative());
+        }
+        let step = step.unsigned_abs().max(1) as i64;
         let mut out = PhpArray::new();
         let mut i = x;
         while if x <= y { i <= y } else { i >= y } {
@@ -532,27 +540,54 @@ fn range(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
         }
         return Ok(Val::array(out));
     }
-    let is_float = matches!(a[0], Val::Float(_)) || matches!(a[1], Val::Float(_)) || matches!(step_v, Val::Float(_))
-        || matches!(&a[0], Val::Str(s) if s.as_bytes().contains(&b'.')) || matches!(&a[1], Val::Str(s) if s.as_bytes().contains(&b'.'));
+    // PHP 8.3+: non-finite bounds and steps, a negative step for an increasing
+    // range and results beyond the largest array are ValueErrors
+    for (i, v) in [&a[0], &a[1], &step_v].into_iter().enumerate() {
+        if let Val::Float(f) = v
+            && !f.is_finite()
+        {
+            let arg = ["#1 ($start)", "#2 ($end)", "#3 ($step)"][i];
+            return Err(Throw::value_error(format!("range(): Argument {arg} must be a finite number, {} provided", if f.is_nan() { "NAN" } else { "INF" })));
+        }
+    }
+    let float_bound = |v: &Val| matches!(v, Val::Float(_)) || matches!(v, Val::Str(s) if s.as_bytes().iter().any(|c| matches!(c, b'.' | b'e' | b'E')));
+    let fractional_step = matches!(step_v, Val::Float(f) if f.fract() != 0.0);
     let mut out = PhpArray::new();
-    if is_float {
-        let (x, y, step) = (a[0].to_float()?, a[1].to_float()?, step_v.to_float()?.abs());
+    if float_bound(&a[0]) || float_bound(&a[1]) || fractional_step {
+        let (x, y, step) = (a[0].to_float()?, a[1].to_float()?, step_v.to_float()?);
         if step == 0.0 {
             return Err(Throw::value_error("range(): Argument #3 ($step) cannot be 0"));
         }
-        let n = ((y - x).abs() / step).floor() as i64;
-        for i in 0..=n {
+        if step < 0.0 && x < y {
+            return Err(increasing_negative());
+        }
+        let step = step.abs();
+        let n = ((y - x).abs() / step).floor();
+        if n >= MAX_ARRAY_SIZE - 1.0 {
+            return Err(Throw::value_error(format!("The supplied range exceeds the maximum array size: start={x:.1} end={y:.1} step={step:.1}")));
+        }
+        for i in 0..=(n as i64) {
             out.push(Val::Float(if x <= y { x + i as f64 * step } else { x - i as f64 * step }));
         }
     } else {
-        let (x, y, step) = (a[0].to_int()?, a[1].to_int()?, step_v.to_int()?.abs());
+        let (x, y, step) = (a[0].to_int()?, a[1].to_int()?, step_v.to_int()?);
         if step == 0 {
             return Err(Throw::value_error("range(): Argument #3 ($step) cannot be 0"));
         }
-        let mut i = x;
-        while if x <= y { i <= y } else { i >= y } {
-            out.push(Val::Int(i));
-            i += if x <= y { step } else { -step };
+        if step == i64::MIN {
+            return Err(Throw::value_error(format!("range(): Argument #3 ($step) must be greater than {}", i64::MIN)));
+        }
+        if step < 0 && x < y {
+            return Err(increasing_negative());
+        }
+        let step = step.abs();
+        let n = (x as i128 - y as i128).unsigned_abs() / step as u128;
+        if n as f64 >= MAX_ARRAY_SIZE - 1.0 {
+            return Err(Throw::value_error(format!("The supplied range exceeds the maximum array size: start={x} end={y} step={step}")));
+        }
+        // n + 1 values; computed from the start so nothing can overflow
+        for i in 0..=(n as i64) {
+            out.push(Val::Int(if x <= y { x + i * step } else { x - i * step }));
         }
     }
     Ok(Val::array(out))
