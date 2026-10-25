@@ -60,8 +60,12 @@ Schedule::task('notes:stamp', ['tag' => 'monday'])->weeklyOn(1, '8:30');
 fn count(pool: &Pool, by: &'static str) -> i64 {
     let src: &'static str = if by == "task" { "<?grd echo OpenGrid\\Database\\DB::table('stamps')->where('by', 'task')->count();" } else { "<?grd echo OpenGrid\\Database\\DB::table('stamps')->where('by', 'job')->count();" };
     pool.run_sync(move |vm| {
-        vm.run_file("c.grd", src.as_bytes()).unwrap();
-        let n = String::from_utf8_lossy(&vm.output).parse().unwrap_or(-1);
+        // the table exists only after the first stamp: count 0 until then
+        let n = match vm.run_file("c.grd", src.as_bytes()) {
+            Ok(_) => String::from_utf8_lossy(&vm.output).parse().unwrap_or(-1),
+            Err(e) if format!("{e:?}").contains("does not exist") => 0,
+            Err(e) => panic!("{e:?}"),
+        };
         vm.reset_request();
         n
     })
