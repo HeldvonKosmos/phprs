@@ -72,6 +72,8 @@ pub type FastMap<K, V> = HashMap<K, V, foldhash::fast::RandomState>;
 /// `IcEntry::b` of a method site whose target is a native handler; `a` is
 /// then the index into `Vm::method_table` (CALL1).
 pub(crate) const IC_NATIVE: u32 = u32::MAX;
+/// `IcEntry::b` of a `new` site whose class has no constructor (FRAME1).
+pub(crate) const IC_NO_CTOR: u32 = u32::MAX - 1;
 
 /// Monomorphic inline cache entry (RUNTIME_ARCHITECTURE §7.1).
 #[derive(Clone, Copy, Debug, Default)]

@@ -280,7 +280,7 @@ impl Vm {
     /// call) are removed too. Returns false with the stack untouched when the
     /// callee needs the general path (generator, variadic, too many arguments).
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn push_frame_from_stack(&mut self, module_idx: u32, unit_id: UnitId, n: usize, drop_below: usize, this: Option<ObjHandle>, class: Option<ClassId>, static_class: Option<ClassId>) -> Result<bool, Throw> {
+    pub(crate) fn push_frame_from_stack(&mut self, module_idx: u32, unit_id: UnitId, n: usize, drop_below: usize, this: Option<ObjHandle>, class: Option<ClassId>, static_class: Option<ClassId>, return_override: Option<Val>) -> Result<bool, Throw> {
         let module = self.modules[module_idx as usize].clone();
         let unit = &module.units[unit_id as usize];
         if unit.is_generator || n > unit.params.len() || unit.params.iter().any(|p| p.variadic) {
@@ -328,7 +328,7 @@ impl Vm {
             pending: Pending::None,
             generator: None,
             ic,
-            return_override: None,
+            return_override,
         });
         Ok(true)
     }

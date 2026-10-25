@@ -1004,7 +1004,7 @@ impl Vm {
                     if let Val::Object(h) = self.stack[self.stack.len() - n - 1] {
                         let class = self.objects.get(h).class;
                         let e = self.ics[self.frames[fidx].ic][ip];
-                        if e.class == Some(class) && e.b != super::IC_NATIVE && self.push_frame_from_stack(e.a, e.b, n, 1, if e.flag { None } else { Some(h) }, Some(ClassId(e.c)), Some(class))? {
+                        if e.class == Some(class) && e.b != super::IC_NATIVE && self.push_frame_from_stack(e.a, e.b, n, 1, if e.flag { None } else { Some(h) }, Some(ClassId(e.c)), Some(class), None)? {
                             return Ok(Flow::Switch);
                         }
                     }
@@ -1095,7 +1095,7 @@ impl Vm {
                     let e = self.ics[self.frames[fidx].ic][ip];
                     if e.class == Some(cid) && e.b != super::IC_NATIVE {
                         let static_class = if forwarding { self.frames[fidx].static_class.unwrap_or(cid) } else { cid };
-                        if self.push_frame_from_stack(e.a, e.b, argspec.count(), 0, None, Some(ClassId(e.c)), Some(static_class))? {
+                        if self.push_frame_from_stack(e.a, e.b, argspec.count(), 0, None, Some(ClassId(e.c)), Some(static_class), None)? {
                             return Ok(Flow::Switch);
                         }
                     }
@@ -1273,6 +1273,38 @@ impl Vm {
             Op::New { class, spec } => {
                 // arguments are still on the operand stack (roots)
                 self.gc_safepoint();
+                // FRAME1: the constructor of a named class is cached per site (no name
+                // lookup, no MethodInfo clone) and its arguments bound from the stack
+                let aspec = &unit.arg_specs[*spec as usize];
+                if !matches!(class, ClassRef::Dynamic) && aspec.is_simple() {
+                    let cid = self.resolve_class_ref(class, midx)?;
+                    let icx = self.frames[fidx].ic;
+                    if self.ics[icx][ip].class != Some(cid) {
+                        match self.class(cid).find_method(b"__construct") {
+                            Some(m) => {
+                                if let (Some(u), None, Visibility::Public) = (m.unit, m.native, m.visibility) {
+                                    self.ics[icx][ip] = IcEntry { class: Some(cid), a: m.module, b: u, c: m.declaring.0, flag: false };
+                                }
+                            }
+                            None if self.native_info(cid).is_none() => self.ics[icx][ip] = IcEntry { class: Some(cid), a: 0, b: super::IC_NO_CTOR, c: 0, flag: false },
+                            None => {}
+                        }
+                    }
+                    let e = self.ics[icx][ip];
+                    if e.class == Some(cid) && e.b == super::IC_NO_CTOR {
+                        if aspec.count() == 0 {
+                            let h = self.alloc_object(cid)?;
+                            self.push(Val::Object(h));
+                            return Ok(Flow::Next);
+                        }
+                    } else if e.class == Some(cid) {
+                        let h = self.alloc_object(cid)?;
+                        if self.push_frame_from_stack(e.a, e.b, aspec.count(), 0, Some(h), Some(ClassId(e.c)), Some(cid), Some(Val::Object(h)))? {
+                            return Ok(Flow::Switch);
+                        }
+                        // unusual call shape: the unused object goes to the collector
+                    }
+                }
                 let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
                 let cid = self.resolve_class_ref(class, midx)?;
                 match self.invoke_new(cid, args, named)? {
