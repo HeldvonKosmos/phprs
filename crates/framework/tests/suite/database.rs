@@ -147,3 +147,75 @@ try { Validator::errors(['x' => 1], ['x' => 'unique:tasks;drop,title']); } catch
         "{\"title\":[\"The title has already been taken.\"]}\n[]\n{\"title\":[\"The title has already been taken.\"]}\n[]\n[]\n{\"task\":[\"The selected task is invalid.\"]}\n[]\nrejected\n"
     );
 }
+
+/// Q1: the query builder as in Laravel, without relations (D13): OR groups
+/// and nested groups, whereNot/Between/NotIn/Column, LIKE, latest/oldest,
+/// pluck/value, aggregates, increment/decrement, chunk, firstOrCreate,
+/// updateOrCreate, every builder method as a static call on the model;
+/// field names and operators are checked (they go into the query text).
+#[test]
+fn query_builder_like_laravel() {
+    let pool = pool("q1");
+    let out = run(
+        &pool,
+        r#"<?grd
+use Tasks\Models\Task;
+
+foreach ([['Alpha', false, 1], ['Beta', true, 2], ['Gamma', false, 3], ['Delta', true, 4], ['Epsilon', false, 5]] as [$t, $d, $p]) {
+    Task::create(['title' => $t, 'done' => $d, 'priority' => $p]);
+}
+$titles = fn (array $a): string => implode(',', $a);
+// (done AND priority > 3) OR title = Alpha, as Laravel's flat chain
+echo $titles(Task::where('done', true)->where('priority', '>', 3)->orWhere('title', 'Alpha')->orderBy('priority')->pluck('title')), "\n";
+// the platform's argument order is accepted too
+echo Task::where('priority', 3, '>=')->count(), ' ', Task::where('priority', '>=', 3)->count(), "\n";
+// nested group
+echo $titles(Task::where('done', false)->where(fn ($q) => $q->where('priority', 1)->orWhere('priority', 5))->orderBy('priority')->pluck('title')), "\n";
+echo Task::whereNot('done', true)->count(), ' ', Task::whereBetween('priority', [2, 4])->count(), ' ', Task::whereNotBetween('priority', [2, 4])->count(), ' ', Task::whereNotIn('priority', [1, 2])->count(), "\n";
+echo Task::whereColumn('created_at', '<=', 'updated_at')->count(), ' ', Task::where('title', 'like', '%TA')->count(), ' ', Task::where('title', 'not like', '%ta')->count(), "\n";
+echo Task::query()->orderByDesc('priority')->value('title'), ' ', Task::oldest('priority')->value('title'), ' ', Task::latest('priority')->first()->title, "\n";
+echo json_encode(Task::query()->orderBy('priority')->take(3)->pluck('priority', 'title')), "\n";
+echo Task::query()->sum('priority'), ' ', Task::query()->avg('priority'), ' ', Task::query()->min('priority'), ' ', Task::query()->max('priority'), ' ', json_encode(Task::where('priority', '>', 99)->avg('priority')), ' ', Task::where('priority', '>', 99)->sum('priority'), "\n";
+echo Task::where('title', 'Alpha')->increment('priority', 10), ' ', Task::where('title', 'Alpha')->value('priority'), ' ';
+echo Task::where('title', 'Alpha')->decrement('priority'), ' ', Task::where('title', 'Alpha')->value('priority'), ' ';
+Task::where('title', 'Gamma')->increment('priority', 1, ['done' => true]);
+echo Task::where('title', 'Gamma')->value('priority'), ' ', json_encode(Task::where('title', 'Gamma')->value('done')), "\n";
+$log = new ArrayObject();
+Task::query()->orderBy('title')->chunk(2, function (array $rows, int $page) use ($log): void { $log->append($page . ':' . count($rows)); });
+$first = new ArrayObject();
+Task::query()->orderBy('title')->chunk(2, function (array $rows) use ($first): bool { $first->append($rows[0]->title); return false; });
+echo implode(' ', $log->getArrayCopy()), ' | ', implode(',', $first->getArrayCopy()), "\n";
+$a = Task::firstOrCreate(['title' => 'Alpha']);
+$f = Task::firstOrCreate(['title' => 'Zeta'], ['priority' => 6]);
+echo $a->priority, ' ', $f->priority, ' ', Task::query()->count(), ' ';
+$u = Task::updateOrCreate(['title' => 'Zeta'], ['priority' => 7]);
+echo $u->priority, ' ', Task::where('title', 'Zeta')->value('priority'), ' ', Task::query()->count(), "\n";
+// a soft-deleted row stays out of OR groups
+Task::where('title', 'Alpha')->first()->delete();
+echo Task::where('title', 'Alpha')->orWhere('title', 'Beta')->count(), ' ', Task::where('title', 'Alpha')->orWhere('title', 'Beta')->toSql(), "\n";
+foreach ([fn () => Task::where('priority; DELETE tasks', 1), fn () => Task::where('priority', 'OR 1=1', 3), fn () => Task::whereIn('id) OR (1', [1]), fn () => Task::query()->orderBy('priority', 'desc; DROP')] as $bad) {
+    try { $bad(); echo "accepted "; } catch (ValueError $e) { echo 'rejected '; }
+}
+echo "\n";
+"#,
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    let want = [
+        "Alpha,Delta",
+        "3 3",
+        "Alpha,Epsilon",
+        "3 3 2 3",
+        "5 2 3",
+        "Epsilon Alpha Epsilon",
+        r#"{"Alpha":1,"Beta":2,"Gamma":3}"#,
+        "15 3 1 5 null 0",
+        "1 11 1 10 4 true",
+        "1:2 2:2 3:1 | Alpha",
+        "10 6 6 7 7 6",
+        "1 SELECT * FROM tasks WHERE deleted_at IS NONE AND (title = $f0 OR title = $f1)",
+        "rejected rejected rejected rejected ",
+    ];
+    for (i, w) in want.iter().enumerate() {
+        assert_eq!(lines.get(i).copied(), Some(*w), "line {}; output:\n{out}", i + 1);
+    }
+}

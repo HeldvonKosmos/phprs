@@ -37,6 +37,9 @@ pub struct BuilderData {
     pub extra_projections: Vec<String>,
     /// Prefix for binding names, so a sub-builder's bindings merge into its parent's.
     pub prefix: String,
+    /// Q1: closed OR groups of user conditions (`where a ->where b ->orWhere c`
+    /// is `(a AND b) OR c`, as in Laravel); the current group lives in `wheres`.
+    pub or_groups: Vec<Vec<String>>,
 }
 
 impl BuilderData {
@@ -86,7 +89,7 @@ impl BuilderData {
     pub fn with_all(&mut self, table: &str, sub: &BuilderData, fk: Option<&str>) -> &mut Self {
         let fk = fk.map(str::to_string).unwrap_or_else(|| foreign_key(&self.table));
         let mut sql = format!("SELECT {} FROM {table} WHERE {fk} = $parent.id", sub.projection.as_deref().unwrap_or("*"));
-        for w in &sub.wheres {
+        for w in &sub.effective_wheres() {
             sql.push_str(" AND ");
             sql.push_str(w);
         }
@@ -108,6 +111,65 @@ impl BuilderData {
         self
     }
 
+    /// The comparison `field op value` as a condition (field and operator
+    /// checked: they go into the query text, the value is bound).
+    pub fn condition(&mut self, field: &str, op: &str, value: Value) -> Result<String, String> {
+        let field = check_field(field)?;
+        let (op, like) = check_op(op)?;
+        if let Some(negate) = like {
+            // SQL LIKE as a case-insensitive regex: % = any run, _ = one character
+            let pattern = match value {
+                Value::String(s) => like_regex(&s),
+                _ => return Err("like needs a string pattern".into()),
+            };
+            let n = self.bind(Value::String(pattern));
+            return Ok(format!("{}string::matches(<string>{field}, ${n})", if negate { "!" } else { "" }));
+        }
+        let n = self.bind(value);
+        Ok(format!("{field} {op} ${n}"))
+    }
+
+    /// Q1: `orWhere`: the current group is closed, the condition starts the next.
+    pub fn or_condition(&mut self, clause: String) -> &mut Self {
+        let (system, user): (Vec<String>, Vec<String>) = std::mem::take(&mut self.wheres).into_iter().partition(|w| is_system_clause(w));
+        self.wheres = system;
+        if !user.is_empty() || !self.or_groups.is_empty() {
+            self.or_groups.push(user);
+        }
+        self.wheres.push(clause);
+        self
+    }
+
+    /// The WHERE conditions as written into the query: system clauses (soft
+    /// deletes) AND the user conditions, OR groups in parentheses.
+    pub fn effective_wheres(&self) -> Vec<String> {
+        if self.or_groups.is_empty() {
+            return self.wheres.clone();
+        }
+        let (mut system, current): (Vec<String>, Vec<String>) = self.wheres.iter().cloned().partition(|w| is_system_clause(w));
+        let groups: Vec<String> = self
+            .or_groups
+            .iter()
+            .chain(std::iter::once(&current))
+            .filter(|g| !g.is_empty())
+            .map(|g| if g.len() == 1 { g[0].clone() } else { format!("({})", g.join(" AND ")) })
+            .collect();
+        system.push(format!("({})", groups.join(" OR ")));
+        system
+    }
+
+    /// A nested builder for `where(fn ($q) => …)`: same table, own binding prefix.
+    pub fn nested(&self) -> BuilderData {
+        BuilderData { table: self.table.clone(), prefix: format!("{}n{}_", self.prefix, self.bindings.len()), model: self.model, ..Default::default() }
+    }
+
+    /// The conditions of a nested builder as one parenthesized condition; its bindings move here.
+    pub fn absorb(&mut self, sub: BuilderData) -> Option<String> {
+        let w = sub.effective_wheres();
+        self.bindings.extend(sub.bindings);
+        (!w.is_empty()).then(|| format!("({})", w.join(" AND ")))
+    }
+
     pub fn where_raw(&mut self, clause: &str, bindings: BTreeMap<String, Value>) -> &mut Self {
         self.wheres.push(clause.to_string());
         self.bindings.extend(bindings);
@@ -115,11 +177,16 @@ impl BuilderData {
     }
 
     pub fn where_in(&mut self, field: &str, values: Vec<Value>) -> &mut Self {
+        let c = self.in_condition(field, values, false);
+        self.wheres.push(c);
+        self
+    }
+
+    pub fn in_condition(&mut self, field: &str, values: Vec<Value>, not: bool) -> String {
         let mut arr = Array::new();
         arr.extend(values);
         let n = self.bind(Value::Array(arr));
-        self.wheres.push(format!("{field} INSIDE ${n}"));
-        self
+        format!("{field} {}INSIDE ${n}", if not { "NOT" } else { "" })
     }
 
     pub fn where_like(&mut self, field: &str, value: &str) -> &mut Self {
@@ -206,12 +273,26 @@ impl BuilderData {
 
     fn head(&self, projection: &str) -> String {
         let mut sql = format!("SELECT {projection} FROM {}", self.table);
-        if !self.wheres.is_empty() {
+        let wheres = self.effective_wheres();
+        if !wheres.is_empty() {
             sql.push_str(" WHERE ");
-            sql.push_str(&self.wheres.join(" AND "));
+            sql.push_str(&wheres.join(" AND "));
         }
         sql
     }
+
+    /// `SELECT VALUE math::{func}(field) …`: aggregate over the matching rows.
+    pub fn aggregate_sql(&self, func: &str, field: &str) -> String {
+        let mut sql = self.head(&format!("math::{func}({field}) AS v"));
+        sql.push_str(" GROUP ALL");
+        sql
+    }
+
+    /// `UPDATE … SET a += $n, b = $m …` over the matching rows (increment/decrement).
+    pub fn set_sql(&self, sets: &[String]) -> String {
+        format!("UPDATE {} SET {}{}", self.table, sets.join(", "), self.where_sql())
+    }
+
 
     fn tail(&self, sql: &mut String) {
         if !self.groups.is_empty() {
@@ -259,7 +340,8 @@ impl BuilderData {
     }
 
     fn where_sql(&self) -> String {
-        if self.wheres.is_empty() { String::new() } else { format!(" WHERE {}", self.wheres.join(" AND ")) }
+        let wheres = self.effective_wheres();
+        if wheres.is_empty() { String::new() } else { format!(" WHERE {}", wheres.join(" AND ")) }
     }
 
     pub fn update_sql(&self) -> String {
@@ -290,6 +372,56 @@ fn check_field(field: &str) -> Result<String, String> {
     let ok = !field.is_empty()
         && field.split('.').all(|seg| seg.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
     if ok { Ok(field.to_string()) } else { Err(format!("invalid sort field `{field}`")) }
+}
+
+/// Q1: comparison operators allowed in `where` (they go into the query
+/// text). `<>` is `!=`; `like`/`not like` become a case-insensitive
+/// `string::matches` (second value: Some(negated)).
+fn check_op(op: &str) -> Result<(&'static str, Option<bool>), String> {
+    Ok(match op.trim().to_ascii_lowercase().as_str() {
+        "=" | "==" => ("=", None),
+        "!=" | "<>" => ("!=", None),
+        "<" => ("<", None),
+        "<=" => ("<=", None),
+        ">" => (">", None),
+        ">=" => (">=", None),
+        "like" => ("", Some(false)),
+        "not like" => ("", Some(true)),
+        "contains" => ("CONTAINS", None),
+        "containsnot" => ("CONTAINSNOT", None),
+        "containsany" => ("CONTAINSANY", None),
+        "containsall" => ("CONTAINSALL", None),
+        "inside" | "in" => ("INSIDE", None),
+        "notinside" | "not in" => ("NOTINSIDE", None),
+        _ => return Err(format!("invalid operator `{op}`")),
+    })
+}
+
+fn is_operator(v: &Val) -> bool {
+    matches!(v, Val::Str(s) if check_op(&s.to_string_lossy()).is_ok())
+}
+
+/// SQL LIKE pattern → anchored, case-insensitive regex.
+fn like_regex(pattern: &str) -> String {
+    let mut out = String::from("(?i)^");
+    for c in pattern.chars() {
+        match c {
+            '%' => out.push_str(".*"),
+            '_' => out.push('.'),
+            c if "\\.^$|?*+()[]{}".contains(c) => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('$');
+    out
+}
+
+/// Clauses the builder adds itself (soft deletes); they stay outside OR groups.
+fn is_system_clause(w: &str) -> bool {
+    w == SOFT_DELETE_CLAUSE || w == "deleted_at IS NOT NONE"
 }
 
 fn check_dir(dir: &str) -> Result<&'static str, String> {
@@ -325,6 +457,150 @@ pub fn hydrate(vm: &mut Vm, model: Option<ClassId>, rows: Value) -> Result<Val, 
         out.push(v);
     }
     Ok(Val::array(out))
+}
+
+/// Laravel's `where($column, $operator, $value)` and `where($column, $value)`;
+/// the platform's order `where($column, $value, $operator)` is accepted too.
+/// A Closure as first argument builds a nested group. None: nothing to add
+/// (an empty group).
+fn where_clause(vm: &mut Vm, c: &Call, what: &str) -> Result<Option<String>, Throw> {
+    if let Val::Object(cl) = c.arg(0)
+        && vm.is_callable(&Val::Object(cl))
+    {
+        let parent = this_data(vm, c)?.clone();
+        let class = vm.lookup_class(CLASS.as_bytes()).ok_or_else(|| Throw::error("Builder class missing"))?;
+        let sub = vm.instantiate(class, Vec::new())?;
+        *data(vm, sub)? = parent.nested();
+        vm.call_value(&Val::Object(cl), vec![Val::Object(sub)])?;
+        let nested = std::mem::take(data(vm, sub)?);
+        return Ok(this_data(vm, c)?.absorb(nested));
+    }
+    let field = string_arg(c, 0, what)?;
+    let (op, value) = match c.args.len() {
+        0 | 1 => return Err(Throw::argument_count(format!("{what}(): column and value expected"))),
+        2 => ("=".to_string(), c.arg(1)),
+        _ if is_operator(&c.args[1]) => (string_arg(c, 1, what)?, c.arg(2)),
+        _ if is_operator(&c.args[2]) => (string_arg(c, 2, what)?, c.arg(1)),
+        _ => return Err(Throw::value_error(format!("{what}(): invalid operator"))),
+    };
+    let value = to_surreal(vm, &value)?;
+    this_data(vm, c)?.condition(&field, &op, value).map(Some).map_err(Throw::value_error)
+}
+
+fn checked(field: &str) -> Result<String, Throw> {
+    check_field(field).map_err(|e| Throw::value_error(e.replace("sort field", "field")))
+}
+
+/// `[low, high]` of whereBetween as two bindings.
+fn between(vm: &mut Vm, c: &Call, what: &str) -> Result<(String, String, String), Throw> {
+    let field = checked(&string_arg(c, 0, what)?)?;
+    let Val::Array(range) = c.arg(1) else { return Err(Throw::type_error(format!("{what}(): Argument #2 must be of type array"))) };
+    let vals: Vec<Val> = range.values().cloned().collect();
+    let [low, high] = vals.as_slice() else { return Err(Throw::value_error(format!("{what}(): two values expected"))) };
+    let (low, high) = (to_surreal(vm, low)?, to_surreal(vm, high)?);
+    let b = this_data(vm, c)?;
+    Ok((field, b.bind(low), b.bind(high)))
+}
+
+/// The first value of an aggregate result `[{ v: … }]` (None when there are no rows).
+fn aggregate_value(v: &Value) -> Option<Value> {
+    match v {
+        Value::Array(a) => match a.first() {
+            Some(Value::Object(o)) => o.get("v").cloned(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn aggregate_call(vm: &mut Vm, c: &Call, func: &str, what: &str) -> Result<Val, Throw> {
+    let field = checked(&string_arg(c, 0, what)?)?;
+    let b = this_data(vm, c)?.clone();
+    let v = query_one(vm, &b.aggregate_sql(func, &field), b.bindings.clone())?;
+    match aggregate_value(&v) {
+        // Laravel: sum of nothing is 0, avg/min/max of nothing is null
+        None | Some(Value::None | Value::Null) => Ok(if func == "sum" { Val::Int(0) } else { Val::Null }),
+        Some(v) => match from_surreal(vm, v)? {
+            // math::mean of no rows is NaN
+            Val::Float(f) if f.is_nan() => Ok(Val::Null),
+            r => Ok(r),
+        },
+    }
+}
+
+fn increment_call(vm: &mut Vm, c: &Call, sign: &str, what: &str) -> Result<Val, Throw> {
+    let field = checked(&string_arg(c, 0, what)?)?;
+    let amount = match c.args.get(1) {
+        None | Some(Val::Null) => to_surreal(vm, &Val::Int(1))?,
+        Some(v @ (Val::Int(_) | Val::Float(_))) => to_surreal(vm, v)?,
+        Some(o) => return Err(Throw::type_error(format!("{what}(): Argument #2 ($amount) must be of type int|float, {} given", o.type_name()))),
+    };
+    let extra = c.arg(2);
+    let b = this_data(vm, c)?.clone();
+    let timestamps = match b.model {
+        Some(class) => model::meta(vm, class)?.timestamps,
+        None => false,
+    };
+    let mut bindings = b.bindings.clone();
+    let mut sets = vec![format!("{field} {sign}= $__amount")];
+    bindings.insert("__amount".into(), amount);
+    if let Val::Array(cols) = extra {
+        for (i, (k, v)) in cols.iter().enumerate() {
+            let key = match k {
+                ArrayKey::Str(s) => checked(&s.to_string_lossy())?,
+                ArrayKey::Int(_) => return Err(Throw::value_error(format!("{what}(): extra columns need names"))),
+            };
+            let name = format!("__extra{i}");
+            bindings.insert(name.clone(), to_surreal(vm, v)?);
+            sets.push(format!("{key} = ${name}"));
+        }
+    }
+    if timestamps {
+        sets.push("updated_at = time::now()".into());
+    }
+    let rows = query_one(vm, &b.set_sql(&sets), bindings)?;
+    Ok(Val::Int(match rows {
+        Value::Array(a) => a.len() as i64,
+        _ => 0,
+    }))
+}
+
+/// firstOrCreate / updateOrCreate: the row matching `$attributes`, created
+/// with `$attributes + $values` when there is none.
+fn first_matching(vm: &mut Vm, c: &Call, what: &str) -> Result<(BuilderData, Val), Throw> {
+    let Val::Array(attrs) = c.arg(0) else { return Err(Throw::type_error(format!("{what}(): Argument #1 ($attributes) must be of type array"))) };
+    let mut b = this_data(vm, c)?.clone();
+    for (k, v) in attrs.iter() {
+        let ArrayKey::Str(k) = k else { return Err(Throw::value_error(format!("{what}(): attributes need names"))) };
+        let value = to_surreal(vm, v)?;
+        let cond = b.condition(&k.to_string_lossy(), "=", value).map_err(Throw::value_error)?;
+        b.wheres.push(cond);
+    }
+    let mut one = b.clone();
+    one.limit = Some(1);
+    let rows = query_one(vm, &one.select_sql(), one.bindings.clone())?;
+    let found = first_of(hydrate(vm, one.model, rows)?);
+    Ok((b, found))
+}
+
+fn create_with(vm: &mut Vm, b: &BuilderData, attrs: &Val, values: &Val) -> Result<Val, Throw> {
+    let mut merged = match attrs {
+        Val::Array(a) => (**a).clone(),
+        _ => PhpArray::new(),
+    };
+    if let Val::Array(v) = values {
+        for (k, x) in v.iter() {
+            merged.insert(k.clone(), x.clone());
+        }
+    }
+    match b.model {
+        Some(class) => {
+            let h = vm.instantiate(class, vec![Val::array(merged)])?;
+            model::save(vm, h)?;
+            Ok(Val::Object(h))
+        }
+        None => Err(Throw::error("firstOrCreate/updateOrCreate need a model")),
+    }
 }
 
 fn first_of(v: Val) -> Val {
@@ -451,20 +727,202 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .payload(|| Box::new(BuilderData::default()))
         .trace(grd_vm::vm::gc::trace_nothing)
         .method("where", |vm, c| {
-            let field = string_arg(&c, 0, "Builder::where")?;
-            let value = to_surreal(vm, &c.arg(1))?;
-            let op = if c.args.len() > 2 { string_arg(&c, 2, "Builder::where")? } else { "=".into() };
-            this_data(vm, &c)?.r#where(&field, value, &op);
+            if let Some(clause) = where_clause(vm, &c, "Builder::where")? {
+                this_data(vm, &c)?.wheres.push(clause);
+            }
+            Ok(Val::Object(c.this()?))
+        })
+        .method("orWhere", |vm, c| {
+            if let Some(clause) = where_clause(vm, &c, "Builder::orWhere")? {
+                this_data(vm, &c)?.or_condition(clause);
+            }
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereNot", |vm, c| {
+            if let Some(clause) = where_clause(vm, &c, "Builder::whereNot")? {
+                this_data(vm, &c)?.wheres.push(format!("!({clause})"));
+            }
+            Ok(Val::Object(c.this()?))
+        })
+        .method("orWhereNot", |vm, c| {
+            if let Some(clause) = where_clause(vm, &c, "Builder::orWhereNot")? {
+                this_data(vm, &c)?.or_condition(format!("!({clause})"));
+            }
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereBetween", |vm, c| {
+            let (f, lo, hi) = between(vm, &c, "Builder::whereBetween")?;
+            this_data(vm, &c)?.wheres.push(format!("({f} >= ${lo} AND {f} <= ${hi})"));
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereNotBetween", |vm, c| {
+            let (f, lo, hi) = between(vm, &c, "Builder::whereNotBetween")?;
+            this_data(vm, &c)?.wheres.push(format!("({f} < ${lo} OR {f} > ${hi})"));
+            Ok(Val::Object(c.this()?))
+        })
+        .method("whereColumn", |vm, c| {
+            let first = checked(&string_arg(&c, 0, "Builder::whereColumn")?)?;
+            let (op, second) = if c.args.len() > 2 { (string_arg(&c, 1, "Builder::whereColumn")?, string_arg(&c, 2, "Builder::whereColumn")?) } else { ("=".into(), string_arg(&c, 1, "Builder::whereColumn")?) };
+            let (op, like) = check_op(&op).map_err(Throw::value_error)?;
+            if like.is_some() {
+                return Err(Throw::value_error("whereColumn(): like is not supported"));
+            }
+            let second = checked(&second)?;
+            this_data(vm, &c)?.wheres.push(format!("{first} {op} {second}"));
             Ok(Val::Object(c.this()?))
         })
         .method("whereIn", |vm, c| {
-            let field = string_arg(&c, 0, "Builder::whereIn")?;
+            let field = checked(&string_arg(&c, 0, "Builder::whereIn")?)?;
             let values = arg_values(vm, &c.arg(1))?;
             this_data(vm, &c)?.where_in(&field, values);
             Ok(Val::Object(c.this()?))
         })
+        .method("whereNotIn", |vm, c| {
+            let field = checked(&string_arg(&c, 0, "Builder::whereNotIn")?)?;
+            let values = arg_values(vm, &c.arg(1))?;
+            let b = this_data(vm, &c)?;
+            let cond = b.in_condition(&field, values, true);
+            b.wheres.push(cond);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("orWhereIn", |vm, c| {
+            let field = checked(&string_arg(&c, 0, "Builder::orWhereIn")?)?;
+            let values = arg_values(vm, &c.arg(1))?;
+            let b = this_data(vm, &c)?;
+            let cond = b.in_condition(&field, values, false);
+            b.or_condition(cond);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("orWhereNull", |vm, c| {
+            let field = checked(&string_arg(&c, 0, "Builder::orWhereNull")?)?;
+            this_data(vm, &c)?.or_condition(format!("{field} IS NONE"));
+            Ok(Val::Object(c.this()?))
+        })
+        .method("orderByDesc", |vm, c| {
+            let field = string_arg(&c, 0, "Builder::orderByDesc")?;
+            this_data(vm, &c)?.try_order_by(&field, "desc").map_err(Throw::value_error)?;
+            Ok(Val::Object(c.this()?))
+        })
+        .method("latest", |vm, c| {
+            let field = if c.args.is_empty() { "created_at".to_string() } else { string_arg(&c, 0, "Builder::latest")? };
+            this_data(vm, &c)?.try_order_by(&field, "desc").map_err(Throw::value_error)?;
+            Ok(Val::Object(c.this()?))
+        })
+        .method("oldest", |vm, c| {
+            let field = if c.args.is_empty() { "created_at".to_string() } else { string_arg(&c, 0, "Builder::oldest")? };
+            this_data(vm, &c)?.try_order_by(&field, "asc").map_err(Throw::value_error)?;
+            Ok(Val::Object(c.this()?))
+        })
+        .method("take", |vm, c| {
+            let n = c.int(0, "Builder::take")?;
+            this_data(vm, &c)?.limit = Some(n);
+            Ok(Val::Object(c.this()?))
+        })
+        .method("skip", |vm, c| {
+            let n = c.int(0, "Builder::skip")?;
+            this_data(vm, &c)?.start = n;
+            Ok(Val::Object(c.this()?))
+        })
+        .method("pluck", |vm, c| {
+            let column = checked(&string_arg(&c, 0, "Builder::pluck")?)?;
+            let key = if c.args.len() > 1 && !c.arg(1).is_null() { Some(checked(&string_arg(&c, 1, "Builder::pluck")?)?) } else { None };
+            let mut b = this_data(vm, &c)?.clone();
+            b.projection = Some(match &key {
+                Some(k) => format!("{column} AS __v, {k} AS __k"),
+                None => format!("{column} AS __v"),
+            });
+            let rows = query_one(vm, &b.select_sql(), b.bindings.clone())?;
+            let mut out = PhpArray::new();
+            if let Value::Array(rows) = rows {
+                for row in rows.into_inner() {
+                    let Value::Object(o) = row else { continue };
+                    let v = from_surreal(vm, o.get("__v").cloned().unwrap_or(Value::None))?;
+                    match o.get("__k") {
+                        Some(k) if key.is_some() => {
+                            let k = match from_surreal(vm, k.clone())? {
+                                Val::Int(i) => ArrayKey::Int(i),
+                                Val::Str(s) => ArrayKey::from_string(&s),
+                                other => ArrayKey::from_string(&other.to_php_string()?),
+                            };
+                            out.insert(k, v);
+                        }
+                        _ => out.push(v),
+                    }
+                }
+            }
+            Ok(Val::array(out))
+        })
+        .method("value", |vm, c| {
+            let column = checked(&string_arg(&c, 0, "Builder::value")?)?;
+            let mut b = this_data(vm, &c)?.clone();
+            b.projection = Some(format!("{column} AS __v"));
+            b.limit = Some(1);
+            let rows = query_one(vm, &b.select_sql(), b.bindings.clone())?;
+            match rows {
+                Value::Array(a) => match a.first() {
+                    Some(Value::Object(o)) => from_surreal(vm, o.get("__v").cloned().unwrap_or(Value::None)),
+                    _ => Ok(Val::Null),
+                },
+                _ => Ok(Val::Null),
+            }
+        })
+        .method("sum", |vm, c| aggregate_call(vm, &c, "sum", "Builder::sum"))
+        .method("avg", |vm, c| aggregate_call(vm, &c, "mean", "Builder::avg"))
+        .method("min", |vm, c| aggregate_call(vm, &c, "min", "Builder::min"))
+        .method("max", |vm, c| aggregate_call(vm, &c, "max", "Builder::max"))
+        .method("increment", |vm, c| increment_call(vm, &c, "+", "Builder::increment"))
+        .method("decrement", |vm, c| increment_call(vm, &c, "-", "Builder::decrement"))
+        .method("doesntExist", |vm, c| {
+            let b = this_data(vm, &c)?.clone();
+            let v = query_one(vm, &b.count_sql(), b.bindings.clone())?;
+            Ok(Val::Bool(count_from(&v) == 0))
+        })
+        // chunk($size, fn ($rows, $page)): pages until a short page or the callback returns false
+        .method("chunk", |vm, c| {
+            let size = c.int(0, "Builder::chunk")?;
+            if size < 1 {
+                return Err(Throw::value_error("chunk(): size must be at least 1"));
+            }
+            let callback = c.arg(1);
+            let b = this_data(vm, &c)?.clone();
+            let mut page = 1i64;
+            loop {
+                let rows = query_one(vm, &b.to_sql(size as usize, ((page - 1) * size) as usize), b.bindings.clone())?;
+                let rows = hydrate(vm, b.model, rows)?;
+                let n = match &rows {
+                    Val::Array(a) => a.len() as i64,
+                    _ => 0,
+                };
+                if n == 0 {
+                    break;
+                }
+                if matches!(vm.call_value(&callback, vec![rows, Val::Int(page)])?, Val::Bool(false)) {
+                    return Ok(Val::Bool(false));
+                }
+                if n < size {
+                    break;
+                }
+                page += 1;
+            }
+            Ok(Val::Bool(true))
+        })
+        .method("firstOrCreate", |vm, c| {
+            let (b, found) = first_matching(vm, &c, "Builder::firstOrCreate")?;
+            if !found.is_null() {
+                return Ok(found);
+            }
+            create_with(vm, &b, &c.arg(0), &c.arg(1))
+        })
+        .method("updateOrCreate", |vm, c| {
+            let (b, found) = first_matching(vm, &c, "Builder::updateOrCreate")?;
+            if let Val::Object(h) = found {
+                vm.call_method_sync(h, b"update", vec![c.arg(1)])?;
+                return Ok(Val::Object(h));
+            }
+            create_with(vm, &b, &c.arg(0), &c.arg(1))
+        })
         .method("whereLike", |vm, c| {
-            let field = string_arg(&c, 0, "Builder::whereLike")?;
+            let field = checked(&string_arg(&c, 0, "Builder::whereLike")?)?;
             let value = string_arg(&c, 1, "Builder::whereLike")?;
             this_data(vm, &c)?.where_like(&field, &value);
             Ok(Val::Object(c.this()?))
@@ -485,12 +943,12 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             Ok(Val::Object(c.this()?))
         })
         .method("whereNull", |vm, c| {
-            let field = string_arg(&c, 0, "Builder::whereNull")?;
+            let field = checked(&string_arg(&c, 0, "Builder::whereNull")?)?;
             this_data(vm, &c)?.where_none(&field, false);
             Ok(Val::Object(c.this()?))
         })
         .method("whereNotNull", |vm, c| {
-            let field = string_arg(&c, 0, "Builder::whereNotNull")?;
+            let field = checked(&string_arg(&c, 0, "Builder::whereNotNull")?)?;
             this_data(vm, &c)?.where_none(&field, true);
             Ok(Val::Object(c.this()?))
         })

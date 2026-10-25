@@ -177,7 +177,7 @@ fn attributes_array(vm: &mut Vm, h: ObjHandle, hide: bool) -> Result<Val, Throw>
     Ok(Val::array(a))
 }
 
-fn save(vm: &mut Vm, h: ObjHandle) -> Result<Val, Throw> {
+pub(crate) fn save(vm: &mut Vm, h: ObjHandle) -> Result<Val, Throw> {
     let class = vm.class_of(h);
     let m = meta(vm, class)?;
     let (exists, dirty, id, attrs) = {
@@ -298,6 +298,17 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         })
         // static entry points → Builder bound to the called class
         .static_method("query", |vm, c| Ok(Val::Object(new_builder(vm, c.class)?)))
+        // Q1: any other static call goes to a fresh builder, as in Laravel
+        // (`User::latest()->first()`, `User::firstOrCreate([...])`)
+        .static_method("__callStatic", |vm, c| {
+            let name = crate::native::string_arg(&c, 0, "Model::__callStatic")?;
+            let args = match c.arg(1) {
+                Val::Array(a) => a.values().cloned().collect(),
+                _ => Vec::new(),
+            };
+            let b = new_builder(vm, c.class)?;
+            vm.call_method_sync(b, name.as_bytes(), args)
+        })
         .static_method("where", |vm, c| builder_call(vm, c, b"where"))
         .static_method("whereIn", |vm, c| builder_call(vm, c, b"whereIn"))
         .static_method("whereLike", |vm, c| builder_call(vm, c, b"whereLike"))
