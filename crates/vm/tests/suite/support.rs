@@ -20,7 +20,7 @@ fn support_classes_match_laravel() {
     assert_eq!(cases.len(), expected.len(), "cases.out is stale");
     let mut src = String::from("<?grd\nuse OpenGrid\\Support\\Str;\nuse OpenGrid\\Support\\Arr;\n");
     for c in &cases {
-        src.push_str(&format!("try {{ echo json_encode({c}), \"\\n\"; }} catch (Throwable $e) {{ echo 'ERR ', get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n"));
+        src.push_str(&format!("try {{ echo json_encode({c}), \"\\n\"; }} catch (Throwable $e) {{ echo 'ERR ', substr(strrchr('\\\\' . get_class($e), '\\\\'), 1), ': ', $e->getMessage(), \"\\n\"; }}\n"));
     }
     let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
     let r = vm.run_file("support.grd", src.as_bytes());

@@ -16,16 +16,24 @@ if (!enum_exists('SortDirection')) { eval('enum SortDirection { case Ascending; 
 require $vendor . '/autoload.php';
 class_alias(\Illuminate\Support\Str::class, 'Str');
 
-// the dialect has no references: Arr::set/forget return the new root array
+// the dialect has no references: Arr::set/forget/push return the new root
+// array, Arr::pull returns [value, rest] like Arr::pop/shift
 final class Arr
 {
     public static function set($array, $key, $value) { \Illuminate\Support\Arr::set($array, $key, $value); return $array; }
     public static function forget($array, $keys) { \Illuminate\Support\Arr::forget($array, $keys); return $array; }
+    public static function push($array, $key, ...$values) { \Illuminate\Support\Arr::push($array, $key, ...$values); return $array; }
+    public static function pull($array, $key, $default = null) { $v = \Illuminate\Support\Arr::pull($array, $key, $default); return [$v, $array]; }
     public static function __callStatic($method, $args) { return \Illuminate\Support\Arr::$method(...$args); }
 }
 
 foreach (file($cases, FILE_IGNORE_NEW_LINES) as $line) {
     if (trim($line) === '') { continue; }
-    $v = eval('return ' . $line . ';');
-    echo json_encode($v), "\n";
+    // errors as "ERR <short class>: <message>", the namespaces differ
+    try {
+        $v = eval('return ' . $line . ';');
+        echo json_encode($v), "\n";
+    } catch (Throwable $e) {
+        echo 'ERR ', substr(strrchr('\\' . get_class($e), '\\'), 1), ': ', $e->getMessage(), "\n";
+    }
 }

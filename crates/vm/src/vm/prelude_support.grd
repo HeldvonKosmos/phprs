@@ -804,6 +804,211 @@ final class Arr
     // replacements for the by-reference array functions: [value, rest]
     public static function pop(array $a): array { return \Arr::pop($a); }
     public static function shift(array $a): array { return \Arr::shift($a); }
+
+    // ---- S1b ---------------------------------------------------------------
+
+    public static function arrayable(mixed $value): bool
+    {
+        return is_array($value) || $value instanceof \Traversable || $value instanceof \JsonSerializable || $value instanceof Collection;
+    }
+
+    /** Typed reads: the value at $key must have the type, else InvalidArgumentException. */
+    public static function array(array|\ArrayAccess $array, string|int|null $key, ?array $default = null): array
+    {
+        $value = self::get($array, $key, $default);
+        if (!is_array($value)) { throw self::typeMismatch($key, 'an array', $value); }
+        return $value;
+    }
+
+    public static function boolean(array|\ArrayAccess $array, string|int|null $key, ?bool $default = null): bool
+    {
+        $value = self::get($array, $key, $default);
+        if (!is_bool($value)) { throw self::typeMismatch($key, 'a boolean', $value); }
+        return $value;
+    }
+
+    public static function float(array|\ArrayAccess $array, string|int|null $key, ?float $default = null): float
+    {
+        $value = self::get($array, $key, $default);
+        if (!is_float($value)) { throw self::typeMismatch($key, 'a float', $value); }
+        return $value;
+    }
+
+    public static function integer(array|\ArrayAccess $array, string|int|null $key, ?int $default = null): int
+    {
+        $value = self::get($array, $key, $default);
+        if (!is_int($value)) { throw self::typeMismatch($key, 'an integer', $value); }
+        return $value;
+    }
+
+    public static function string(array|\ArrayAccess $array, string|int|null $key, ?string $default = null): string
+    {
+        $value = self::get($array, $key, $default);
+        if (!is_string($value)) { throw self::typeMismatch($key, 'a string', $value); }
+        return $value;
+    }
+
+    private static function typeMismatch(string|int|null $key, string $what, mixed $value): \InvalidArgumentException
+    {
+        return new \InvalidArgumentException(sprintf('Array value for key [%s] must be %s, %s found.', (string) $key, $what, gettype($value)));
+    }
+
+    public static function from(mixed $items): array
+    {
+        if (is_array($items)) { return $items; }
+        if ($items instanceof Collection) { return $items->all(); }
+        if ($items instanceof \Traversable) { return iterator_to_array($items); }
+        if ($items instanceof \JsonSerializable) { return (array) $items->jsonSerialize(); }
+        if (is_object($items)) { return (array) $items; }
+        throw new \InvalidArgumentException('Items cannot be represented by a scalar value.');
+    }
+
+    public static function divide(array $array): array { return [array_keys($array), array_values($array)]; }
+
+    public static function crossJoin(array ...$arrays): array
+    {
+        $results = [[]];
+        foreach ($arrays as $index => $list) {
+            $append = [];
+            foreach ($results as $product) {
+                foreach ($list as $item) {
+                    $product[$index] = $item;
+                    $append[] = $product;
+                }
+            }
+            $results = $append;
+        }
+        return $results;
+    }
+
+    public static function every(iterable $array, callable $callback): bool
+    {
+        foreach ($array as $key => $value) {
+            if (!$callback($value, $key)) { return false; }
+        }
+        return true;
+    }
+
+    public static function some(iterable $array, callable $callback): bool
+    {
+        foreach ($array as $key => $value) {
+            if ($callback($value, $key)) { return true; }
+        }
+        return false;
+    }
+
+    public static function exceptValues(array $array, mixed $values, bool $strict = false): array
+    {
+        $values = (array) $values;
+        return array_filter($array, fn (mixed $v): bool => !in_array($v, $values, $strict));
+    }
+
+    public static function onlyValues(array $array, mixed $values, bool $strict = false): array
+    {
+        $values = (array) $values;
+        return array_filter($array, fn (mixed $v): bool => in_array($v, $values, $strict));
+    }
+
+    public static function hasAll(array $array, string|array $keys): bool
+    {
+        $keys = (array) $keys;
+        if ($array === [] || $keys === []) { return false; }
+        foreach ($keys as $key) {
+            if (!self::has($array, $key)) { return false; }
+        }
+        return true;
+    }
+
+    public static function mapSpread(array $array, callable $callback): array
+    {
+        return self::map($array, function (mixed $chunk, string|int $key) use ($callback): mixed {
+            $chunk[] = $key;
+            return $callback(...array_values($chunk));
+        });
+    }
+
+    public static function partition(iterable $array, callable $callback): array
+    {
+        $passed = [];
+        $failed = [];
+        foreach ($array as $key => $item) {
+            if ($callback($item, $key)) { $passed[$key] = $item; } else { $failed[$key] = $item; }
+        }
+        return [$passed, $failed];
+    }
+
+    public static function prependKeysWith(array $array, string $prependWith): array
+    {
+        return self::mapWithKeys($array, fn (mixed $item, string|int $key): array => [$prependWith . $key => $item]);
+    }
+
+    /** Appends to the list at $key; returns the new root array (no references in the dialect). */
+    public static function push(array $array, string|int|null $key, mixed ...$values): array
+    {
+        $target = self::array($array, $key, []);
+        foreach ($values as $v) { $target[] = $v; }
+        return self::set($array, $key, $target);
+    }
+
+    /** Like Arr::pop/shift: returns [value, rest]. */
+    public static function pull(array $array, string|int $key, mixed $default = null): array
+    {
+        return [self::get($array, $key, $default), self::forget($array, $key)];
+    }
+
+    public static function reject(array $array, callable $callback): array
+    {
+        return self::where($array, fn (mixed $value, string|int $key): bool => !$callback($value, $key));
+    }
+
+    public static function select(array $array, mixed $keys): array { return (new Collection($array))->select(self::wrap($keys))->all(); }
+
+    public static function shuffle(array $array): array { return shuffle($array); }
+
+    public static function sole(array $array, ?callable $callback = null): mixed
+    {
+        if ($callback !== null) { $array = self::where($array, $callback); }
+        $count = count($array);
+        if ($count === 0) { throw new ItemNotFoundException(); }
+        if ($count > 1) { throw new MultipleItemsFoundException($count); }
+        return self::first($array);
+    }
+
+    public static function sort(array $array, string|callable|null $callback = null): array { return (new Collection($array))->sortBy($callback)->all(); }
+    public static function sortDesc(array $array, string|callable|null $callback = null): array { return (new Collection($array))->sortByDesc($callback)->all(); }
+
+    public static function sortRecursive(array $array, int $options = SORT_REGULAR, bool $descending = false): array
+    {
+        $out = [];
+        foreach ($array as $k => $v) { $out[$k] = is_array($v) ? self::sortRecursive($v, $options, $descending) : $v; }
+        if (!array_is_list($out)) { return $descending ? krsort($out, $options) : ksort($out, $options); }
+        return $descending ? rsort($out, $options) : sort($out, $options);
+    }
+
+    public static function sortRecursiveDesc(array $array, int $options = SORT_REGULAR): array { return self::sortRecursive($array, $options, true); }
+
+    public static function take(array $array, int $limit): array
+    {
+        return $limit < 0 ? array_slice($array, $limit, abs($limit)) : array_slice($array, 0, $limit);
+    }
+
+    public static function toCssClasses(mixed $array): string
+    {
+        $classes = [];
+        foreach (self::wrap($array) as $class => $constraint) {
+            if (is_int($class)) { $classes[] = $constraint; } elseif ($constraint) { $classes[] = $class; }
+        }
+        return implode(' ', $classes);
+    }
+
+    public static function toCssStyles(mixed $array): string
+    {
+        $styles = [];
+        foreach (self::wrap($array) as $style => $constraint) {
+            if (is_int($style)) { $styles[] = Str::finish($constraint, ';'); } elseif ($constraint) { $styles[] = Str::finish($style, ';'); }
+        }
+        return implode(' ', $styles);
+    }
 }
 
 /** A collection of items (Laravel's Illuminate\Support\Collection, core methods). */
@@ -972,7 +1177,7 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
         return new static($out);
     }
 
-    public function sortBy(string|callable $callback, bool $descending = false): static
+    public function sortBy(string|callable|null $callback = null, bool $descending = false): static
     {
         $retrieve = $this->valueRetriever($callback);
         $keys = [];
@@ -983,7 +1188,7 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
         return new static($out);
     }
 
-    public function sortByDesc(string|callable $callback): static { return $this->sortBy($callback, true); }
+    public function sortByDesc(string|callable|null $callback = null): static { return $this->sortBy($callback, true); }
 
     public function sort(?callable $callback = null): static
     {
@@ -1217,17 +1422,9 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
     protected function keyOf(mixed $value, bool $strict): string|int|null
     {
         foreach ($this->items as $k => $item) {
-            if ($value instanceof \Closure ? $value($item, $k) : ($strict ? $item === $value : self::looseEquals($item, $value))) { return $k; }
+            if ($value instanceof \Closure ? $value($item, $k) : $item === $value) { return $k; }
         }
         return null;
-    }
-
-    /** PHP's loose == for the scalars Laravel compares (numbers and numeric strings). */
-    protected static function looseEquals(mixed $a, mixed $b): bool
-    {
-        if (is_numeric($a) && is_numeric($b)) { return (float) $a === (float) $b; }
-        if (is_scalar($a) && is_scalar($b)) { return (string) $a === (string) $b; }
-        return $a === $b;
     }
 
     public function after(mixed $value, bool $strict = false): mixed
@@ -1325,7 +1522,7 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
         foreach ($values as $k => $v) {
             $found = false;
             foreach ($seen as $s) {
-                if ($strict ? $s === $v : self::looseEquals($s, $v)) { $found = true; break; }
+                if ($s === $v) { $found = true; break; }
             }
             if ($found) { $out[$k] = $v; } else { $seen[] = $v; }
         }
@@ -1593,19 +1790,11 @@ class Collection implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonS
         return $this->filter(fn (mixed $item): bool => data_get($item, $key) < reset_value($values) || data_get($item, $key) > end_value($values));
     }
 
-    public function whereNotIn(string $key, array $values): static { return $this->reject(fn (mixed $item): bool => in_array(data_get($item, $key), $values, false) || self::inLoose(data_get($item, $key), $values)); }
+    public function whereNotIn(string $key, array $values): static { return $this->reject(fn (mixed $item): bool => in_array(data_get($item, $key), $values, true)); }
     public function whereNull(?string $key = null): static { return $this->filter(fn (mixed $item): bool => ($key === null ? $item : data_get($item, $key)) === null); }
     public function whereStrict(string $key, mixed $value): static { return $this->filter(fn (mixed $item): bool => data_get($item, $key) === $value); }
     public function whereInStrict(string $key, array $values): static { return $this->filter(fn (mixed $item): bool => in_array(data_get($item, $key), $values, true)); }
     public function whereNotInStrict(string $key, array $values): static { return $this->reject(fn (mixed $item): bool => in_array(data_get($item, $key), $values, true)); }
-
-    protected static function inLoose(mixed $value, array $values): bool
-    {
-        foreach ($values as $v) {
-            if (self::looseEquals($value, $v)) { return true; }
-        }
-        return false;
-    }
 
     public function zip(mixed ...$items): static
     {

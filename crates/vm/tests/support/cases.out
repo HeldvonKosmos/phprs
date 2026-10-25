@@ -475,3 +475,66 @@ true
 {"framework":"Laravel"}
 ["Taylor",34,{"name":"Taylor","age":34}]
 2
+true
+false
+true
+[1,2]
+ERR InvalidArgumentException: Array value for key [a] must be an array, integer found.
+true
+ERR InvalidArgumentException: Array value for key [on] must be a boolean, integer found.
+1.5
+ERR InvalidArgumentException: Array value for key [f] must be a float, integer found.
+3
+ERR InvalidArgumentException: Array value for key [i] must be an integer, string found.
+7
+"x"
+ERR InvalidArgumentException: Array value for key [s] must be a string, NULL found.
+{"a":1}
+{"x":2}
+ERR InvalidArgumentException: Items cannot be represented by a scalar value.
+[["name","price"],["Desk",100]]
+[[1,"a"],[1,"b"],[2,"a"],[2,"b"]]
+[[1,"a","I"],[1,"a","II"],[1,"b","I"],[1,"b","II"],[2,"a","I"],[2,"a","II"],[2,"b","I"],[2,"b","II"]]
+true
+false
+true
+false
+{"0":"a","2":"c"}
+{"0":"a","2":"c","3":1}
+{"y":2,"z":3}
+{"y":2}
+true
+false
+false
+[1,5]
+{"x":"x1","y":"y2"}
+[{"1":2,"3":4},{"0":1,"2":3}]
+[{"b":2},{"a":1}]
+{"user.name":"x","user.id":1}
+{"items":[1,2,3]}
+{"a":{"b":["x"]}}
+["Desk",{"price":100}]
+[1,{"a":{"c":2}}]
+["def",{"a":1}]
+[1,2]
+[{"id":1,"name":"a"},{"id":2,"name":"b"}]
+[{"id":1}]
+10
+2
+2
+"only"
+ERR ItemNotFoundException: 
+ERR MultipleItemsFoundException: 2 items were found.
+{"2":"Chair","0":"Desk","1":"Table"}
+{"1":{"name":"Chair"},"0":{"name":"Desk"}}
+{"1":{"name":"Chair"},"0":{"name":"Desk"}}
+{"1":"Table","0":"Desk","2":"Chair"}
+{"0":3,"2":2,"1":1}
+{"a":{"y":2,"z":1},"b":[1,2,3]}
+{"b":[3,2,1],"a":{"z":2,"y":1}}
+[1,2]
+[3,4]
+{"a":1,"b":2}
+"p-4 font-bold"
+"one"
+"color: red; font-weight: bold;"
