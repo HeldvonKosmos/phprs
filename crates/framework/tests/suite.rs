@@ -31,6 +31,10 @@ mod schema_golden;
 mod schema_kit;
 #[path = "suite/schema_ops.rs"]
 mod schema_ops;
+#[path = "suite/server.rs"]
+mod server;
+#[path = "suite/server_mode.rs"]
+mod server_mode;
 #[path = "suite/session.rs"]
 mod session;
 #[path = "suite/types.rs"]

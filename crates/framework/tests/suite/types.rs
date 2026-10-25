@@ -124,23 +124,11 @@ fn round_trip_in_memory() {
     check(&run(&pool, ROUND_TRIP));
 }
 
-/// Real server: OPENGRID_TEST_DB_URL (ws://host:port or http://…), optional
-/// OPENGRID_TEST_DB_NS, _DB, _USER, _PASS. Skipped when unset.
+/// Real server (B2c): a throw-away `surreal` server, or OPENGRID_TEST_DB_URL.
 #[test]
 fn round_trip_real_server() {
-    let Ok(url) = std::env::var("OPENGRID_TEST_DB_URL") else {
-        eprintln!("skipped: OPENGRID_TEST_DB_URL not set");
-        return;
-    };
-    let cfg = DbConfig {
-        url,
-        namespace: std::env::var("OPENGRID_TEST_DB_NS").unwrap_or_else(|_| "opengrid_test".into()),
-        database: std::env::var("OPENGRID_TEST_DB_DB").unwrap_or_else(|_| format!("types_{}", std::process::id())),
-        username: std::env::var("OPENGRID_TEST_DB_USER").ok(),
-        password: std::env::var("OPENGRID_TEST_DB_PASS").ok(),
-        ..Default::default()
-    };
-    let pool = pool(cfg);
+    let Some(server) = crate::server::TestServer::start() else { return };
+    let pool = pool(server.config("types"));
     check(&run(&pool, ROUND_TRIP));
     run(&pool, "<?grd\nuse OpenGrid\\Database\\DB;\nDB::statement('REMOVE TABLE IF EXISTS measurements'); DB::statement('REMOVE TABLE IF EXISTS tasks'); DB::statement('REMOVE TABLE IF EXISTS comments');");
 }
