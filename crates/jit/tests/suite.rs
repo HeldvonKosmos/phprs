@@ -6,6 +6,8 @@
 
 #[path = "suite/fuzz.rs"]
 mod fuzz;
+#[path = "suite/stress.rs"]
+mod stress;
 
 use std::path::Path;
 use std::time::{Duration, Instant};

@@ -13,6 +13,7 @@
 mod analysis;
 mod codegen;
 mod service;
+pub use service::{set_tier2_limit, tier2_stats};
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -384,7 +385,8 @@ impl JitBackend for CraneliftJit {
         let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions };
         let (ptr, meta) = self.tier1.compile(&r, prog)?;
         let slot = CodeSlot::new(ptr, 1);
-        if self.tiers.background {
+        // JIT5: past the process budget, hot code stays at tier 1
+        if self.tiers.background && service::admit() {
             let job = service::Job {
                 key,
                 prog,

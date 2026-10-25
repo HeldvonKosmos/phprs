@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -43,6 +44,43 @@ struct Service {
 }
 
 static SERVICE: OnceLock<Service> = OnceLock::new();
+
+/// JIT5: tier-2 code is never freed, so the number of tier-2 compilations per
+/// process is bounded (`GRD_JIT_TIER2_LIMIT`, default 4096; each one adds a
+/// cache entry and a few KB of code). Past it, new hot code keeps tier 1,
+/// which goes with its VM; cached tier-2 code is still shared.
+static TIER2_LIMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
+static TIER2_ADMITTED: AtomicUsize = AtomicUsize::new(0);
+
+fn limit() -> usize {
+    let l = TIER2_LIMIT.load(Ordering::Relaxed);
+    if l != usize::MAX {
+        return l;
+    }
+    let l = std::env::var("GRD_JIT_TIER2_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(4096);
+    TIER2_LIMIT.store(l, Ordering::Relaxed);
+    l
+}
+
+/// Take one tier-2 compilation from the budget; false when it is used up.
+pub(crate) fn admit() -> bool {
+    admit_from(&TIER2_ADMITTED, limit())
+}
+
+fn admit_from(counter: &AtomicUsize, limit: usize) -> bool {
+    counter.try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < limit).then_some(n + 1)).is_ok()
+}
+
+/// Set the tier-2 budget of the process (tests, embedding hosts).
+pub fn set_tier2_limit(n: usize) {
+    TIER2_LIMIT.store(n, Ordering::Relaxed);
+}
+
+/// (tier-2 compilations admitted, budget, cache entries).
+pub fn tier2_stats() -> (usize, usize, usize) {
+    let cache = SERVICE.get().and_then(|s| s.cache.lock().ok().map(|c| c.len())).unwrap_or(0);
+    (TIER2_ADMITTED.load(Ordering::Acquire), limit(), cache)
+}
 
 fn service() -> &'static Service {
     SERVICE.get_or_init(|| {
@@ -109,3 +147,25 @@ fn worker(rx: Receiver<(Job, SyncSender<()>)>) {
         let _ = done.send(());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn budget_is_never_exceeded_under_contention() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let admitted: usize = (0..8)
+            .map(|_| {
+                let c = Arc::clone(&counter);
+                std::thread::spawn(move || (0..1000).filter(|_| admit_from(&c, 100)).count())
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .sum();
+        assert_eq!(admitted, 100);
+        assert_eq!(counter.load(Ordering::Acquire), 100);
+    }
+}
+
