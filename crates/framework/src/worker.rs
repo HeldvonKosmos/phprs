@@ -50,6 +50,9 @@ pub struct WorkerCtx {
     pub limits: Arc<RateLimits>,
     /// Mail and storage (MS1), shared by all workers of the pool.
     pub services: Arc<Services>,
+    /// J3: scheduled tasks and jobs declared by the routes files (each worker
+    /// loads them; the scheduler reads one worker's list).
+    pub schedule: Vec<crate::scheduler::Entry>,
     /// Set when a hot reload failed: the worker keeps the old code and
     /// answers every request with this error until the next good reload.
     pub stale_error: Option<String>,
@@ -116,6 +119,7 @@ pub const FRAMEWORK_PRELUDE_AUTH: &str = include_str!("prelude_auth.grd");
 pub const FRAMEWORK_PRELUDE_MAIL: &str = include_str!("prelude_mail.grd");
 pub const FRAMEWORK_PRELUDE_CONSOLE: &str = include_str!("prelude_console.grd");
 pub const FRAMEWORK_PRELUDE_QUEUE: &str = include_str!("prelude_queue.grd");
+pub const FRAMEWORK_PRELUDE_SCHEDULE: &str = include_str!("prelude_schedule.grd");
 
 pub type Job = Box<dyn FnOnce(&mut Vm) + Send>;
 
@@ -152,10 +156,10 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
         vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
     }
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
-    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL), ("{framework/console}", FRAMEWORK_PRELUDE_CONSOLE), ("{framework/queue}", FRAMEWORK_PRELUDE_QUEUE)] {
+    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL), ("{framework/console}", FRAMEWORK_PRELUDE_CONSOLE), ("{framework/queue}", FRAMEWORK_PRELUDE_QUEUE), ("{framework/schedule}", FRAMEWORK_PRELUDE_SCHEDULE)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
-    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, services, debug: options.debug, stale_error: None }));
+    vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, services, schedule: Vec::new(), debug: options.debug, stale_error: None }));
     // default middleware aliases
     if let Some(c) = vm.host::<WorkerCtx>() {
         c.routes.aliases.insert("csrf".into(), "OpenGrid\\Http\\Middleware\\VerifyCsrfToken".into());

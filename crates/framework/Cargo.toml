@@ -44,6 +44,8 @@ mimalloc = "0.1.52"
 # MS1: mail templates (the Tera Loco uses) and storage contents
 tera = "2.4"
 bytes = "1"
+# J3: cron expressions (the version Loco's scheduler already pulls in)
+croner = "3"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

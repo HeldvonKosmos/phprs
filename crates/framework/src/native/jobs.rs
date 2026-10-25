@@ -58,6 +58,11 @@ fn run_job(vm: &mut Vm, class: &str, args: &serde_json::Value, attempt: u32) {
     vm.reset_request();
 }
 
+/// Queue a job by class name and JSON arguments (the scheduler, J3).
+pub fn push_job(services: &crate::services::Services, class: String, args: serde_json::Value) -> Result<(), String> {
+    services.jobs.push(Box::new(move |vm| run_job(vm, &class, &args, 1)))
+}
+
 pub fn register(vm: &mut Vm) {
     vm.register_native("opengrid_job_dispatch", |vm, a| {
         let class = match a.first() {
@@ -68,6 +73,26 @@ pub fn register(vm: &mut Vm) {
         let args: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| Throw::error(format!("job arguments: {e}")))?;
         let services = ctx(vm).services.clone();
         services.jobs.push(Box::new(move |vm| run_job(vm, &class, &args, 1))).map_err(Throw::error)?;
+        Ok(Val::Null)
+    });
+    // J3: entries of the schedule (prelude_schedule.grd)
+    vm.register_native("opengrid_schedule_add", |vm, a| {
+        let kind = match a.first() { Some(Val::Str(s)) => s.to_string_lossy(), _ => return Err(Throw::type_error("schedule kind expected")) };
+        let target = match a.get(1) { Some(Val::Str(s)) => s.to_string_lossy(), _ => return Err(Throw::type_error("schedule target expected")) };
+        let bytes = grd_vm::json::to_json(vm, &a.get(2).cloned().unwrap_or(Val::empty_array()), false)?;
+        let args: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| Throw::error(format!("schedule arguments: {e}")))?;
+        let schedule = &mut ctx(vm).schedule;
+        schedule.push(crate::scheduler::Entry { kind, target, args, cron: "* * * * *".into() });
+        Ok(Val::Int(schedule.len() as i64 - 1))
+    });
+    vm.register_native("opengrid_schedule_set", |vm, a| {
+        let id = match a.first() { Some(Val::Int(i)) => *i as usize, _ => return Err(Throw::type_error("schedule id expected")) };
+        let cron = match a.get(1) { Some(Val::Str(s)) => s.to_string_lossy(), _ => return Err(Throw::type_error("cron expression expected")) };
+        if cron.parse::<croner::Cron>().is_err() {
+            return Err(Throw::value_error(format!("invalid cron expression `{cron}`")));
+        }
+        let entry = ctx(vm).schedule.get_mut(id).ok_or_else(|| Throw::error("unknown schedule entry"))?;
+        entry.cron = cron;
         Ok(Val::Null)
     });
     // [pending, done, failed] of this pool's job queue

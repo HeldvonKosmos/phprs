@@ -1,0 +1,42 @@
+<?grd
+namespace OpenGrid\Scheduling;
+
+/**
+ * The schedule (J3, Laravel 11's `Schedule` in `routes/console.php`):
+ * `Schedule::task('notes:prune', ['days' => '30'])->dailyAt('03:00')`,
+ * `Schedule::job(SendDigest::class, ['a@example.com'])->hourly()`.
+ * Times are UTC; the server runs due entries every minute, in-process.
+ */
+final class Schedule
+{
+    public static function task(string $name, array $args = []): Event { return new Event(\opengrid_schedule_add('task', $name, $args)); }
+    public static function job(string $class, array $args = []): Event { return new Event(\opengrid_schedule_add('job', $class, $args)); }
+}
+
+/** One entry; every minute until a frequency is set. */
+final class Event
+{
+    public function __construct(private int $id) {}
+
+    public function cron(string $expression): static { \opengrid_schedule_set($this->id, $expression); return $this; }
+    public function everyMinute(): static { return $this->cron('* * * * *'); }
+    public function everyFiveMinutes(): static { return $this->cron('*/5 * * * *'); }
+    public function everyTenMinutes(): static { return $this->cron('*/10 * * * *'); }
+    public function everyFifteenMinutes(): static { return $this->cron('*/15 * * * *'); }
+    public function everyThirtyMinutes(): static { return $this->cron('0,30 * * * *'); }
+    public function hourly(): static { return $this->cron('0 * * * *'); }
+    public function hourlyAt(int $minute): static { return $this->cron($minute . ' * * * *'); }
+    public function daily(): static { return $this->cron('0 0 * * *'); }
+    public function dailyAt(string $time): static
+    {
+        [$h, $m] = array_pad(explode(':', $time), 2, '0');
+        return $this->cron(((int) $m) . ' ' . ((int) $h) . ' * * *');
+    }
+    public function weekly(): static { return $this->cron('0 0 * * 0'); }
+    public function weeklyOn(int $day, string $time = '0:0'): static
+    {
+        [$h, $m] = array_pad(explode(':', $time), 2, '0');
+        return $this->cron(((int) $m) . ' ' . ((int) $h) . ' * * ' . $day);
+    }
+    public function monthly(): static { return $this->cron('0 0 1 * *'); }
+}

@@ -29,6 +29,8 @@ mod relations;
 mod reload;
 #[path = "suite/scaffold.rs"]
 mod scaffold;
+#[path = "suite/schedule.rs"]
+mod schedule;
 #[path = "suite/schema_files.rs"]
 mod schema_files;
 #[path = "suite/schema_golden.rs"]

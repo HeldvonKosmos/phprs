@@ -203,6 +203,8 @@ impl Hooks for OpenGridApp {
                 tracing::error!(target: "opengrid", "control socket: {e}");
             }
         });
+        // J3: the schedule runs in this process, every full minute
+        crate::scheduler::start(Arc::clone(&pool));
         if !matches!(ctx.environment, Environment::Production) {
             return Ok(());
         }
