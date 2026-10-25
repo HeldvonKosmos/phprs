@@ -201,8 +201,15 @@ impl Vm {
             },
             TypeHint::Class(name) => match v {
                 Val::Object(h) => {
-                    let target = self.lookup_class(module.str(*name))?;
-                    self.instance_of(self.objects.get(*h).class, target).then(|| v.clone())
+                    let class = self.objects.get(*h).class;
+                    let hint = module.str(*name);
+                    let hint = hint.strip_prefix(b"\\").unwrap_or(hint);
+                    // the common case, the object is of exactly the hinted class: no name lookup
+                    if self.class(class).name.eq_ignore_ascii_case(hint) {
+                        return Some(v.clone());
+                    }
+                    let target = self.lookup_class(hint)?;
+                    self.instance_of(class, target).then(|| v.clone())
                 }
                 _ => None,
             },
