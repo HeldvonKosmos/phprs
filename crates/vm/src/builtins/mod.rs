@@ -3,6 +3,7 @@
 
 mod array;
 mod core;
+mod hash;
 pub(crate) mod datetime;
 pub mod datetime_class;
 pub mod json;
@@ -58,6 +59,10 @@ pub fn register(vm: &mut Vm) {
     vm.define_constant("ARRAY_FILTER_USE_KEY", Val::Int(2));
     vm.define_constant("ARRAY_FILTER_USE_BOTH", Val::Int(1));
     vm.define_constant("STR_PAD_RIGHT", Val::Int(1));
+    vm.define_constant("PATHINFO_DIRNAME", Val::Int(1));
+    vm.define_constant("PATHINFO_BASENAME", Val::Int(2));
+    vm.define_constant("PATHINFO_EXTENSION", Val::Int(4));
+    vm.define_constant("PATHINFO_FILENAME", Val::Int(8));
     vm.define_constant("STR_PAD_LEFT", Val::Int(0));
     vm.define_constant("STR_PAD_BOTH", Val::Int(2));
     vm.define_constant("JSON_HEX_TAG", Val::Int(1));
@@ -104,6 +109,7 @@ pub fn register(vm: &mut Vm) {
 
     core::register(vm);
     string::register(vm);
+    hash::register(vm);
     array::register(vm);
     math::register(vm);
     output::register(vm);

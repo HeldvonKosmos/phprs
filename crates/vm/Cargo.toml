@@ -25,6 +25,13 @@ fancy-regex = "0.19"
 chrono = "0.4"
 chrono-tz = "0.10"
 bcrypt = "0.19"
+# hashing (RustCrypto, the versions SurrealDB already pulls in)
+digest = "0.10"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+subtle = "2"
 
 [dev-dependencies]
 

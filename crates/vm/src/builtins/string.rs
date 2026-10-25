@@ -305,21 +305,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("dechex_placeholder", |_, _| Ok(Val::Null));
     vm.register_native("base64_encode", |_, a| Ok(Val::from(base64_encode(args::string(a, 0, "base64_encode")?.as_bytes()))));
     vm.register_native("base64_decode", |_, a| Ok(base64_decode(args::string(a, 0, "base64_decode")?.as_bytes()).map(|b| Val::bytes(&b)).unwrap_or(Val::Bool(false))));
-    vm.register_native("md5", |_, a| Ok(Val::from(crate::builtins::string::md5_hex(args::string(a, 0, "md5")?.as_bytes()))));
-    vm.register_native("sha1", |_, a| Ok(Val::from(sha1_hex(args::string(a, 0, "sha1")?.as_bytes()))));
     vm.register_native("crc32", |_, a| Ok(Val::Int(crc32(args::string(a, 0, "crc32")?.as_bytes()) as i64)));
-    vm.register_native("hash", |_, a| {
-        let algo = args::string(a, 0, "hash")?.to_string_lossy().to_lowercase();
-        let data = args::string(a, 1, "hash")?;
-        Ok(Val::from(match algo.as_str() {
-            "md5" => md5_hex(data.as_bytes()),
-            "sha1" => sha1_hex(data.as_bytes()),
-            "sha256" => sha256_hex(data.as_bytes()),
-            "crc32b" => format!("{:08x}", crc32(data.as_bytes())),
-            other => return Err(Throw::value_error(format!("hash(): Argument #1 ($algo) must be a valid hashing algorithm, \"{other}\" is not supported"))),
-        }))
-    });
-    vm.register_native("hash_algos", |_, _| Ok(Val::array(PhpArray::from_values(["md5", "sha1", "sha256", "crc32b"].map(Val::str)))));
     vm.register_native("uniqid", |_, a| {
         let prefix = match a.first() { Some(v) => v.to_php_string()?.to_string(), None => String::new() };
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
@@ -423,6 +409,145 @@ pub fn register(vm: &mut Vm) {
         Ok(Val::bytes(&out))
     });
     vm.register_native("money_placeholder", |_, _| Ok(Val::Null));
+    // ---- BI1 (ANALYSE_D13 §A3) ---------------------------------------------
+    vm.register_native("basename", |_, a| {
+        let p = args::string(a, 0, "basename")?.as_bytes().to_vec();
+        let suffix = match a.get(1) { Some(_) => args::string(a, 1, "basename")?.as_bytes().to_vec(), None => Vec::new() };
+        let mut base = basename_bytes(&p).to_vec();
+        if !suffix.is_empty() && base.len() > suffix.len() && base.ends_with(&suffix) {
+            base.truncate(base.len() - suffix.len());
+        }
+        Ok(Val::bytes(&base))
+    });
+    vm.register_native("dirname", |_, a| {
+        let mut p = args::string(a, 0, "dirname")?.as_bytes().to_vec();
+        let levels = args::int_opt(a, 1, "dirname", 1)?;
+        if levels < 1 {
+            return Err(Throw::value_error("dirname(): Argument #2 ($levels) must be greater than or equal to 1"));
+        }
+        for _ in 0..levels {
+            let next = dirname_bytes(&p);
+            if next == p {
+                break;
+            }
+            p = next;
+        }
+        Ok(Val::bytes(&p))
+    });
+    vm.register_native("pathinfo", |_, a| {
+        let p = args::string(a, 0, "pathinfo")?.as_bytes().to_vec();
+        let flags = args::int_opt(a, 1, "pathinfo", 15)?;
+        let base = basename_bytes(&p).to_vec();
+        let dot = base.iter().rposition(|&c| c == b'.');
+        let mut out = PhpArray::new();
+        // like php-src: the directory part only when it is not empty
+        let dir = dirname_bytes(&p);
+        if flags & 1 != 0 && !dir.is_empty() {
+            out.insert(ArrayKey::from_str("dirname"), Val::bytes(&dir));
+        }
+        if flags & 2 != 0 {
+            out.insert(ArrayKey::from_str("basename"), Val::bytes(&base));
+        }
+        if flags & 4 != 0 && let Some(d) = dot {
+            out.insert(ArrayKey::from_str("extension"), Val::bytes(&base[d + 1..]));
+        }
+        if flags & 8 != 0 {
+            out.insert(ArrayKey::from_str("filename"), Val::bytes(&base[..dot.unwrap_or(base.len())]));
+        }
+        // a single flag returns the element itself ("" when missing)
+        if matches!(flags, 1 | 2 | 4 | 8) {
+            return Ok(out.values().next().cloned().unwrap_or_else(|| Val::str("")));
+        }
+        Ok(Val::array(out))
+    });
+    vm.register_native("mb_str_pad", |_, a| {
+        let s: Vec<char> = args::string(a, 0, "mb_str_pad")?.to_string_lossy().chars().collect();
+        let len = args::int(a, 1, "mb_str_pad")?;
+        let pad: Vec<char> = match a.get(2) { Some(_) => args::string(a, 2, "mb_str_pad")?.to_string_lossy().chars().collect(), None => vec![' '] };
+        let kind = args::int_opt(a, 3, "mb_str_pad", 1)?;
+        if pad.is_empty() {
+            return Err(Throw::value_error("mb_str_pad(): Argument #3 ($pad_string) must be a non-empty string"));
+        }
+        if len <= s.len() as i64 {
+            return Ok(Val::from(s.iter().collect::<String>()));
+        }
+        let total = len as usize - s.len();
+        let (left, right) = match kind {
+            0 => (total, 0),
+            2 => (total / 2, total - total / 2),
+            _ => (0, total),
+        };
+        let mk = |n: usize| -> String { pad.iter().cycle().take(n).collect() };
+        Ok(Val::from(format!("{}{}{}", mk(left), s.iter().collect::<String>(), mk(right))))
+    });
+    vm.register_native("mb_strimwidth", |_, a| {
+        let s: Vec<char> = args::string(a, 0, "mb_strimwidth")?.to_string_lossy().chars().collect();
+        let start = args::int(a, 1, "mb_strimwidth")?;
+        let width = args::int(a, 2, "mb_strimwidth")?;
+        let marker: Vec<char> = match a.get(3) { Some(_) => args::string(a, 3, "mb_strimwidth")?.to_string_lossy().chars().collect(), None => Vec::new() };
+        let start = if start < 0 { (s.len() as i64 + start).max(0) as usize } else { (start as usize).min(s.len()) };
+        let rest = &s[start..];
+        let total: i64 = rest.iter().map(|c| char_width(*c)).sum();
+        let width = if width < 0 { total + width } else { width };
+        if total <= width {
+            return Ok(Val::from(rest.iter().collect::<String>()));
+        }
+        let marker_w: i64 = marker.iter().map(|c| char_width(*c)).sum();
+        let mut out = String::new();
+        let mut w = 0;
+        for c in rest {
+            if w + char_width(*c) > width - marker_w {
+                break;
+            }
+            w += char_width(*c);
+            out.push(*c);
+        }
+        out.extend(marker.iter());
+        Ok(Val::from(out))
+    });
+    vm.register_native("mb_ucfirst", |_, a| {
+        let s = args::string(a, 0, "mb_ucfirst")?.to_string_lossy();
+        let mut c = s.chars();
+        Ok(Val::from(match c.next() { Some(f) => title_case_char(f) + c.as_str(), None => String::new() }))
+    });
+    vm.register_native("mb_lcfirst", |_, a| {
+        let s = args::string(a, 0, "mb_lcfirst")?.to_string_lossy();
+        let mut c = s.chars();
+        Ok(Val::from(match c.next() { Some(f) => f.to_lowercase().collect::<String>() + c.as_str(), None => String::new() }))
+    });
+    // strtok($string, $token) starts, strtok($token) continues (state per VM, cleared per request)
+    vm.register_native("strtok", |vm, a| {
+        let (src, pos, tokens) = if a.len() >= 2 {
+            (args::string(a, 0, "strtok")?.as_bytes().to_vec(), 0usize, args::string(a, 1, "strtok")?.as_bytes().to_vec())
+        } else {
+            let tokens = args::string(a, 0, "strtok")?.as_bytes().to_vec();
+            match vm.strtok.take() {
+                Some((src, pos)) => (src, pos, tokens),
+                None => return Ok(Val::Bool(false)),
+            }
+        };
+        let mut i = pos;
+        while i < src.len() && tokens.contains(&src[i]) {
+            i += 1;
+        }
+        if i >= src.len() {
+            vm.strtok = None;
+            return Ok(Val::Bool(false));
+        }
+        let mut j = i;
+        while j < src.len() && !tokens.contains(&src[j]) {
+            j += 1;
+        }
+        let tok = src[i..j].to_vec();
+        vm.strtok = Some((src, (j + 1).min(usize::MAX)));
+        Ok(Val::bytes(&tok))
+    });
+    // sscanf returns the parsed values (the dialect has no by-reference arguments)
+    vm.register_native("sscanf", |_, a| {
+        let s = args::string(a, 0, "sscanf")?.as_bytes().to_vec();
+        let f = args::string(a, 1, "sscanf")?.as_bytes().to_vec();
+        Ok(sscanf(&s, &f))
+    });
 }
 
 pub(crate) fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
@@ -938,130 +1063,6 @@ pub(crate) fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
-pub(crate) fn md5_hex(data: &[u8]) -> String {
-    let s: [u32; 64] = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
-    let k: Vec<u32> = (0..64).map(|i| ((i as f64 + 1.0).sin().abs() * 4294967296.0) as u32).collect();
-    let (mut a0, mut b0, mut c0, mut d0) = (0x67452301u32, 0xefcdab89u32, 0x98badcfeu32, 0x10325476u32);
-    let mut msg = data.to_vec();
-    let bit_len = (data.len() as u64).wrapping_mul(8);
-    msg.push(0x80);
-    while msg.len() % 64 != 56 {
-        msg.push(0);
-    }
-    msg.extend_from_slice(&bit_len.to_le_bytes());
-    for chunk in msg.chunks(64) {
-        let m: Vec<u32> = chunk.chunks(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])).collect();
-        let (mut a, mut b, mut c, mut d) = (a0, b0, c0, d0);
-        for i in 0..64 {
-            let (f, g) = match i / 16 {
-                0 => ((b & c) | (!b & d), i),
-                1 => ((d & b) | (!d & c), (5 * i + 1) % 16),
-                2 => (b ^ c ^ d, (3 * i + 5) % 16),
-                _ => (c ^ (b | !d), (7 * i) % 16),
-            };
-            let f2 = f.wrapping_add(a).wrapping_add(k[i]).wrapping_add(m[g]);
-            a = d;
-            d = c;
-            c = b;
-            b = b.wrapping_add(f2.rotate_left(s[i]));
-        }
-        a0 = a0.wrapping_add(a);
-        b0 = b0.wrapping_add(b);
-        c0 = c0.wrapping_add(c);
-        d0 = d0.wrapping_add(d);
-    }
-    let mut out = String::new();
-    for v in [a0, b0, c0, d0] {
-        for byte in v.to_le_bytes() {
-            out.push_str(&format!("{byte:02x}"));
-        }
-    }
-    out
-}
-
-pub(crate) fn sha1_hex(data: &[u8]) -> String {
-    let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
-    let mut msg = data.to_vec();
-    let bit_len = (data.len() as u64).wrapping_mul(8);
-    msg.push(0x80);
-    while msg.len() % 64 != 56 {
-        msg.push(0);
-    }
-    msg.extend_from_slice(&bit_len.to_be_bytes());
-    for chunk in msg.chunks(64) {
-        let mut w = [0u32; 80];
-        for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
-        }
-        for i in 16..80 {
-            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
-        }
-        let (mut a, mut b, mut c, mut d, mut e) = (h[0], h[1], h[2], h[3], h[4]);
-        for (i, wi) in w.iter().enumerate() {
-            let (f, k) = match i / 20 {
-                0 => ((b & c) | (!b & d), 0x5A827999),
-                1 => (b ^ c ^ d, 0x6ED9EBA1),
-                2 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
-                _ => (b ^ c ^ d, 0xCA62C1D6),
-            };
-            let t = a.rotate_left(5).wrapping_add(f).wrapping_add(e).wrapping_add(k).wrapping_add(*wi);
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = t;
-        }
-        h[0] = h[0].wrapping_add(a);
-        h[1] = h[1].wrapping_add(b);
-        h[2] = h[2].wrapping_add(c);
-        h[3] = h[3].wrapping_add(d);
-        h[4] = h[4].wrapping_add(e);
-    }
-    h.iter().map(|v| format!("{v:08x}")).collect()
-}
-
-pub(crate) fn sha256_hex(data: &[u8]) -> String {
-    const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
-        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
-        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-    ];
-    let mut h: [u32; 8] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
-    let mut msg = data.to_vec();
-    let bit_len = (data.len() as u64).wrapping_mul(8);
-    msg.push(0x80);
-    while msg.len() % 64 != 56 {
-        msg.push(0);
-    }
-    msg.extend_from_slice(&bit_len.to_be_bytes());
-    for chunk in msg.chunks(64) {
-        let mut w = [0u32; 64];
-        for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
-        }
-        for i in 16..64 {
-            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
-        }
-        let mut v = h;
-        for i in 0..64 {
-            let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
-            let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
-            let t1 = v[7].wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
-            let s0 = v[0].rotate_right(2) ^ v[0].rotate_right(13) ^ v[0].rotate_right(22);
-            let maj = (v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]);
-            let t2 = s0.wrapping_add(maj);
-            v = [t1.wrapping_add(t2), v[0], v[1], v[2], v[3].wrapping_add(t1), v[4], v[5], v[6]];
-        }
-        for i in 0..8 {
-            h[i] = h[i].wrapping_add(v[i]);
-        }
-    }
-    h.iter().map(|v| format!("{v:08x}")).collect()
-}
-
 /// Argument #3 `$length` of strncmp/strncasecmp: negative is a ValueError.
 fn non_negative_length(a: &[Val], name: &str) -> Result<usize, Throw> {
     let n = args::int(a, 2, name)?;
@@ -1162,5 +1163,211 @@ fn title_case(s: &str) -> String {
         }
     }
     out
+}
+
+/// PHP's basename on bytes: trailing slashes ignored, the part after the last '/'.
+fn basename_bytes(p: &[u8]) -> &[u8] {
+    let mut end = p.len();
+    while end > 0 && p[end - 1] == b'/' {
+        end -= 1;
+    }
+    let start = p[..end].iter().rposition(|&c| c == b'/').map_or(0, |i| i + 1);
+    &p[start..end]
+}
+
+/// PHP's dirname for one level: "/a/b/" -> "/a", "a" -> ".", "/a" -> "/", "/" -> "/".
+fn dirname_bytes(p: &[u8]) -> Vec<u8> {
+    if p.is_empty() {
+        return Vec::new();
+    }
+    let mut end = p.len();
+    while end > 0 && p[end - 1] == b'/' {
+        end -= 1;
+    }
+    if end == 0 {
+        return b"/".to_vec();
+    }
+    match p[..end].iter().rposition(|&c| c == b'/') {
+        None => b".".to_vec(),
+        Some(i) => {
+            let mut e = i;
+            while e > 0 && p[e - 1] == b'/' {
+                e -= 1;
+            }
+            if e == 0 { b"/".to_vec() } else { p[..e].to_vec() }
+        }
+    }
+}
+
+/// Display width as mbstring counts it: East Asian wide and fullwidth characters are 2.
+fn char_width(c: char) -> i64 {
+    let u = c as u32;
+    let wide = matches!(u, 0x1100..=0x115F | 0x2E80..=0x303E | 0x3041..=0x33FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xA000..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F300..=0x1F64F | 0x1F900..=0x1F9FF | 0x20000..=0x3FFFD);
+    if wide { 2 } else { 1 }
+}
+
+/// Title case of one character (mb_ucfirst uses MB_CASE_TITLE for the first letter).
+fn title_case_char(c: char) -> String {
+    match c {
+        'ǆ' | 'ǅ' | 'Ǆ' => "ǅ".into(),
+        'ǉ' | 'ǈ' | 'Ǉ' => "ǈ".into(),
+        'ǌ' | 'ǋ' | 'Ǌ' => "ǋ".into(),
+        'ǳ' | 'ǲ' | 'Ǳ' => "ǲ".into(),
+        _ => c.to_uppercase().collect(),
+    }
+}
+
+/// sscanf subset: %d %i %u %x %X %o %f %e %g %s %c %[set] %n %%, widths and %*
+/// (suppress). Literal characters must match, whitespace matches any run.
+/// Unfilled conversions are null; null when the input ends before the first one.
+fn sscanf(s: &[u8], f: &[u8]) -> Val {
+    let mut out = PhpArray::new();
+    let (mut si, mut fi) = (0usize, 0usize);
+    let mut failed = false;
+    let mut converted_any = false;
+    while fi < f.len() {
+        let c = f[fi];
+        if c.is_ascii_whitespace() {
+            while si < s.len() && s[si].is_ascii_whitespace() {
+                si += 1;
+            }
+            fi += 1;
+            continue;
+        }
+        if c != b'%' {
+            if !failed && si < s.len() && s[si] == c {
+                si += 1;
+            } else {
+                failed = true;
+            }
+            fi += 1;
+            continue;
+        }
+        fi += 1;
+        if fi < f.len() && f[fi] == b'%' {
+            if !failed && si < s.len() && s[si] == b'%' { si += 1 } else { failed = true }
+            fi += 1;
+            continue;
+        }
+        let suppress = fi < f.len() && f[fi] == b'*';
+        if suppress {
+            fi += 1;
+        }
+        let mut width = 0usize;
+        while fi < f.len() && f[fi].is_ascii_digit() {
+            width = width * 10 + (f[fi] - b'0') as usize;
+            fi += 1;
+        }
+        while fi < f.len() && matches!(f[fi], b'l' | b'h' | b'L') {
+            fi += 1;
+        }
+        if fi >= f.len() {
+            break;
+        }
+        let conv = f[fi];
+        fi += 1;
+        let mut set: Option<(bool, Vec<u8>)> = None;
+        if conv == b'[' {
+            let negate = fi < f.len() && f[fi] == b'^';
+            if negate {
+                fi += 1;
+            }
+            let mut chars = Vec::new();
+            if fi < f.len() && f[fi] == b']' {
+                chars.push(b']');
+                fi += 1;
+            }
+            while fi < f.len() && f[fi] != b']' {
+                if fi + 2 < f.len() && f[fi + 1] == b'-' && f[fi + 2] != b']' {
+                    chars.extend(f[fi]..=f[fi + 2]);
+                    fi += 3;
+                } else {
+                    chars.push(f[fi]);
+                    fi += 1;
+                }
+            }
+            fi += 1;
+            set = Some((negate, chars));
+        }
+        if conv == b'n' {
+            if !suppress {
+                out.push(if failed { Val::Null } else { Val::Int(si as i64) });
+            }
+            continue;
+        }
+        if !matches!(conv, b'c' | b'[') {
+            while !failed && si < s.len() && s[si].is_ascii_whitespace() {
+                si += 1;
+            }
+        }
+        if failed || si >= s.len() {
+            if !failed && !converted_any && si >= s.len() {
+                // input ended before the first conversion
+                return Val::Null;
+            }
+            failed = true;
+            if !suppress {
+                out.push(Val::Null);
+            }
+            continue;
+        }
+        let max = if width == 0 { usize::MAX } else { width };
+        let start = si;
+        let take = |pred: &dyn Fn(u8, usize) -> bool, si: &mut usize| {
+            let mut n = 0;
+            while *si < s.len() && n < max && pred(s[*si], n) {
+                *si += 1;
+                n += 1;
+            }
+        };
+        let v = match conv {
+            b'd' | b'i' | b'u' => {
+                take(&|b, n| b.is_ascii_digit() || (n == 0 && (b == b'-' || b == b'+')), &mut si);
+                std::str::from_utf8(&s[start..si]).ok().and_then(|t| t.parse::<i64>().ok()).map(Val::Int)
+            }
+            b'x' | b'X' => {
+                take(&|b, _| b.is_ascii_hexdigit(), &mut si);
+                i64::from_str_radix(std::str::from_utf8(&s[start..si]).unwrap_or(""), 16).ok().map(Val::Int)
+            }
+            b'o' => {
+                take(&|b, _| (b'0'..=b'7').contains(&b), &mut si);
+                i64::from_str_radix(std::str::from_utf8(&s[start..si]).unwrap_or(""), 8).ok().map(Val::Int)
+            }
+            b'f' | b'e' | b'E' | b'g' => {
+                take(&|b, n| b.is_ascii_digit() || b == b'.' || b == b'e' || b == b'E' || (b == b'-' || b == b'+') && (n == 0 || matches!(s[start + n - 1], b'e' | b'E')), &mut si);
+                std::str::from_utf8(&s[start..si]).ok().and_then(|t| t.parse::<f64>().ok()).map(Val::Float)
+            }
+            b's' => {
+                take(&|b, _| !b.is_ascii_whitespace(), &mut si);
+                Some(Val::bytes(&s[start..si]))
+            }
+            b'c' => {
+                let n = if width == 0 { 1 } else { width };
+                si = (si + n).min(s.len());
+                Some(Val::bytes(&s[start..si]))
+            }
+            b'[' => {
+                let (negate, chars) = set.clone().unwrap_or_default();
+                take(&|b, _| chars.contains(&b) != negate, &mut si);
+                if si == start { None } else { Some(Val::bytes(&s[start..si])) }
+            }
+            _ => None,
+        };
+        match v {
+            Some(v) => {
+                converted_any = true;
+                if !suppress {
+                    out.push(v);
+                }
+            }
+            None => {
+                failed = true;
+                if !suppress {
+                    out.push(Val::Null);
+                }
+            }
+        }
+    }
+    Val::array(out)
 }
 

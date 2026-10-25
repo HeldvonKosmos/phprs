@@ -466,6 +466,26 @@ pub fn register(vm: &mut Vm) {
         Ok(Val::Bool(true))
     });
     vm.register_native("compact_placeholder", |_, _| Ok(Val::Null));
+    // ---- BI1 (ANALYSE_D13 §A3) ---------------------------------------------
+    vm.register_native("array_replace_recursive", |_, a| {
+        let mut out = (*args::array(a, 0, "array_replace_recursive")?).clone();
+        for i in 1..a.len() {
+            let with = args::array(a, i, "array_replace_recursive")?;
+            out = replace_recursive(out, &with);
+        }
+        Ok(Val::array(out))
+    });
+    // values / keys compared: None = ignored, Str = as strings (PHP), User = callback(a, b) == 0
+    vm.register_native("array_udiff", |vm, a| user_set_op(vm, a, "array_udiff", Cmp::User, Cmp::None, false));
+    vm.register_native("array_uintersect", |vm, a| user_set_op(vm, a, "array_uintersect", Cmp::User, Cmp::None, true));
+    vm.register_native("array_diff_ukey", |vm, a| user_set_op(vm, a, "array_diff_ukey", Cmp::None, Cmp::User, false));
+    vm.register_native("array_intersect_ukey", |vm, a| user_set_op(vm, a, "array_intersect_ukey", Cmp::None, Cmp::User, true));
+    vm.register_native("array_diff_uassoc", |vm, a| user_set_op(vm, a, "array_diff_uassoc", Cmp::Str, Cmp::User, false));
+    vm.register_native("array_intersect_uassoc", |vm, a| user_set_op(vm, a, "array_intersect_uassoc", Cmp::Str, Cmp::User, true));
+    vm.register_native("array_udiff_assoc", |vm, a| user_set_op(vm, a, "array_udiff_assoc", Cmp::User, Cmp::Str, false));
+    vm.register_native("array_uintersect_assoc", |vm, a| user_set_op(vm, a, "array_uintersect_assoc", Cmp::User, Cmp::Str, true));
+    vm.register_native("array_udiff_uassoc", |vm, a| user_set_op(vm, a, "array_udiff_uassoc", Cmp::User, Cmp::User, false));
+    vm.register_native("array_uintersect_uassoc", |vm, a| user_set_op(vm, a, "array_uintersect_uassoc", Cmp::User, Cmp::User, true));
 }
 
 fn count(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
@@ -734,3 +754,75 @@ fn natord(a: &str, b: &str) -> Ordering {
     }
     (ab.len() - i).cmp(&(bb.len() - j))
 }
+
+/// PHP's array_replace_recursive: arrays on both sides merge key by key.
+fn replace_recursive(mut base: PhpArray, with: &PhpArray) -> PhpArray {
+    for (k, v) in with.iter() {
+        let merged = match (base.get(k), v) {
+            (Some(Val::Array(old)), Val::Array(new)) => Val::array(replace_recursive((**old).clone(), new)),
+            _ => v.clone(),
+        };
+        base.insert(k.clone(), merged);
+    }
+    base
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Cmp {
+    None,
+    Str,
+    User,
+}
+
+/// The `array_u*` family: the callbacks are the last arguments (value callback
+/// first when both are given); an entry is in another array when some entry
+/// there compares equal on every compared part.
+fn user_set_op(vm: &mut Vm, a: &[Val], name: &str, values: Cmp, keys: Cmp, intersect: bool) -> Result<Val, Throw> {
+    let n_cb = (values == Cmp::User) as usize + (keys == Cmp::User) as usize;
+    if a.len() < 1 + n_cb {
+        return Err(Throw::argument_count(format!("{name}() expects at least {} arguments, {} given", 1 + n_cb, a.len())));
+    }
+    let callbacks = &a[a.len() - n_cb..];
+    let (value_cb, key_cb) = match (values, keys) {
+        (Cmp::User, Cmp::User) => (Some(callbacks[0].clone()), Some(callbacks[1].clone())),
+        (Cmp::User, _) => (Some(callbacks[0].clone()), None),
+        (_, Cmp::User) => (None, Some(callbacks[0].clone())),
+        _ => (None, None),
+    };
+    let base = args::array(a, 0, name)?;
+    let others: Vec<std::rc::Rc<PhpArray>> = a[1..a.len() - n_cb].iter().enumerate().map(|(i, v)| match v { Val::Array(x) => Ok(x.clone()), o => Err(Throw::type_error(format!("{name}(): Argument #{} must be of type array, {} given", i + 2, o.type_name()))) }).collect::<Result<_, _>>()?;
+    let mut out = PhpArray::new();
+    for (k, v) in base.iter() {
+        let mut in_all = true;
+        let mut in_any = false;
+        for o in &others {
+            let mut found = false;
+            for (ok, ov) in o.iter() {
+                let keys_equal = match keys {
+                    Cmp::None => true,
+                    Cmp::Str => k == ok,
+                    Cmp::User => vm.call_value(key_cb.as_ref().expect("key callback"), vec![k.to_val(), ok.to_val()])?.to_int()? == 0,
+                };
+                if !keys_equal {
+                    continue;
+                }
+                let values_equal = match values {
+                    Cmp::None => true,
+                    Cmp::Str => vm.to_string_val(v)? == vm.to_string_val(ov)?,
+                    Cmp::User => vm.call_value(value_cb.as_ref().expect("value callback"), vec![v.clone(), ov.clone()])?.to_int()? == 0,
+                };
+                if values_equal {
+                    found = true;
+                    break;
+                }
+            }
+            in_all &= found;
+            in_any |= found;
+        }
+        if (intersect && in_all) || (!intersect && !in_any) {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    Ok(Val::array(out))
+}
+

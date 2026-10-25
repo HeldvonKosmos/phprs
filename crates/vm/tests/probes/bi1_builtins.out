@@ -1,0 +1,49 @@
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e
+d752c2c51fba0e29aa190570a9d4253e44077a058d3297fa3a5630d5bd012622f97c28acaed313b5c83bb990caa7da85
+54a2f7f92a5f975d8096af77a126edda7da60c5aa872ef1b871701ae
+900150983cd24fb0d6963f7d28e17f72 900150983cd24fb0d6963f7d28e17f72 a9993e364706816aba3e25717850c26c9cd0d89d a9993e364706816aba3e25717850c26c9cd0d89d
+5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843
+9d5c73ef85594d34ec4438b7c97e51d8 257d2c35443af1e2fe590bcf71d7cfc2e7253310
+854e242c54ce5f31621a1f809881b3439c0a77fd594dc546b9b3a957cf6f7b5475a1302be9fde1ece18531982eaa2141907c8b2fbd8bec2e5b19b8312ace3f2b
+32
+bool(true)
+bool(false)
+bool(false)
+ValueError
+{"a":[9,2,3],"b":{"x":1,"y":[2,3],"z":0},"c":1}
+{"a":"A","c":"C"}
+{"b":"b","c":"C"}
+{"c":3}
+{"a":1,"B":2}
+{"b":2,"c":3}
+{"a":1}
+{"b":"y"}
+{"a":"X"}
+{"b":"y"}
+{"a":"X"}
+["c.txt","\/a\/b",{"dirname":"\/a\/b","basename":"c.txt","extension":"txt","filename":"c"}]
+["b","\/a",{"dirname":"\/a","basename":"b","filename":"b"}]
+["c",".",{"dirname":".","basename":"c","filename":"c"}]
+["","\/",{"dirname":"\/","basename":"","filename":""}]
+["","",{"basename":"","filename":""}]
+[".",".",{"dirname":".","basename":".","extension":"","filename":""}]
+["b.tar.gz","a",{"dirname":"a","basename":"b.tar.gz","extension":"gz","filename":"b.tar"}]
+[".hidden","\/x",{"dirname":"\/x","basename":".hidden","extension":"hidden","filename":""}]
+["dir",".",{"dirname":".","basename":"dir","filename":"dir"}]
+file file.php /a/b .
+c||b|.
+äbüüü|xyxyäb|--äb---|äbc
+Hello...|Hello|日本語…|cde
+Äpfel ärger 
+[a][b][c]
+[25,"Bob"] [12,"apples",null] [255,50,"x"] [2026,10,25] null
+{"a":1,"typed":null,"n":null,"s":"s"}
+bool(true)
+string(4) "Base"
+3{"y":2,"0":3,"1":4}Y
+y=2 0=3 1=4 
+2oneY1
+a1, b2, c3
+bool(true)
+bool(true)

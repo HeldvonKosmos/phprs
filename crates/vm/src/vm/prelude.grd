@@ -168,6 +168,82 @@ class ArrayIterator implements Iterator, Countable, ArrayAccess {
     public function getArrayCopy(): array { return $this->items; }
 }
 
+/// ArrayObject on a plain array (no flags, no object storage).
+class ArrayObject implements IteratorAggregate, ArrayAccess, Countable {
+    public const STD_PROP_LIST = 1;
+    public const ARRAY_AS_PROPS = 2;
+    private array $storage;
+    public function __construct(array $array = []) { $this->storage = $array; }
+    public function getIterator(): Iterator { return new ArrayIterator($this->storage); }
+    public function offsetExists(mixed $key): bool { return isset($this->storage[$key]); }
+    public function offsetGet(mixed $key): mixed { return $this->storage[$key]; }
+    public function offsetSet(mixed $key, mixed $value): void { if ($key === null) { $this->storage[] = $value; } else { $this->storage[$key] = $value; } }
+    public function offsetUnset(mixed $key): void { unset($this->storage[$key]); }
+    public function append(mixed $value): void { $this->storage[] = $value; }
+    public function count(): int { return count($this->storage); }
+    public function getArrayCopy(): array { return $this->storage; }
+    public function exchangeArray(array $array): array { $old = $this->storage; $this->storage = $array; return $old; }
+    public function asort(int $flags = SORT_REGULAR): bool { $this->storage = asort($this->storage, $flags); return true; }
+    public function ksort(int $flags = SORT_REGULAR): bool { $this->storage = ksort($this->storage, $flags); return true; }
+}
+
+/// WeakMap: objects as keys. Objects live until the end of the request in the
+/// dialect, so entries go with the request (no earlier removal).
+final class WeakMap implements ArrayAccess, Countable, IteratorAggregate {
+    private array $keys = [];
+    private array $values = [];
+    private function id(mixed $object): int {
+        if (!is_object($object)) { throw new TypeError('WeakMap key must be an object'); }
+        return spl_object_id($object);
+    }
+    public function offsetExists(mixed $object): bool { return isset($this->values[$this->id($object)]); }
+    public function offsetGet(mixed $object): mixed {
+        $id = $this->id($object);
+        if (!array_key_exists($id, $this->values)) { throw new Error('Object ' . get_class($object) . '#' . $id . ' not contained in WeakMap'); }
+        return $this->values[$id];
+    }
+    public function offsetSet(mixed $object, mixed $value): void { $id = $this->id($object); $this->keys[$id] = $object; $this->values[$id] = $value; }
+    public function offsetUnset(mixed $object): void { $id = $this->id($object); unset($this->keys[$id], $this->values[$id]); }
+    public function count(): int { return count($this->values); }
+    public function getIterator(): Iterator {
+        $keys = $this->keys;
+        $values = $this->values;
+        return (function () use ($keys, $values): Generator { foreach ($values as $id => $v) { yield $keys[$id] => $v; } })();
+    }
+}
+
+/// CachingIterator: one element ahead, so `hasNext()` is known.
+class CachingIterator implements Iterator, Countable {
+    public const CALL_TOSTRING = 1;
+    public const FULL_CACHE = 256;
+    private mixed $currentKey = null;
+    private mixed $currentValue = null;
+    private bool $isValid = false;
+    private array $cache = [];
+    public function __construct(private Iterator $iterator, private int $flags = self::CALL_TOSTRING) {}
+    public function rewind(): void { $this->iterator->rewind(); $this->cache = []; $this->fetch(); }
+    private function fetch(): void {
+        $this->isValid = $this->iterator->valid();
+        if ($this->isValid) {
+            $this->currentKey = $this->iterator->key();
+            $this->currentValue = $this->iterator->current();
+            if ($this->flags & self::FULL_CACHE) { $this->cache[$this->currentKey] = $this->currentValue; }
+            $this->iterator->next();
+        }
+    }
+    public function valid(): bool { return $this->isValid; }
+    public function current(): mixed { return $this->currentValue; }
+    public function key(): mixed { return $this->currentKey; }
+    public function next(): void { $this->fetch(); }
+    public function hasNext(): bool { return $this->iterator->valid(); }
+    public function getInnerIterator(): Iterator { return $this->iterator; }
+    public function getCache(): array { return $this->cache; }
+    public function getFlags(): int { return $this->flags; }
+    public function count(): int { return count($this->cache); }
+}
+
+interface Reflector extends Stringable {}
+
 // ---- Dates -----------------------------------------------------------------
 
 class DateTimeZone {

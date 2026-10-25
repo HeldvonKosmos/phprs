@@ -1,0 +1,51 @@
+<?php
+// BI1: builtins and classes found missing in ANALYSE_D13 (A3), against PHP 8.4.
+echo hash('sha256', 'abc'), "\n", hash('sha512', ''), "\n", hash('sha384', 'x'), "\n", hash('sha224', 'x'), "\n";
+echo bin2hex(hash('md5', 'abc', true)), ' ', md5('abc'), ' ', sha1('abc'), ' ', bin2hex(sha1('abc', true)), "\n";
+echo hash_hmac('sha256', 'what do ya want for nothing?', 'Jefe'), "\n";
+echo hash_hmac('md5', 'data', 'key'), ' ', hash_hmac('sha1', 'data', ''), "\n";
+echo hash_hmac('sha512', 'data', str_repeat('k', 200)), "\n";
+echo strlen(hash_hmac('sha256', 'data', 'key', true)), "\n";
+var_dump(hash_equals('abc', 'abc'), hash_equals('abc', 'abd'), hash_equals('abc', 'ab'));
+try { hash_hmac('crc32b', 'x', 'k'); } catch (ValueError $e) { echo get_class($e), "\n"; }
+echo json_encode(array_replace_recursive(['a' => [1, 2, 3], 'b' => ['x' => 1, 'y' => [1]]], ['a' => [9], 'b' => ['y' => [2, 3], 'z' => 0]], ['c' => 1])), "\n";
+$cmp = fn ($a, $b) => strcasecmp((string) $a, (string) $b);
+echo json_encode(array_udiff(['a' => 'A', 'b' => 'b', 'c' => 'C'], ['B', 'x'], $cmp)), "\n";
+echo json_encode(array_uintersect(['a' => 'A', 'b' => 'b', 'c' => 'C'], ['B', 'c'], $cmp)), "\n";
+echo json_encode(array_diff_ukey(['a' => 1, 'B' => 2, 'c' => 3], ['A' => 0, 'b' => 0], $cmp)), "\n";
+echo json_encode(array_intersect_ukey(['a' => 1, 'B' => 2, 'c' => 3], ['A' => 0, 'b' => 0], $cmp)), "\n";
+echo json_encode(array_diff_uassoc(['a' => 1, 'b' => 2, 'c' => 3], ['A' => 1, 'b' => 9], $cmp)), "\n";
+echo json_encode(array_intersect_uassoc(['a' => 1, 'b' => 2, 'c' => 3], ['A' => 1, 'b' => 9], $cmp)), "\n";
+echo json_encode(array_udiff_assoc(['a' => 'X', 'b' => 'y'], ['a' => 'x', 'b' => 'z'], $cmp)), "\n";
+echo json_encode(array_uintersect_assoc(['a' => 'X', 'b' => 'y'], ['a' => 'x', 'b' => 'z'], $cmp)), "\n";
+echo json_encode(array_udiff_uassoc(['a' => 'X', 'b' => 'y'], ['A' => 'x'], $cmp, $cmp)), "\n";
+echo json_encode(array_uintersect_uassoc(['a' => 'X', 'b' => 'y'], ['A' => 'x'], $cmp, $cmp)), "\n";
+foreach (['/a/b/c.txt', '/a/b/', 'c', '/', '', '.', 'a/b.tar.gz', '/x/.hidden', 'dir/'] as $p) {
+    echo json_encode([basename($p), dirname($p), pathinfo($p)]), "\n";
+}
+echo basename('/a/b/file.php', '.php'), ' ', basename('file.php', 'file.php'), ' ', dirname('/a/b/c/d', 2), ' ', dirname('a/b', 5), "\n";
+echo pathinfo('/a/b.c', PATHINFO_EXTENSION), '|', pathinfo('/a/b', PATHINFO_EXTENSION), '|', pathinfo('/a/b.c', PATHINFO_FILENAME), '|', pathinfo('b.c', PATHINFO_DIRNAME), "\n";
+echo mb_str_pad('äb', 5, 'ü'), '|', mb_str_pad('äb', 6, 'xy', STR_PAD_LEFT), '|', mb_str_pad('äb', 7, '-', STR_PAD_BOTH), '|', mb_str_pad('äbc', 2), "\n";
+echo mb_strimwidth('Hello World', 0, 8, '...'), '|', mb_strimwidth('Hello', 0, 10, '...'), '|', mb_strimwidth('日本語テキスト', 0, 7, '…'), '|', mb_strimwidth('abcdef', 2, 3), "\n";
+echo mb_ucfirst('äpfel'), ' ', mb_lcfirst('Ärger'), ' ', mb_ucfirst(''), "\n";
+$tok = strtok('  a, b,,c ', ' ,');
+while ($tok !== false) { echo "[$tok]"; $tok = strtok(' ,'); }
+echo "\n";
+echo json_encode(sscanf('age: 25 name: Bob', 'age: %d name: %s')), ' ', json_encode(sscanf('12 apples', '%d %s %s')), ' ', json_encode(sscanf('ff 0.5e2 x', '%x %f %c')), ' ', json_encode(sscanf('2026-10-25', '%4d-%2d-%2d')), ' ', json_encode(sscanf('', '%d')), "\n";
+class Base { public $a = 1; protected $b = 2; private $c = 3; public static $s = 's'; public int $typed; public ?int $n = null; }
+echo json_encode(get_class_vars('Base')), "\n";
+class_alias('Base', 'AliasOfBase');
+var_dump(new AliasOfBase() instanceof Base, get_class(new AliasOfBase()));
+$ao = new ArrayObject(['x' => 1]);
+$ao['y'] = 2; $ao[] = 3; $ao->append(4); unset($ao['x']);
+echo count($ao), json_encode($ao->getArrayCopy()), isset($ao['y']) ? 'Y' : 'N', "\n";
+foreach ($ao as $k => $v) { echo "$k=$v "; }
+echo "\n";
+$wm = new WeakMap(); $k1 = new stdClass(); $k2 = new stdClass();
+$wm[$k1] = 'one'; $wm[$k2] = 'two';
+echo count($wm), $wm[$k1], isset($wm[$k2]) ? 'Y' : 'N';
+unset($wm[$k1]);
+echo count($wm), "\n";
+$ci = new CachingIterator(new ArrayIterator(['a' => 1, 'b' => 2, 'c' => 3]));
+foreach ($ci as $k => $v) { echo $k, $v, $ci->hasNext() ? ', ' : "\n"; }
+var_dump(hrtime(true) > 0, is_array(hrtime()));

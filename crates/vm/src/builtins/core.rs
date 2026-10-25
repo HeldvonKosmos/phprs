@@ -32,6 +32,19 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("get_parent_class", get_parent_class);
     vm.register_native("get_object_vars", |vm, a| match a.first() { Some(Val::Object(h)) => Ok(Val::array(vm.object_to_array(*h))), _ => Err(Throw::type_error("get_object_vars(): Argument #1 ($object) must be of type object")) });
     vm.register_native("get_class_methods", get_class_methods);
+    vm.register_native("get_class_vars", get_class_vars);
+    // class_alias('Original', 'Alias'): the alias names the same class from now on
+    vm.register_native("class_alias", |vm, a| {
+        let original = args::string(a, 0, "class_alias")?;
+        let alias = args::string(a, 1, "class_alias")?;
+        let class = vm.lookup_class(original.as_bytes()).ok_or_else(|| Throw::error(format!("Class \"{}\" not found", original.to_string_lossy())))?;
+        let key = alias.as_bytes().strip_prefix(b"\\").unwrap_or(alias.as_bytes()).to_ascii_lowercase();
+        if vm.class_by_name.contains_key(&key) {
+            return Err(Throw::error(format!("Cannot declare class {}, because the name is already in use", alias.to_string_lossy())));
+        }
+        vm.class_by_name.insert(key, class);
+        Ok(Val::Bool(true))
+    });
     vm.register_native("method_exists", method_exists);
     vm.register_native("property_exists", property_exists);
     // number of arguments the calling user function received
@@ -208,6 +221,42 @@ fn get_class_methods(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
     let mut names: Vec<Vec<u8>> = vm.class(class).methods.values().map(|m| m.name.clone()).collect();
     names.sort();
     Ok(Val::array(PhpArray::from_values(names.into_iter().map(|n| Val::bytes(&n)))))
+}
+
+/// Default values of the properties visible from the calling scope, statics
+/// included; null where there is no default (as in PHP).
+fn get_class_vars(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
+    let name = args::string(a, 0, "get_class_vars")?;
+    let Some(class) = vm.lookup_class(name.as_bytes()) else { return Ok(Val::Bool(false)) };
+    let scope = vm.frames.last().and_then(|f| f.class);
+    let visible = |vm: &Vm, vis: crate::bytecode::Visibility, declaring: ClassId| match vis {
+        crate::bytecode::Visibility::Public => true,
+        crate::bytecode::Visibility::Protected => scope.is_some_and(|s| vm.instance_of(s, declaring) || vm.instance_of(declaring, s)),
+        crate::bytecode::Visibility::Private => scope == Some(declaring),
+    };
+    let mut out = PhpArray::new();
+    for p in vm.class(class).props.clone() {
+        if !visible(vm, p.visibility, p.declaring) {
+            continue;
+        }
+        let v = match &p.default {
+            Some(init) => vm.eval_init(init, p.module, Some(p.declaring))?,
+            None => Val::Null,
+        };
+        out.insert(ArrayKey::from_str(&String::from_utf8_lossy(&p.name)), v);
+    }
+    let statics: Vec<(Vec<u8>, crate::vm::class::StaticPropInfo)> = vm.class(class).static_props.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    for (n, info) in statics {
+        if !visible(vm, info.visibility, info.declaring) {
+            continue;
+        }
+        let v = match &info.init {
+            Some(init) => vm.eval_init(init, info.module, Some(info.declaring))?,
+            None => Val::Null,
+        };
+        out.insert(ArrayKey::from_str(&String::from_utf8_lossy(&n)), v);
+    }
+    Ok(Val::array(out))
 }
 
 fn method_exists(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {

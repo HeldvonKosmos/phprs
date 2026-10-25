@@ -211,6 +211,8 @@ pub struct Vm {
     pub(crate) static_values: Vec<HashMap<Vec<u8>, Val>>,
     pub well_known: Option<WellKnown>,
     pub json_error: Option<(i64, String)>,
+    /// `strtok` state: the string and the position to continue from.
+    pub strtok: Option<(Vec<u8>, usize)>,
     pub regex_cache: HashMap<Vec<u8>, Rc<fancy_regex::Regex>>,
     pub default_timezone: String,
     /// Opaque host context (framework request context).
@@ -267,6 +269,7 @@ impl Vm {
             static_values: Vec::new(),
             well_known: None,
             json_error: None,
+            strtok: None,
             regex_cache: HashMap::new(),
             default_timezone: "UTC".to_string(),
             host: None,
@@ -372,6 +375,7 @@ impl Vm {
         self.iters.clear();
         self.output.clear();
         self.json_error = None;
+        self.strtok = None;
     }
 
     pub fn lookup_class(&self, name: &[u8]) -> Option<ClassId> {

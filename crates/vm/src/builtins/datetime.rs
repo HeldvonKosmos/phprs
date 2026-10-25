@@ -100,7 +100,9 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("time", |_, _| Ok(Val::Int(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)));
     vm.register_native("microtime", |_, a| {
-        let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        // monotonic, arbitrary origin (as in PHP): unaffected by changes of the system clock
+        static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let d = ORIGIN.get_or_init(std::time::Instant::now).elapsed();
         if args::boolean(a, 0, false) {
             Ok(Val::Float(d.as_secs_f64()))
         } else {

@@ -2483,17 +2483,23 @@ dependencies = [
  "bcrypt 0.19.3",
  "chrono",
  "chrono-tz 0.10.4",
+ "digest 0.10.7",
  "fancy-regex",
  "foldhash",
  "getrandom 0.4.3",
+ "hmac",
  "indexmap",
  "mago-allocator",
  "mago-database",
  "mago-span",
  "mago-syntax",
+ "md-5 0.10.6",
  "postcard",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "subtle",
 ]
 
 [[package]]
