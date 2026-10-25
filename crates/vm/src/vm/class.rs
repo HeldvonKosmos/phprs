@@ -378,7 +378,35 @@ impl Vm {
         }
     }
 
-    pub(crate) fn const_to_val(&self, module: u32, c: ConstId) -> Val {
+    /// The constant as a value. Strings and arrays are copy-on-write, so each
+    /// constant is built once per module and cloned (a reference count) after
+    /// that (PERF2); a write to the value copies it as for any shared value.
+    pub(crate) fn const_to_val(&mut self, module: u32, c: ConstId) -> Val {
+        let (m, i) = (module as usize, c as usize);
+        match &self.modules[m].consts[i] {
+            Const::Null => return Val::Null,
+            Const::Bool(b) => return Val::Bool(*b),
+            Const::Int(n) => return Val::Int(*n),
+            Const::Float(f) => return Val::Float(*f),
+            Const::Str(_) | Const::Array(_) => {}
+        }
+        if let Some(Some(v)) = self.const_cache.get(m).and_then(|cache| cache.get(i)) {
+            return v.clone();
+        }
+        let v = self.build_const(module, c);
+        if self.const_cache.len() <= m {
+            self.const_cache.resize_with(m + 1, Vec::new);
+        }
+        let len = self.modules[m].consts.len().max(i + 1);
+        let cache = &mut self.const_cache[m];
+        if cache.len() <= i {
+            cache.resize(len, None);
+        }
+        cache[i] = Some(v.clone());
+        v
+    }
+
+    fn build_const(&self, module: u32, c: ConstId) -> Val {
         fn conv(c: &Const) -> Val {
             match c {
                 Const::Null => Val::Null,
