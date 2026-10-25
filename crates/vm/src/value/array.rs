@@ -148,7 +148,9 @@ impl PhpArray {
     /// Switch to hash storage (keeps order and keys).
     fn to_hash(&mut self) -> &mut IndexMap<ArrayKey, Val, KeyHasher> {
         if let Store::Packed { keys, vals } = &mut self.store {
-            let mut map = IndexMap::with_capacity_and_hasher(vals.len() + 1, KeyHasher::default());
+            // REST1: keep the reserved size (an array literal reserves its
+            // length; switching on the first string key must not shrink it)
+            let mut map = IndexMap::with_capacity_and_hasher((vals.len() + 1).max(vals.capacity()), KeyHasher::default());
             for (k, v) in std::mem::take(keys).into_iter().zip(std::mem::take(vals)) {
                 map.insert(k, v);
             }
@@ -204,6 +206,22 @@ impl PhpArray {
             return;
         }
         self.to_hash().insert(key, value);
+    }
+    /// Set the value at position `i` in key order (REST1: filling an array
+    /// literal's template). Out of range: no change.
+    pub fn set_at(&mut self, i: usize, value: Val) {
+        match &mut self.store {
+            Store::Packed { vals, .. } => {
+                if let Some(slot) = vals.get_mut(i) {
+                    *slot = value;
+                }
+            }
+            Store::Hash(m) => {
+                if let Some((_, slot)) = m.get_index_mut(i) {
+                    *slot = value;
+                }
+            }
+        }
     }
     /// `$a[] = value`
     pub fn push(&mut self, value: Val) {

@@ -406,7 +406,30 @@ impl Compiler {
     // ---- arrays -----------------------------------------------------------
 
     pub(crate) fn compile_array_literal(&mut self, elements: &TokenSeparatedSequence<'_, ArrayElement<'_>>) -> CResult<()> {
-        self.emit(Op::NewArray(elements.len() as u32));
+        // REST1: one op instead of one per element where the shape is static
+        let n = elements.len();
+        if n > 0 {
+            if elements.iter().all(|el| matches!(el, ArrayElement::Value(_))) {
+                for el in elements.iter() {
+                    if let ArrayElement::Value(v) = el {
+                        self.compile_expr(v.value)?;
+                    }
+                }
+                self.emit(Op::ArrayList(n as u32));
+                return Ok(());
+            }
+            if let Some(keys) = self.literal_keys(elements) {
+                let tpl = self.constant(Const::Array(keys.into_iter().map(|k| (k, Const::Null)).collect()));
+                for el in elements.iter() {
+                    if let ArrayElement::KeyValue(kv) = el {
+                        self.compile_expr(kv.value)?;
+                    }
+                }
+                self.emit(Op::ArrayTemplate { tpl, n: n as u32 });
+                return Ok(());
+            }
+        }
+        self.emit(Op::NewArray(n as u32));
         for el in elements.iter() {
             match el {
                 ArrayElement::Value(v) => {
@@ -426,6 +449,28 @@ impl Compiler {
             }
         }
         Ok(())
+    }
+
+    /// Keys of `[k => v, …]` when every key is a constant and no two are the
+    /// same after PHP's key normalisation ("5" is 5).
+    fn literal_keys(&mut self, elements: &TokenSeparatedSequence<'_, ArrayElement<'_>>) -> Option<Vec<ConstKey>> {
+        let mut keys: Vec<ConstKey> = Vec::new();
+        for el in elements.iter() {
+            let ArrayElement::KeyValue(kv) = el else { return None };
+            let k = match self.const_fold(kv.key)? {
+                Const::Int(i) => ConstKey::Int(i),
+                Const::Str(s) => match crate::value::ArrayKey::from_bytes(&s) {
+                    crate::value::ArrayKey::Int(i) => ConstKey::Int(i),
+                    crate::value::ArrayKey::Str(_) => ConstKey::Str(s),
+                },
+                _ => return None,
+            };
+            if keys.contains(&k) {
+                return None;
+            }
+            keys.push(k);
+        }
+        Some(keys)
     }
 
     // ---- variables and chains ----------------------------------------------

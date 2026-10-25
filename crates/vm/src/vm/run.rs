@@ -828,6 +828,20 @@ impl Vm {
                 arr.array_mut().expect("array literal").push(v);
                 self.push(arr);
             }
+            Op::ArrayList(n) => {
+                let at = self.stack.len() - *n as usize;
+                let arr = PhpArray::from_values(self.stack.drain(at..));
+                self.push(Val::array(arr));
+            }
+            Op::ArrayTemplate { tpl, n } => {
+                let Val::Array(t) = self.const_to_val(midx, *tpl) else { unreachable!("array template") };
+                let mut arr = (*t).clone();
+                let at = self.stack.len() - *n as usize;
+                for (i, v) in self.stack.drain(at..).enumerate() {
+                    arr.set_at(i, v);
+                }
+                self.push(Val::array(arr));
+            }
             Op::ArrayInsert => {
                 let v = self.pop();
                 let k = self.pop();

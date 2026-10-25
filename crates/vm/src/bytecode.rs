@@ -292,6 +292,12 @@ pub enum Op {
     PromoteParam { slot: Slot, prop: StrId },
     /// Line marker for error messages.
     Line(u32),
+    /// REST1: `[e1, e2, …]` — pops `n` values into a list.
+    ArrayList(u32),
+    /// REST1: `['a' => e1, 'b' => e2, …]` with constant, distinct keys — copies
+    /// the template (constant array with these keys, already hashed) and
+    /// fills in the top `n` values in key order.
+    ArrayTemplate { tpl: ConstId, n: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

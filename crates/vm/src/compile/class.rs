@@ -565,7 +565,7 @@ impl Compiler {
         Ok(Init::Unit(self.pop_unit()))
     }
 
-    fn const_fold(&mut self, e: &Expression<'_>) -> Option<Const> {
+    pub(crate) fn const_fold(&mut self, e: &Expression<'_>) -> Option<Const> {
         match e {
             Expression::Parenthesized(p) => self.const_fold(p.expression),
             Expression::Literal(l) => match l {
