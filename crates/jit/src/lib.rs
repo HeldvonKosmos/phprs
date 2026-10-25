@@ -116,7 +116,7 @@ impl Compiler {
         let unit = &m.units[unit_id as usize];
         let whole = end.is_none();
         let prog = self.prog;
-        let sig_of = |mi: u32, ui: u32| -> Option<Sig> { declared_sig(&req.modules[mi as usize].units[ui as usize]) };
+        let sig_of = |mi: u32, ui: u32| -> Option<Sig> { declared_sig(&req.modules[mi as usize], &req.modules[mi as usize].units[ui as usize]) };
         let cx = Ctx { module: m, unit, functions: req.functions, sig_of: &sig_of };
         let (lo, hi) = match end {
             None => (0, unit.ops.len().saturating_sub(1)),
@@ -220,7 +220,7 @@ impl Compiler {
         if req.end_ip.is_none()
             && let Some(f) = self.natives.get(&key).cloned()
         {
-            let sig = declared_sig(unit)?;
+            let sig = declared_sig(&req.modules[req.module as usize], unit)?;
             self.module.finalize_definitions().ok()?;
             let ptr = self.module.get_finalized_function(f.func) as usize;
             return Some((ptr, Meta { buf_words: f.buf_words, guards: Vec::new(), params: sig.params.iter().map(|t| t.tag()).collect() }));

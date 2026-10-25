@@ -623,7 +623,7 @@ impl<'a, 'b> Gen<'a, 'b> {
             }
             let unit = self.unit;
             let (targets, ends): (Vec<usize>, bool) = match &unit.ops[ip] {
-                Op::Jump(l) => (vec![*l as usize], true),
+                Op::Jump(l) | Op::JumpIfArgPresent { target: l, .. } => (vec![*l as usize], true),
                 Op::JumpIfFalse(l) | Op::JumpIfTrue(l) => (vec![*l as usize, ip + 1], true),
                 Op::JumpUnlessSS { target, .. } | Op::JumpUnlessSI { target, .. } => (vec![*target as usize, ip + 1], true),
                 Op::Return => (vec![], true),
@@ -736,7 +736,7 @@ impl<'a, 'b> Gen<'a, 'b> {
                 self.branch(c, ip + 1, *target as usize, stack);
                 return true;
             }
-            Op::Jump(l) => {
+            Op::Jump(l) | Op::JumpIfArgPresent { target: l, .. } => {
                 self.goto(*l as usize, stack);
                 return true;
             }
@@ -868,7 +868,16 @@ impl<'a, 'b> Gen<'a, 'b> {
                         let (fref, words, pslots) = (callee.fref, callee.buf_words, callee.param_slots.clone());
                         let ss = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (words * 8) as u32, 3));
                         let addr = self.b.ins().stack_addr(types::I64, ss, 0);
-                        for ((a, t), ps) in args.iter().zip(&sig.params).zip(&pslots) {
+                        // omitted arguments: the callee's constant defaults (JIT2a)
+                        let mut all: Vec<V> = args.clone();
+                        for d in &sig.defaults[args.len()..] {
+                            all.push(match d.expect("analysed default") {
+                                crate::analysis::Lit::I(i) => V::I(self.ic(i)),
+                                crate::analysis::Lit::F(f) => V::F(self.b.ins().f64const(f)),
+                                crate::analysis::Lit::B(b) => V::B(self.b.ins().iconst(types::I8, b as i64)),
+                            });
+                        }
+                        for ((a, t), ps) in all.iter().zip(&sig.params).zip(&pslots) {
                             let v = self.coerce(*a, *t);
                             let w = slot_word(*ps as usize);
                             let (tag, bits) = match v {

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use grd_vm::bytecode::{BinOp, CodeUnit, Const, Module, Op, TypeHint, UnOp, WriteMode};
+use grd_vm::bytecode::{BinOp, CodeUnit, Const, Init, Module, Op, TypeHint, UnOp, WriteMode};
 use grd_vm::vm::jit::{Callee, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_OTHER, TAG_UNSET};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -82,6 +82,17 @@ pub struct State {
 pub struct Sig {
     pub params: Vec<Ty>,
     pub ret: Ty,
+    /// Constant default of each parameter (JIT2a): compiled callers fill in
+    /// omitted arguments with it; None = the argument must be passed.
+    pub defaults: Vec<Option<Lit>>,
+}
+
+/// A scalar constant in compiled code.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Lit {
+    I(i64),
+    F(f64),
+    B(bool),
 }
 
 /// What a call op does in compiled code.
@@ -119,14 +130,31 @@ pub struct Ctx<'a> {
 }
 
 /// Signature from declared types: all parameters int/float/bool, a declared
-/// int/float/bool return type, no defaults/variadics/generators.
-pub fn declared_sig(unit: &CodeUnit) -> Option<Sig> {
-    if unit.is_generator || unit.params.iter().any(|p| p.variadic || p.has_default || p.promote.is_some()) {
+/// int/float/bool return type, no variadics/generators. Parameters with a
+/// default are allowed (JIT2a): compiled code is only called with all
+/// arguments, other calls stay in the interpreter.
+pub fn declared_sig(module: &Module, unit: &CodeUnit) -> Option<Sig> {
+    if unit.is_generator || unit.params.iter().any(|p| p.variadic || p.promote.is_some()) {
         return None;
     }
     let params = unit.params.iter().map(|p| p.ty.as_ref().and_then(Ty::from_hint)).collect::<Option<Vec<_>>>()?;
     let ret = unit.return_type.as_ref().and_then(Ty::from_hint)?;
-    Some(Sig { params, ret })
+    let defaults = unit
+        .params
+        .iter()
+        .zip(&params)
+        .map(|(p, t)| match (&p.default_init, t) {
+            (Some(Init::Const(c)), t) if p.has_default => match (module.consts.get(*c as usize)?, t) {
+                (Const::Int(i), Ty::Int) => Some(Lit::I(*i)),
+                (Const::Int(i), Ty::Float) => Some(Lit::F(*i as f64)),
+                (Const::Float(f), Ty::Float) => Some(Lit::F(*f)),
+                (Const::Bool(b), Ty::Bool) => Some(Lit::B(*b)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    Some(Sig { params, ret, defaults })
 }
 
 type Fail = ();
@@ -176,7 +204,7 @@ fn const_ty(c: &Const) -> Option<Ty> {
 /// Analyse `lo..=hi` entered at `entry` with the given entry slot tags.
 pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64], whole: bool) -> Option<Analysis> {
     let n_slots = cx.unit.num_slots as usize;
-    let sig = if whole { Some(declared_sig(cx.unit)?) } else { None };
+    let sig = if whole { Some(declared_sig(cx.module, cx.unit)?) } else { None };
     // flow-insensitive slot types, iterated to a fixpoint together with the flow analysis
     let mut slot_ty: Vec<Option<Ty>> = vec![None; n_slots];
     let mut entry_def = vec![Def::No; n_slots];
@@ -297,6 +325,13 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     succ.push(*l as usize);
                     falls = false;
                 }
+                // JIT2a: a compiled whole function is only entered with every
+                // argument (the VM checks the count), so the default-value
+                // prologue is always skipped
+                Op::JumpIfArgPresent { target, .. } if whole => {
+                    succ.push(*target as usize);
+                    falls = false;
+                }
                 Op::JumpIfFalse(l) | Op::JumpIfTrue(l) => {
                     pop!();
                     succ.push(*l as usize);
@@ -378,7 +413,8 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                         },
                         Callee::User { module, unit } => {
                             let sig = (cx.sig_of)(*module, *unit)?;
-                            if sig.params.len() != n {
+                            // omitted arguments need a constant default (filled in by the caller)
+                            if n > sig.params.len() || sig.defaults[n..].iter().any(Option::is_none) {
                                 return None;
                             }
                             for (p, a) in sig.params.iter().zip(&args) {

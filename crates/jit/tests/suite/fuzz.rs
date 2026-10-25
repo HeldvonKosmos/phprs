@@ -126,6 +126,9 @@ impl Gen<'_> {
 fn program(rng: &mut Rng) -> String {
     let mut src = String::from("<?php\n");
     let nfuncs = 1 + rng.below(3);
+    // JIT2a: g{f} has a default parameter in every other program; compiled code
+    // runs for calls with all arguments, the others stay in the interpreter
+    let with_default = rng.below(2) == 0;
     for f in 0..nfuncs {
         let mut g = Gen { rng: &mut *rng, ints: vec!["$a".into(), "$b".into()], floats: vec!["$x".into()] };
         let body = if g.rng.below(3) == 0 {
@@ -141,7 +144,8 @@ fn program(rng: &mut Rng) -> String {
         src.push_str(&format!("function f{f}(int $a, int $b, float $x): int {{ {body} }}\n"));
         let mut g = Gen { rng: &mut *rng, ints: vec!["$a".into()], floats: vec!["$x".into(), "$y".into()] };
         let e = g.float(3);
-        src.push_str(&format!("function g{f}(float $x, float $y, int $a): float {{ return {e}; }}\n"));
+        let third = if with_default { format!("int $a = {}", g.rng.pick(INT_SMALL)) } else { "int $a".to_string() };
+        src.push_str(&format!("function g{f}(float $x, float $y, {third}): float {{ return {e}; }}\n"));
     }
     let nloops = 1 + rng.below(3);
     for l in 0..nloops {
@@ -152,7 +156,12 @@ fn program(rng: &mut Rng) -> String {
         let f = g.rng.below(nfuncs);
         let pe = g.int(3);
         let qe = if g.rng.below(2) == 0 { format!("f{f}($p, $i, $u)") } else { g.int(2) };
-        let ue = if g.rng.below(2) == 0 { format!("g{f}($u, 0.5, $q)") } else { g.float(2) };
+        let ue = if g.rng.below(2) == 0 {
+            // with a default: also called without the last argument
+            if with_default && g.rng.below(2) == 0 { format!("g{f}($u, 0.5)") } else { format!("g{f}($u, 0.5, $q)") }
+        } else {
+            g.float(2)
+        };
         let n = 2 + g.rng.below(30);
         src.push_str(&format!(
             "try {{ $p = {p0}; $q = {q0}; $u = {u0}; $c = 0;\n  for ($i = 0; $i < {n}; $i++) {{ $p = {pe}; $q = {qe}; $u = {ue}; if ($p > $q) {{ $c++; }} }}\n  echo \"L{l} \", $p, ' ', $q, ' ', $u, ' ', $c, \"\\n\";\n}} catch (Throwable $e) {{ echo \"L{l} \", get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n"
