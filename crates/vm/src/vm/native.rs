@@ -29,6 +29,30 @@ impl Call {
     pub fn arg(&self, i: usize) -> Val {
         self.args.get(i).cloned().unwrap_or(Val::Null)
     }
+    /// Strict argument access (TYP3, DIALECT §5.2): no scalar coercion, only
+    /// int -> float; `what` names the method in the TypeError.
+    pub fn int(&self, i: usize, what: &str) -> Result<i64, Throw> {
+        match self.args.get(i) {
+            Some(Val::Int(n)) => Ok(*n),
+            Some(o) => Err(Throw::type_error(format!("{what}(): Argument #{} must be of type int, {} given", i + 1, o.type_name()))),
+            None => Err(Throw::argument_count(format!("{what}(): Argument #{} is required", i + 1))),
+        }
+    }
+    pub fn float(&self, i: usize, what: &str) -> Result<f64, Throw> {
+        match self.args.get(i) {
+            Some(Val::Int(n)) => Ok(*n as f64),
+            Some(Val::Float(f)) => Ok(*f),
+            Some(o) => Err(Throw::type_error(format!("{what}(): Argument #{} must be of type float, {} given", i + 1, o.type_name()))),
+            None => Err(Throw::argument_count(format!("{what}(): Argument #{} is required", i + 1))),
+        }
+    }
+    pub fn string(&self, i: usize, what: &str) -> Result<crate::value::PhpString, Throw> {
+        match self.args.get(i) {
+            Some(Val::Str(s)) => Ok(s.clone()),
+            Some(o) => Err(Throw::type_error(format!("{what}(): Argument #{} must be of type string, {} given", i + 1, o.type_name()))),
+            None => Err(Throw::argument_count(format!("{what}(): Argument #{} is required", i + 1))),
+        }
+    }
     pub fn this(&self) -> Result<ObjHandle, Throw> {
         self.this.ok_or_else(|| Throw::error("Using $this when not in object context"))
     }

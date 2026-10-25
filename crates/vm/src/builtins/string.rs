@@ -28,7 +28,7 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("ucwords", |_, a| {
         let s = args::string(a, 0, "ucwords")?;
-        let delims = match a.get(1) { Some(d) => d.to_php_string()?.as_bytes().to_vec(), None => b" \t\r\n\x0c\x0b".to_vec() };
+        let delims = match a.get(1) { Some(_) => args::string(a, 1, "ucwords")?.as_bytes().to_vec(), None => b" \t\r\n\x0c\x0b".to_vec() };
         let mut out = s.as_bytes().to_vec();
         let mut up = true;
         for b in out.iter_mut() {
@@ -165,7 +165,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("str_pad", |_, a| {
         let s = args::string(a, 0, "str_pad")?;
         let len = args::int(a, 1, "str_pad")?;
-        let pad = match a.get(2) { Some(v) => v.to_php_string()?.as_bytes().to_vec(), None => b" ".to_vec() };
+        let pad = match a.get(2) { Some(_) => args::string(a, 2, "str_pad")?.as_bytes().to_vec(), None => b" ".to_vec() };
         let kind = args::int_opt(a, 3, "str_pad", 1)?;
         if pad.is_empty() {
             return Err(Throw::value_error("str_pad(): Argument #3 ($pad_string) must be a non-empty string"));
@@ -189,7 +189,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("wordwrap", |_, a| {
         let text = args::string(a, 0, "wordwrap")?;
         let width = args::int_opt(a, 1, "wordwrap", 75)?;
-        let brk = match a.get(2) { Some(v) => v.to_php_string()?.as_bytes().to_vec(), None => b"\n".to_vec() };
+        let brk = match a.get(2) { Some(_) => args::string(a, 2, "wordwrap")?.as_bytes().to_vec(), None => b"\n".to_vec() };
         let cut = args::boolean(a, 3, false);
         if text.is_empty() {
             return Ok(Val::str(""));
@@ -307,7 +307,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("base64_decode", |_, a| Ok(base64_decode(args::string(a, 0, "base64_decode")?.as_bytes()).map(|b| Val::bytes(&b)).unwrap_or(Val::Bool(false))));
     vm.register_native("crc32", |_, a| Ok(Val::Int(crc32(args::string(a, 0, "crc32")?.as_bytes()) as i64)));
     vm.register_native("uniqid", |_, a| {
-        let prefix = match a.first() { Some(v) => v.to_php_string()?.to_string(), None => String::new() };
+        let prefix = match a.first() { Some(_) => args::string(a, 0, "uniqid")?.to_string(), None => String::new() };
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
         Ok(Val::from(format!("{prefix}{:08x}{:05x}", t.as_secs(), t.subsec_micros())))
     });
@@ -400,7 +400,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("chunk_split", |_, a| {
         let s = args::string(a, 0, "chunk_split")?;
         let n = args::int_opt(a, 1, "chunk_split", 76)?.max(1) as usize;
-        let end = match a.get(2) { Some(v) => v.to_php_string()?.as_bytes().to_vec(), None => b"\r\n".to_vec() };
+        let end = match a.get(2) { Some(_) => args::string(a, 2, "chunk_split")?.as_bytes().to_vec(), None => b"\r\n".to_vec() };
         let mut out = Vec::new();
         for c in s.as_bytes().chunks(n) {
             out.extend_from_slice(c);
@@ -629,7 +629,7 @@ pub(crate) fn substr_bytes(b: &[u8], start: i64, length: Option<i64>) -> &[u8] {
 fn trim(a: &[Val], left: bool, right: bool) -> Result<Val, Throw> {
     let s = args::string(a, 0, "trim")?;
     let chars: Vec<u8> = match a.get(1) {
-        Some(v) => expand_char_ranges(v.to_php_string()?.as_bytes()),
+        Some(_) => expand_char_ranges(args::string(a, 1, "trim")?.as_bytes()),
         None => b" \t\n\r\0\x0b".to_vec(),
     };
     let b = s.as_bytes();
@@ -767,8 +767,9 @@ fn strtr(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
 fn implode(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
     let (sep, arr) = match (a.first(), a.get(1)) {
         (Some(Val::Array(arr)), None) => (PhpString::new(), arr.clone()),
-        (Some(Val::Array(arr)), Some(s)) => (vm.to_string_val(s)?, arr.clone()),
-        (Some(s), Some(Val::Array(arr))) => (vm.to_string_val(s)?, arr.clone()),
+        (Some(Val::Array(arr)), Some(Val::Str(s))) => (s.clone(), arr.clone()),
+        (Some(Val::Str(s)), Some(Val::Array(arr))) => (s.clone(), arr.clone()),
+        (Some(Val::Array(_)), Some(o)) | (Some(o), Some(Val::Array(_))) => return Err(Throw::type_error(format!("implode(): Argument #1 ($separator) must be of type string, {} given", o.type_name()))),
         _ => return Err(Throw::type_error("implode(): Argument #2 ($array) must be of type ?array")),
     };
     let mut out = Vec::new();

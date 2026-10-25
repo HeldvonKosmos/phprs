@@ -567,17 +567,17 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             Ok(Val::Object(c.this()?))
         })
         .method("limit", |vm, c| {
-            let n = c.arg(0).to_int()?;
+            let n = c.int(0, "Builder::limit")?;
             this_data(vm, &c)?.limit = Some(n);
             Ok(Val::Object(c.this()?))
         })
         .method("start", |vm, c| {
-            let n = c.arg(0).to_int()?;
+            let n = c.int(0, "Builder::start")?;
             this_data(vm, &c)?.start = n;
             Ok(Val::Object(c.this()?))
         })
         .method("offset", |vm, c| {
-            let n = c.arg(0).to_int()?;
+            let n = c.int(0, "Builder::offset")?;
             this_data(vm, &c)?.start = n;
             Ok(Val::Object(c.this()?))
         })

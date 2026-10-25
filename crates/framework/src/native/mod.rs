@@ -44,7 +44,8 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     // abort(404, 'message') → HttpException
     vm.register_native("abort", |vm, a| {
         let status = match a.first() {
-            Some(v) => v.to_int()?,
+            Some(Val::Int(n)) => *n,
+            Some(o) => return Err(Throw::type_error(format!("abort(): Argument #1 ($code) must be of type int, {} given", o.type_name()))),
             None => return Err(Throw::argument_count("abort(): status missing")),
         };
         let message = match a.get(1) {
@@ -74,7 +75,8 @@ pub(crate) fn string_arg(c: &Call, i: usize, what: &str) -> Result<String, Throw
 pub(crate) fn int_arg_opt(c: &Call, i: usize, default: i64) -> Result<i64, Throw> {
     match c.args.get(i) {
         None | Some(Val::Null) => Ok(default),
-        Some(v) => v.to_int(),
+        Some(Val::Int(n)) => Ok(*n),
+        Some(o) => Err(Throw::type_error(format!("argument {} must be of type int, {} given", i + 1, o.type_name()))),
     }
 }
 

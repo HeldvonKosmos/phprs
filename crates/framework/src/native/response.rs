@@ -147,7 +147,8 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         let h = new_response(vm, class)?;
         let status = match a.get(1) {
             None | Some(Val::Null) => 200,
-            Some(v) => v.to_int()? as u16,
+            Some(Val::Int(n)) => *n as u16,
+            Some(o) => return Err(Throw::type_error(format!("response(): Argument #2 ($status) must be of type int, {} given", o.type_name()))),
         };
         match a.first() {
             None | Some(Val::Null) => {

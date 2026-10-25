@@ -132,13 +132,11 @@ pub(crate) mod args {
         }
         Ok(())
     }
+    // TYP3 (DIALECT §5.2): strict like PHP with strict_types=1, no scalar
+    // coercion; the only widening is int -> float
     pub fn string(args: &[Val], i: usize, name: &str) -> Result<PhpString, Throw> {
         match args.get(i) {
             Some(Val::Str(s)) => Ok(s.clone()),
-            Some(Val::Int(n)) => Ok(PhpString::from(n.to_string())),
-            Some(Val::Float(f)) => Ok(PhpString::from(crate::value::format_float(*f))),
-            Some(Val::Bool(true)) => Ok(PhpString::from("1")),
-            Some(Val::Bool(false)) | Some(Val::Null) => Ok(PhpString::new()),
             Some(other) => Err(Throw::type_error(format!("{name}(): Argument #{} must be of type string, {} given", i + 1, other.type_name()))),
             None => Err(Throw::argument_count(format!("{name}(): Argument #{} is required", i + 1))),
         }
@@ -146,9 +144,6 @@ pub(crate) mod args {
     pub fn int(args: &[Val], i: usize, name: &str) -> Result<i64, Throw> {
         match args.get(i) {
             Some(Val::Int(n)) => Ok(*n),
-            Some(Val::Float(f)) if f.fract() == 0.0 => Ok(*f as i64),
-            Some(Val::Bool(b)) => Ok(*b as i64),
-            Some(Val::Null) => Ok(0),
             Some(other) => Err(Throw::type_error(format!("{name}(): Argument #{} must be of type int, {} given", i + 1, other.type_name()))),
             None => Err(Throw::argument_count(format!("{name}(): Argument #{} is required", i + 1))),
         }
@@ -163,8 +158,6 @@ pub(crate) mod args {
         match args.get(i) {
             Some(Val::Int(n)) => Ok(*n as f64),
             Some(Val::Float(f)) => Ok(*f),
-            Some(Val::Bool(b)) => Ok(*b as i64 as f64),
-            Some(Val::Null) => Ok(0.0),
             Some(other) => Err(Throw::type_error(format!("{name}(): Argument #{} must be of type float, {} given", i + 1, other.type_name()))),
             None => Err(Throw::argument_count(format!("{name}(): Argument #{} is required", i + 1))),
         }

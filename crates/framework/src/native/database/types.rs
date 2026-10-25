@@ -169,7 +169,7 @@ fn register_decimal(vm: &mut Vm) -> Result<(), Throw> {
         })
         .method("round", |vm, c| {
             let a = this_payload::<Dec>(vm, &c, "Decimal")?;
-            let scale = c.arg(0).to_int().unwrap_or(0).clamp(0, 28) as u32;
+            let scale = if c.args.is_empty() { 0 } else { c.int(0, "Decimal::round")? }.clamp(0, 28) as u32;
             new_decimal(vm, a.round_dp(scale))
         })
         .method("abs", |vm, c| {
@@ -357,10 +357,10 @@ fn register_duration(vm: &mut Vm) -> Result<(), Throw> {
             let d = duration_of(vm, &c.arg(0))?.ok_or_else(|| Throw::value_error("Duration::make: text like `1h30m` or seconds expected"))?;
             new_duration(vm, d)
         })
-        .static_method("seconds", |vm, c| new_duration(vm, SDuration::from_secs(c.arg(0).to_int()?.max(0) as u64)))
-        .static_method("minutes", |vm, c| new_duration(vm, SDuration::from_secs(c.arg(0).to_int()?.max(0) as u64 * 60)))
-        .static_method("hours", |vm, c| new_duration(vm, SDuration::from_secs(c.arg(0).to_int()?.max(0) as u64 * 3600)))
-        .static_method("days", |vm, c| new_duration(vm, SDuration::from_secs(c.arg(0).to_int()?.max(0) as u64 * 86400)))
+        .static_method("seconds", |vm, c| new_duration(vm, SDuration::from_secs(c.int(0, "Duration::seconds")?.max(0) as u64)))
+        .static_method("minutes", |vm, c| new_duration(vm, SDuration::from_secs(c.int(0, "Duration::minutes")?.max(0) as u64 * 60)))
+        .static_method("hours", |vm, c| new_duration(vm, SDuration::from_secs(c.int(0, "Duration::hours")?.max(0) as u64 * 3600)))
+        .static_method("days", |vm, c| new_duration(vm, SDuration::from_secs(c.int(0, "Duration::days")?.max(0) as u64 * 86400)))
         .method("totalSeconds", |vm, c| Ok(Val::Int(this_payload::<SDuration>(vm, &c, "Duration")?.secs() as i64)))
         .method("totalMillis", |vm, c| Ok(Val::Int(this_payload::<SDuration>(vm, &c, "Duration")?.millis() as i64)))
         .method("totalMinutes", |vm, c| Ok(Val::Int(this_payload::<SDuration>(vm, &c, "Duration")?.mins() as i64)))
@@ -505,7 +505,7 @@ fn register_geometry(vm: &mut Vm) -> Result<(), Throw> {
         .payload(|| Box::new(SGeometry::Point(geo::Point::new(0.0, 0.0))))
         .handlers(ObjectHandlers { compare: Some(geometry_compare), clone: Some(clone_of::<SGeometry>), ..Default::default() })
         .static_method("point", |vm, c| {
-            let (x, y) = (c.arg(0).to_float()?, c.arg(1).to_float()?);
+            let (x, y) = (c.float(0, "Geometry::point")?, c.float(1, "Geometry::point")?);
             new_geometry(vm, SGeometry::Point(geo::Point::new(x, y)))
         })
         .static_method("line", |vm, c| {

@@ -6,7 +6,7 @@ use crate::value::*;
 use crate::vm::Vm;
 
 pub fn register(vm: &mut Vm) {
-    vm.register_native("abs", |_, a| Ok(match a.first() { Some(Val::Int(i)) => i.checked_abs().map(Val::Int).unwrap_or(Val::Float((*i as f64).abs())), Some(v) => Val::Float(v.to_float()?.abs()), None => Val::Int(0) }));
+    vm.register_native("abs", |_, a| Ok(match a.first() { Some(Val::Int(i)) => i.checked_abs().map(Val::Int).unwrap_or(Val::Float((*i as f64).abs())), Some(_) => Val::Float(args::float(a, 0, "abs")?.abs()), None => return Err(Throw::argument_count("abs() expects exactly 1 argument, 0 given")) }));
     vm.register_native("max", |_, a| minmax(a, true));
     vm.register_native("min", |_, a| minmax(a, false));
     vm.register_native("floor", |_, a| Ok(Val::Float(args::float(a, 0, "floor")?.floor())));
@@ -30,7 +30,7 @@ pub fn register(vm: &mut Vm) {
     vm.register_native("exp", |_, a| Ok(Val::Float(args::float(a, 0, "exp")?.exp())));
     vm.register_native("log", |_, a| {
         let x = args::float(a, 0, "log")?;
-        Ok(Val::Float(match a.get(1) { Some(b) => x.log(b.to_float()?), None => x.ln() }))
+        Ok(Val::Float(match a.get(1) { Some(_) => x.log(args::float(a, 1, "log")?), None => x.ln() }))
     });
     vm.register_native("log10", |_, a| Ok(Val::Float(args::float(a, 0, "log10")?.log10())));
     vm.register_native("log2", |_, a| Ok(Val::Float(args::float(a, 0, "log2")?.log2())));
@@ -193,8 +193,8 @@ fn round(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
 fn number_format(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
     let x = args::float(a, 0, "number_format")?;
     let decimals = args::int_opt(a, 1, "number_format", 0)?.max(0) as usize;
-    let dec_point = match a.get(2) { Some(v) => v.to_php_string()?.to_string(), None => ".".into() };
-    let thousands = match a.get(3) { Some(v) => v.to_php_string()?.to_string(), None => ",".into() };
+    let dec_point = match a.get(2) { Some(_) => args::string(a, 2, "number_format")?.to_string(), None => ".".into() };
+    let thousands = match a.get(3) { Some(_) => args::string(a, 3, "number_format")?.to_string(), None => ",".into() };
     let m = 10f64.powi(decimals as i32);
     let rounded = (x * m).round() / m;
     let s = format!("{:.*}", decimals, rounded.abs());

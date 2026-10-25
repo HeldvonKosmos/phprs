@@ -97,7 +97,8 @@ fn construct(vm: &mut Vm, c: Call) -> Result<Val, Throw> {
     let this = c.this()?;
     let input = match c.args.first() {
         None | Some(Val::Null) => "now".to_string(),
-        Some(v) => v.to_php_string()?.to_string_lossy(),
+        Some(Val::Str(s)) => s.to_string_lossy(),
+        Some(o) => return Err(Throw::type_error(format!("DateTime::__construct(): Argument #1 ($datetime) must be of type string, {} given", o.type_name()))),
     };
     let tz = tz_name_arg(vm, &c.arg(1))?.unwrap_or_else(|| default_tz(vm));
     let zone = zone_of(vm, &tz)?;
@@ -145,13 +146,13 @@ fn methods(def: NativeClassDef) -> NativeClassDef {
     def.method("__construct", construct)
         .method("format", |vm, c| {
             let d = this_data(vm, &c)?;
-            let fmt = c.arg(0).to_php_string()?.to_string_lossy();
+            let fmt = c.string(0, "DateTime::format")?.to_string_lossy();
             let zone = zone_of(vm, &d.tz)?;
             Ok(Val::from(format_date(&fmt, d.ts, d.us, &zone)))
         })
         .method("getTimestamp", |vm, c| Ok(Val::Int(this_data(vm, &c)?.ts)))
         .method("setTimestamp", |vm, c| {
-            let ts = c.arg(0).to_int()?;
+            let ts = c.int(0, "DateTime::setTimestamp")?;
             with(vm, c.this()?, |d| {
                 d.ts = ts;
                 d.us = 0;
@@ -173,7 +174,7 @@ fn methods(def: NativeClassDef) -> NativeClassDef {
         })
         .method("modify", |vm, c| {
             let d = this_data(vm, &c)?;
-            let m = c.arg(0).to_php_string()?.to_string_lossy();
+            let m = c.string(0, "DateTime::modify")?.to_string_lossy();
             let zone = zone_of(vm, &d.tz)?;
             let (ts, _) = parse_datetime(&m, d.ts, &zone).ok_or_else(|| Throw::new("Exception", format!("DateTime::modify(): Failed to parse time string ({m})")))?;
             with(vm, c.this()?, |d| d.ts = ts)
@@ -183,21 +184,21 @@ fn methods(def: NativeClassDef) -> NativeClassDef {
         .method("setDate", |vm, c| {
             let d = this_data(vm, &c)?;
             let zone = zone_of(vm, &d.tz)?;
-            let (y, m, day) = (c.arg(0).to_int()?, c.arg(1).to_int()?, c.arg(2).to_int()?);
+            let (y, m, day) = (c.int(0, "DateTime::setDate")?, c.int(1, "DateTime::setDate")?, c.int(2, "DateTime::setDate")?);
             let ts = date_set(d.ts, [Some(y), Some(m), Some(day), None, None, None], &zone);
             with(vm, c.this()?, |d| d.ts = ts)
         })
         .method("setTime", |vm, c| {
             let d = this_data(vm, &c)?;
             let zone = zone_of(vm, &d.tz)?;
-            let (h, mi) = (c.arg(0).to_int()?, c.arg(1).to_int()?);
+            let (h, mi) = (c.int(0, "DateTime::setTime")?, c.int(1, "DateTime::setTime")?);
             let s = match c.args.get(2) {
                 None | Some(Val::Null) => 0,
-                Some(v) => v.to_int()?,
+                Some(_) => c.int(2, "DateTime::setTime")?,
             };
             let us = match c.args.get(3) {
                 None | Some(Val::Null) => 0,
-                Some(v) => v.to_int()?,
+                Some(_) => c.int(3, "DateTime::setTime")?,
             };
             let ts = date_set(d.ts, [None, None, None, Some(h), Some(mi), Some(s)], &zone);
             with(vm, c.this()?, |d| {
@@ -233,8 +234,8 @@ fn methods(def: NativeClassDef) -> NativeClassDef {
             Ok(Val::from(format_date(fmt, d.ts, d.us, &zone)))
         })
         .static_method("createFromFormat", |vm, c| {
-            let fmt = c.arg(0).to_php_string()?.to_string_lossy();
-            let s = c.arg(1).to_php_string()?.to_string_lossy();
+            let fmt = c.string(0, "DateTime::createFromFormat")?.to_string_lossy();
+            let s = c.string(1, "DateTime::createFromFormat")?.to_string_lossy();
             let tz = tz_name_arg(vm, &c.arg(2))?.unwrap_or_else(|| default_tz(vm));
             let zone = zone_of(vm, &tz)?;
             match parse_with_format(&fmt, &s, &zone) {

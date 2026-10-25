@@ -35,6 +35,22 @@ str * 2 TypeError
 numstr * 2 TypeError
 null + 1 TypeError
 array + int TypeError
+strlen(int) TypeError
+str_repeat(x, 2.0) TypeError
+str_repeat(x, true) TypeError
+strtoupper(null) TypeError
+substr(s, 1.5) TypeError
+substr(s, "1") TypeError
+round(5, 1.0) TypeError
+sqrt(int) ok float 4
+str_pad(s, null) TypeError
+implode(int glue) TypeError
+mb_substr(s, 0, null) ok string "bc"
+number_format(str) TypeError
+abs(str) TypeError
+max(int, float) ok float 2.5
+date(fmt, float) TypeError
+json_encode(obj) ok string "{\"a\":1}"
 round(int) ok float 5
 array_sum mixed ok float 6.5
 in_array arg TypeError
