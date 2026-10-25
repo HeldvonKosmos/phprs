@@ -67,3 +67,24 @@ fn production_hides_details() {
     assert_eq!(json["error"], "RuntimeException");
     assert!(json.get("file").is_none() && json.get("trace").is_none(), "{json}");
 }
+
+/// MEM1a: a request that keeps creating objects hits the per-request limit
+/// with an Error instead of exhausting the process; the worker goes on.
+#[test]
+fn object_limit_per_request() {
+    let pool = Arc::new(Pool::start(PoolOptions::new(root()).workers(1).settings(serde_json::json!({ "opengrid": { "limits": { "objects": 5000 } } }))).expect("pool starts"));
+    let src = b"<?grd\nfinal class Node { public function __construct(public int $n) {} }\n$keep = [];\ntry { for ($i = 0; $i < 100000; $i++) { $keep[] = new Node($i); } echo 'no limit'; } catch (Error $e) { echo count($keep), ' ', $e->getMessage(); }";
+    let out = pool.run_sync(move |vm| {
+        let r = vm.run_file("limit.grd", src).map(|_| String::from_utf8_lossy(&vm.output).into_owned());
+        vm.reset_request();
+        r
+    }).unwrap().expect("script runs");
+    assert!(out.starts_with("5000 Allowed object count of 5000 per request exhausted"), "{out}");
+    // next request on the same worker: the arena is empty again
+    let out = pool.run_sync(|vm| {
+        let r = vm.run_file("again.grd", b"<?grd\n$a = []; for ($i = 0; $i < 4000; $i++) { $a[] = new \\stdClass(); } echo count($a);").map(|_| String::from_utf8_lossy(&vm.output).into_owned());
+        vm.reset_request();
+        r
+    }).unwrap().expect("script runs");
+    assert_eq!(out, "4000");
+}

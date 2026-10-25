@@ -31,6 +31,7 @@ impl Vm {
         let mut obj = PhpObject::new(class, 0);
         let state = GeneratorState { frame: Some(frame), saved_slots, ..Default::default() };
         obj.native = Some(Box::new(state));
+        self.check_object_limit()?;
         let h = self.objects.alloc(obj);
         self.objects.get_mut(h).native_mut::<GeneratorState>().expect("state").frame.as_mut().expect("frame").generator = Some(h);
         Ok(h)

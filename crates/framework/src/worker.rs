@@ -156,6 +156,10 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
         c.routes.aliases.insert("auth".into(), "OpenGrid\\Auth\\Authenticate".into());
         c.routes.aliases.insert("throttle".into(), "OpenGrid\\Http\\Middleware\\ThrottleRequests".into());
     }
+    // MEM1a: live objects per request (settings.opengrid.limits.objects, 0 = none)
+    if let Some(n) = options.settings.pointer("/opengrid/limits/objects").and_then(|v| v.as_u64()) {
+        vm.object_limit = n as usize;
+    }
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
     Ok((vm, summary))

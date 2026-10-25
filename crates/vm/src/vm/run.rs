@@ -1300,6 +1300,7 @@ impl Vm {
             Op::Clone => {
                 let v = self.pop();
                 let Val::Object(h) = v else { return Err(Throw::error("__clone method called on non-object")) };
+                self.check_object_limit()?;
                 let new = self.objects.clone_object(h);
                 // native payloads are cloned where possible
                 if let Some(d) = self.objects.get(h).native_ref::<ClosureData>().cloned() {

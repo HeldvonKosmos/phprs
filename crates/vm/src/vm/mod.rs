@@ -164,6 +164,8 @@ pub struct Vm {
     pub natives: Vec<(String, NativeFn)>,
     pub constants: HashMap<Vec<u8>, Val>,
     pub objects: ObjectStore,
+    /// MEM1a: most live request objects before `new` throws (0 = no limit).
+    pub object_limit: usize,
     pub(crate) frames: Vec<Frame>,
     /// Local variable slots of all live frames (RUNTIME_ARCHITECTURE §5.1).
     pub(crate) slot_stack: Vec<Option<Val>>,
@@ -238,6 +240,7 @@ impl Vm {
             natives: Vec::new(),
             constants: HashMap::new(),
             objects: ObjectStore::new(),
+            object_limit: default_object_limit(),
             frames: Vec::new(),
             slot_stack: Vec::new(),
             stack: Vec::new(),
@@ -481,3 +484,23 @@ impl std::fmt::Display for RunError {
 
 pub const PRELUDE: &str = include_str!("prelude.grd");
 pub const PRELUDE_SUPPORT: &str = include_str!("prelude_support.grd");
+
+/// Default for `Vm::object_limit`: `GRD_OBJECT_LIMIT` or one million.
+fn default_object_limit() -> usize {
+    std::env::var("GRD_OBJECT_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000_000)
+}
+
+impl Vm {
+    /// MEM1a: objects live until the end of the request; a runaway loop hits
+    /// this limit and gets an `Error` instead of taking the process down.
+    pub(crate) fn check_object_limit(&self) -> Result<(), Throw> {
+        if self.object_limit != 0 && self.objects.len() >= self.object_limit {
+            return Err(Throw::error(format!(
+                "Allowed object count of {} per request exhausted (objects live until the end of the request; limit: opengrid.limits.objects or GRD_OBJECT_LIMIT)",
+                self.object_limit
+            )));
+        }
+        Ok(())
+    }
+}
+

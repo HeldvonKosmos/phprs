@@ -611,6 +611,10 @@ impl Vm {
         {
             obj.native = Some(factory());
         }
+        // exceptions are exempt: the limit error itself is one
+        if !self.is_throwable(class) {
+            self.check_object_limit()?;
+        }
         let h = self.objects.alloc(obj);
         if self.is_throwable(class) {
             let line = self.current_line();

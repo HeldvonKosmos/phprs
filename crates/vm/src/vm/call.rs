@@ -699,6 +699,7 @@ impl Vm {
         let class = self.wk().closure;
         let mut obj = PhpObject::new(class, 0);
         obj.native = Some(Box::new(data));
+        self.check_object_limit()?;
         Ok(self.objects.alloc(obj))
     }
 
