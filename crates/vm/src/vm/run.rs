@@ -864,7 +864,7 @@ impl Vm {
                     let mut buf = std::mem::take(&mut self.arg_scratch);
                     let at = self.stack.len() - n;
                     buf.extend(self.stack.drain(at..));
-                    let r = func(self, &buf);
+                    let r = func(self, &buf).map_err(|t| crate::builtins::polish_type_error(self, &self.natives[i as usize].0, &buf, t));
                     buf.clear();
                     if buf.capacity() > self.arg_scratch.capacity() {
                         self.arg_scratch = buf;

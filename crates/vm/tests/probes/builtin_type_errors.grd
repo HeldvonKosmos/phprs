@@ -1,0 +1,6 @@
+<?php
+// TypeErrors of builtins name the parameter and the class, as in PHP.
+final class A {}
+foreach ([fn () => strlen(new A()), fn () => str_repeat([1], 2), fn () => array_sum(5), fn () => in_array(1, new A()), fn () => abs(new A()), fn () => floor([1]), fn () => round(new A()), fn () => count(new A()), fn () => implode(',', 5), fn () => str_pad('a', []), fn () => json_decode(new A()), fn () => mb_substr([], 1)] as $c) {
+    try { $c(); } catch (TypeError $e) { echo $e->getMessage(), "\n"; }
+}

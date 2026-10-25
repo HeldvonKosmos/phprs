@@ -4,6 +4,7 @@
 mod array;
 mod core;
 mod hash;
+mod param_names;
 pub(crate) mod datetime;
 pub mod datetime_class;
 pub mod json;
@@ -162,6 +163,15 @@ pub(crate) mod args {
             None => Err(Throw::argument_count(format!("{name}(): Argument #{} is required", i + 1))),
         }
     }
+    /// An `int|float` parameter (abs, floor, ceil, round), as float.
+    pub fn number(args: &[Val], i: usize, name: &str) -> Result<f64, Throw> {
+        match args.get(i) {
+            Some(Val::Int(n)) => Ok(*n as f64),
+            Some(Val::Float(f)) => Ok(*f),
+            Some(other) => Err(Throw::type_error(format!("{name}(): Argument #{} must be of type int|float, {} given", i + 1, other.type_name()))),
+            None => Err(Throw::argument_count(format!("{name}(): Argument #{} is required", i + 1))),
+        }
+    }
     pub fn array(args: &[Val], i: usize, name: &str) -> Result<Rc<PhpArray>, Throw> {
         match args.get(i) {
             Some(Val::Array(a)) => Ok(a.clone()),
@@ -178,3 +188,39 @@ pub(crate) mod args {
         }
     }
 }
+
+/// A builtin's TypeError in PHP's words: "strlen(): Argument #1 ($string)
+/// must be of type string, A given" (the helpers in `args` know neither the
+/// parameter name nor the class). Only on the error path.
+pub(crate) fn polish_type_error(vm: &Vm, name: &str, a: &[Val], mut t: crate::error::Throw) -> crate::error::Throw {
+    if t.class != "TypeError" || t.object.is_some() {
+        return t;
+    }
+    if t.message.starts_with("Argument #") {
+        t.message = format!("{name}(): {}", t.message);
+    }
+    let prefix = format!("{name}(): Argument #");
+    let Some(rest) = t.message.strip_prefix(&prefix) else { return t };
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let Ok(n) = digits.parse::<usize>() else { return t };
+    let after = &rest[digits.len()..];
+    let mut msg = format!("{prefix}{n}");
+    if !after.starts_with(" (") {
+        if let Ok(i) = param_names::PARAMS.binary_search_by(|(f, _)| (*f).cmp(name))
+            && let Some(p) = param_names::PARAMS[i].1.get(n - 1)
+        {
+            msg.push_str(&format!(" (${p})"));
+        }
+    }
+    msg.push_str(after);
+    if msg.ends_with(", object given")
+        && let Some(Val::Object(h)) = a.get(n - 1)
+    {
+        let class = String::from_utf8_lossy(&vm.class(vm.objects.get(*h).class).name).into_owned();
+        msg.truncate(msg.len() - "object given".len());
+        msg.push_str(&format!("{class} given"));
+    }
+    t.message = msg;
+    t
+}
+

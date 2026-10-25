@@ -415,7 +415,10 @@ impl Vm {
                     return Err(Throw::error(format!("Named arguments are not supported for native function {}()", self.natives[i as usize].0)));
                 }
                 let func = self.natives[i as usize].1;
-                Ok(CallOutcome::Value(func(self, &args)?))
+                match func(self, &args) {
+                    Ok(v) => Ok(CallOutcome::Value(v)),
+                    Err(t) => Err(crate::builtins::polish_type_error(self, &self.natives[i as usize].0, &args, t)),
+                }
             }
             FuncRef::User { module, unit } => {
                 let target = CallTarget { module, unit, this: None, class: None, static_class: None, captures: Vec::new(), return_override: None };

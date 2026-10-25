@@ -770,7 +770,8 @@ fn implode(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
         (Some(Val::Array(arr)), Some(Val::Str(s))) => (s.clone(), arr.clone()),
         (Some(Val::Str(s)), Some(Val::Array(arr))) => (s.clone(), arr.clone()),
         (Some(Val::Array(_)), Some(o)) | (Some(o), Some(Val::Array(_))) => return Err(Throw::type_error(format!("implode(): Argument #1 ($separator) must be of type string, {} given", o.type_name()))),
-        _ => return Err(Throw::type_error("implode(): Argument #2 ($array) must be of type ?array")),
+        (_, Some(o)) => return Err(Throw::type_error(format!("implode(): Argument #2 ($array) must be of type ?array, {} given", o.type_name()))),
+        (o, None) => return Err(Throw::type_error(format!("implode(): Argument #1 ($array) must be of type array, {} given", o.map_or("null", |v| v.type_name())))),
     };
     let mut out = Vec::new();
     for (i, v) in arr.values().enumerate() {

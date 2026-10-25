@@ -6,11 +6,11 @@ use crate::value::*;
 use crate::vm::Vm;
 
 pub fn register(vm: &mut Vm) {
-    vm.register_native("abs", |_, a| Ok(match a.first() { Some(Val::Int(i)) => i.checked_abs().map(Val::Int).unwrap_or(Val::Float((*i as f64).abs())), Some(_) => Val::Float(args::float(a, 0, "abs")?.abs()), None => return Err(Throw::argument_count("abs() expects exactly 1 argument, 0 given")) }));
+    vm.register_native("abs", |_, a| Ok(match a.first() { Some(Val::Int(i)) => i.checked_abs().map(Val::Int).unwrap_or(Val::Float((*i as f64).abs())), Some(_) => Val::Float(args::number(a, 0, "abs")?.abs()), None => return Err(Throw::argument_count("abs() expects exactly 1 argument, 0 given")) }));
     vm.register_native("max", |_, a| minmax(a, true));
     vm.register_native("min", |_, a| minmax(a, false));
-    vm.register_native("floor", |_, a| Ok(Val::Float(args::float(a, 0, "floor")?.floor())));
-    vm.register_native("ceil", |_, a| Ok(Val::Float(args::float(a, 0, "ceil")?.ceil())));
+    vm.register_native("floor", |_, a| Ok(Val::Float(args::number(a, 0, "floor")?.floor())));
+    vm.register_native("ceil", |_, a| Ok(Val::Float(args::number(a, 0, "ceil")?.ceil())));
     vm.register_native("round", round);
     vm.register_native("sqrt", |_, a| Ok(Val::Float(args::float(a, 0, "sqrt")?.sqrt())));
     vm.register_native("pow", |vm, a| { args::count(a, 2, "pow")?; vm.binary(crate::bytecode::BinOp::Pow, a[0].clone(), a[1].clone()) });
@@ -173,7 +173,7 @@ fn minmax(a: &[Val], want_max: bool) -> Result<Val, Throw> {
 }
 
 fn round(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
-    let x = args::float(a, 0, "round")?;
+    let x = args::number(a, 0, "round")?;
     let p = args::int_opt(a, 1, "round", 0)?;
     let m = 10f64.powi(p as i32);
     let scaled = x * m;
