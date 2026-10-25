@@ -526,6 +526,9 @@ function collect(mixed $value = []): \OpenGrid\Support\Collection {
 }
 
 /** Laravel's `data_get()`: dot-notation read through arrays, ArrayAccess and objects; `*` maps over items. */
+/** A fluent string (Laravel's str()). */
+function str(?string $string = null): \OpenGrid\Support\Stringable { return new \OpenGrid\Support\Stringable($string ?? ''); }
+
 function data_get(mixed $target, mixed $key, mixed $default = null): mixed {
     if ($key === null) { return $target; }
     $segments = is_array($key) ? $key : explode('.', (string) $key);
