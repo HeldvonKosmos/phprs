@@ -65,6 +65,10 @@ pub(crate) fn type_tag(v: &Val) -> u8 {
     }
 }
 
+/// `IcEntry::b` of a method site whose target is a native handler; `a` is
+/// then the index into `Vm::method_table` (CALL1).
+pub(crate) const IC_NATIVE: u32 = u32::MAX;
+
 /// Monomorphic inline cache entry (RUNTIME_ARCHITECTURE §7.1).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IcEntry {

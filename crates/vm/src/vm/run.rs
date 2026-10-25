@@ -960,6 +960,14 @@ impl Vm {
                 let class = self.objects.get(h).class;
                 let icx = self.frames[fidx].ic;
                 let e = self.ics[icx][ip];
+                // CALL1: cached native method, no name lookup and no MethodInfo clone
+                if e.class == Some(class) && e.b == super::IC_NATIVE {
+                    let handler = self.method_table[e.a as usize].native.expect("native IC");
+                    let call = super::native::Call { this: if e.flag { None } else { Some(h) }, class, args, named };
+                    let v = handler(self, call)?;
+                    self.push(v);
+                    return Ok(Flow::Next);
+                }
                 if e.class == Some(class) {
                     let target = super::call::CallTarget {
                         module: e.a,
@@ -982,6 +990,19 @@ impl Vm {
                 // selector lookup: integer-keyed, no name hashing
                 if let Some(&mi) = self.class(class).methods_by_sel.get(sel) {
                     let m = &self.method_table[mi as usize];
+                    if let Some(handler) = m.native
+                        && m.unit.is_none()
+                        && self.method_accessible(m, scope)
+                        && class != self.wk().closure
+                        && class != self.wk().generator
+                    {
+                        let is_static = m.is_static;
+                        self.ics[icx][ip] = IcEntry { class: Some(class), a: mi, b: super::IC_NATIVE, c: 0, flag: is_static };
+                        let call = super::native::Call { this: if is_static { None } else { Some(h) }, class, args, named };
+                        let v = handler(self, call)?;
+                        self.push(v);
+                        return Ok(Flow::Next);
+                    }
                     if let (Some(u), None) = (m.unit, m.native)
                         && self.method_accessible(m, scope)
                         && class != self.wk().closure
@@ -1008,9 +1029,41 @@ impl Vm {
             Op::CallStaticSel { class, sel, spec } => {
                 let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
                 let cid = self.resolve_class_ref(class, midx)?;
+                let forwarding = matches!(class, ClassRef::SelfRef | ClassRef::Parent | ClassRef::Static);
+                // CALL1: public static methods are cached per call site and class
+                // (`Route::get`, `DB::table`, `Str::lower`): visibility and scope do not matter
+                let icx = self.frames[fidx].ic;
+                let e = self.ics[icx][ip];
+                if e.class == Some(cid) {
+                    let static_class = if forwarding { self.frames[fidx].static_class.unwrap_or(cid) } else { cid };
+                    if e.b == super::IC_NATIVE {
+                        let handler = self.method_table[e.a as usize].native.expect("native IC");
+                        let v = handler(self, super::native::Call { this: None, class: static_class, args, named })?;
+                        self.push(v);
+                        return Ok(Flow::Next);
+                    }
+                    let target = super::call::CallTarget { module: e.a, unit: e.b, this: None, class: Some(ClassId(e.c)), static_class: Some(static_class), captures: Vec::new(), return_override: None };
+                    return match self.push_frame(target, args, named)? {
+                        Some(v) => {
+                            self.push(v);
+                            Ok(Flow::Next)
+                        }
+                        None => Ok(Flow::Switch),
+                    };
+                }
+                if let Some(&mi) = self.class(cid).methods_by_sel.get(sel) {
+                    let m = &self.method_table[mi as usize];
+                    let cacheable = m.is_static && m.visibility == Visibility::Public && !self.class(cid).is_enum() && cid != self.wk().closure;
+                    if cacheable {
+                        self.ics[icx][ip] = match (m.native, m.unit) {
+                            (Some(_), _) => IcEntry { class: Some(cid), a: mi, b: super::IC_NATIVE, c: 0, flag: true },
+                            (None, Some(u)) => IcEntry { class: Some(cid), a: m.module, b: u, c: m.declaring.0, flag: true },
+                            (None, None) => self.ics[icx][ip],
+                        };
+                    }
+                }
                 let n = self.sel_name(*sel).to_vec();
                 let scope = self.frames[fidx].class;
-                let forwarding = matches!(class, ClassRef::SelfRef | ClassRef::Parent | ClassRef::Static);
                 let this = self.frames[fidx].this.filter(|t| self.instance_of(self.objects.get(*t).class, cid));
                 let static_class = if forwarding { self.frames[fidx].static_class.unwrap_or(cid) } else { cid };
                 match self.invoke_static(cid, &n, args, named, this, scope, static_class)? {
