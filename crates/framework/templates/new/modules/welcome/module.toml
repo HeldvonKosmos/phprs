@@ -1,0 +1,5 @@
+name = "welcome"
+version = "0.1.0"
+description = "The start page of a new project"
+# modules this one uses classes of (MOD1), e.g. depends = ["auth"]
+depends = []

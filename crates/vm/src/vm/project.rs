@@ -37,6 +37,48 @@ impl std::fmt::Display for ProjectError {
     }
 }
 
+/// MOD1: `modules/<m>/module.toml`. With a manifest a module may only use
+/// classes of itself, of the modules in `depends`, of the framework
+/// (`OpenGrid\…`) and global classes; without one nothing is enforced yet.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct Manifest {
+    pub name: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub depends: Vec<String>,
+}
+
+/// The manifest of a module directory, if it has one.
+pub fn read_manifest(module_dir: &Path) -> Result<Option<Manifest>, String> {
+    let path = module_dir.join("module.toml");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    toml::from_str(&text).map(Some).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Namespaces of other modules that `m` mentions (class references, imports,
+/// `::class` and string constants are fully qualified after compiling).
+fn mentioned_modules(m: &Module, namespaces: &HashMap<String, String>) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let texts = m.strings.iter().map(|b| String::from_utf8_lossy(b).into_owned()).chain(m.consts.iter().filter_map(|c| match c {
+        crate::bytecode::Const::Str(b) => Some(String::from_utf8_lossy(b).into_owned()),
+        _ => None,
+    }));
+    for t in texts {
+        let t = t.trim_start_matches('\\');
+        let Some((first, _)) = t.split_once('\\') else { continue };
+        if let Some(module) = namespaces.get(&first.to_ascii_lowercase()) {
+            out.push((module.clone(), t.to_string()));
+        }
+    }
+    out
+}
+
 #[derive(Debug, Default)]
 pub struct ProjectSummary {
     pub modules: Vec<String>,
@@ -96,6 +138,7 @@ impl Vm {
         let mut summary = ProjectSummary::default();
         let mut class_files: Vec<ClassFile> = Vec::new();
         let mut route_files: Vec<PathBuf> = Vec::new();
+        let mut manifests: HashMap<String, Option<Manifest>> = HashMap::new();
         let modules_dir = root.join("modules");
         if modules_dir.is_dir() {
             for m in list_dir(&modules_dir)? {
@@ -104,6 +147,13 @@ impl Vm {
                 }
                 let mod_name = m.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
                 summary.modules.push(mod_name.clone());
+                let manifest = read_manifest(&m).map_err(|e| ProjectError::Link { code: "GRD107", message: e, file: m.join("module.toml").to_string_lossy().into_owned() })?;
+                if let Some(mf) = &manifest
+                    && mf.name != mod_name
+                {
+                    return Err(ProjectError::Link { code: "GRD107", message: format!("Manifest nennt `{}`, der Ordner heißt `{mod_name}`", mf.name), file: m.join("module.toml").to_string_lossy().into_owned() });
+                }
+                manifests.insert(mod_name.clone(), manifest);
                 let app = m.join("app");
                 let mut files = Vec::new();
                 walk_grd(&app, &mut files)?;
@@ -146,6 +196,35 @@ impl Vm {
             if main.ops.iter().any(|op| !matches!(op, crate::bytecode::Op::Line(_) | crate::bytecode::Op::PushNull | crate::bytecode::Op::Return | crate::bytecode::Op::Nop)) {
                 return Err(ProjectError::Link { code: "GRD103", message: "Klassendateien enthalten keinen ausführbaren Code".into(), file });
             }
+        }
+
+        // MOD1: module boundaries (only modules with a manifest)
+        let namespaces: HashMap<String, String> = manifests.keys().map(|m| (studly(m).to_ascii_lowercase(), m.clone())).collect();
+        for (m, mf) in &manifests {
+            if let Some(mf) = mf {
+                for d in &mf.depends {
+                    if !manifests.contains_key(d) {
+                        return Err(ProjectError::Link { code: "GRD107", message: format!("Modul `{m}` hängt von `{d}` ab, das es nicht gibt"), file: modules_dir.join(m).join("module.toml").to_string_lossy().into_owned() });
+                    }
+                }
+            }
+        }
+        let boundary = |module_name: &str, compiled: &Module, file: &Path| -> Result<(), ProjectError> {
+            let Some(Some(mf)) = manifests.get(module_name) else { return Ok(()) };
+            for (other, name) in mentioned_modules(compiled, &namespaces) {
+                if other != module_name && !mf.depends.contains(&other) {
+                    return Err(ProjectError::Link {
+                        code: "GRD106",
+                        message: format!("Modul `{module_name}` benutzt `{name}` aus Modul `{other}`, ohne es in modules/{module_name}/module.toml unter depends zu nennen"),
+                        file: file.to_string_lossy().into_owned(),
+                    });
+                }
+            }
+            Ok(())
+        };
+        for cf in &class_files {
+            let module_name = cf.path.strip_prefix(&modules_dir).ok().and_then(|p| p.components().next()).map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_default();
+            boundary(&module_name, &cf.module, &cf.path)?;
         }
 
         // dependency order across files (parent, interfaces, traits)
@@ -214,6 +293,11 @@ impl Vm {
         for rf in &route_files {
             let source = std::fs::read(rf).map_err(|e| ProjectError::Io(format!("{}: {e}", rf.display())))?;
             let module = compile_source(&rf.to_string_lossy(), &source).map_err(ProjectError::Compile)?;
+            if let Ok(rel) = rf.strip_prefix(&modules_dir)
+                && let Some(m) = rel.components().next()
+            {
+                boundary(&m.as_os_str().to_string_lossy(), &module, rf)?;
+            }
             self.load_module(module).map_err(ProjectError::Runtime)?;
             let idx = (self.modules.len() - 1) as u32;
             self.run_main(idx).map_err(ProjectError::Runtime)?;

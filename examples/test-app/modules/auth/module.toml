@@ -1,0 +1,3 @@
+name = "auth"
+version = "0.1.0"
+description = "Registration, login (token), the user model"

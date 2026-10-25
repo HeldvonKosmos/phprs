@@ -13,6 +13,7 @@ const FILES: &[(&str, &str)] = &[
     ("database/sources/main.surql", include_str!("../templates/new/database/sources/main.surql")),
     ("modules/welcome/app/Controllers/WelcomeController.grd", include_str!("../templates/new/modules/welcome/app/Controllers/WelcomeController.grd")),
     ("modules/welcome/routes/web.grd", include_str!("../templates/new/modules/welcome/routes/web.grd")),
+    ("modules/welcome/module.toml", include_str!("../templates/new/modules/welcome/module.toml")),
 ];
 
 /// Create the project in `dir` (must not exist or be empty). `name` is the

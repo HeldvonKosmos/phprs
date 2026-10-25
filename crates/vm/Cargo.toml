@@ -25,6 +25,8 @@ fancy-regex = "0.19"
 chrono = "0.4"
 chrono-tz = "0.10"
 bcrypt = "0.19"
+# MOD1: module manifests (modules/<m>/module.toml)
+toml = "1"
 # hashing (RustCrypto, the versions SurrealDB already pulls in)
 digest = "0.10"
 md-5 = "0.10"
