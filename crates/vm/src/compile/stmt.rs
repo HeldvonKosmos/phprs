@@ -11,6 +11,9 @@ use crate::bytecode::*;
 pub(crate) enum FnBody<'a, 'arena> {
     Block(&'a Block<'arena>),
     Expr(&'a Expression<'arena>),
+    /// No body: the signature of an abstract or interface method (for the
+    /// inheritance checks and reflection).
+    Signature,
 }
 
 pub(crate) struct FnSpec<'a, 'arena> {
@@ -329,6 +332,7 @@ impl Compiler {
                 self.compile_expr(e)?;
                 self.emit(Op::Return);
             }
+            FnBody::Signature => {}
         }
         // record slot names for reflection/debugging
         let mut names: Vec<(Slot, Vec<u8>)> = self.ub().slots.iter().map(|(k, v)| (*v, k.clone())).collect();

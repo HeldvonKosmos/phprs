@@ -452,6 +452,9 @@ pub struct PropDecl {
 pub struct MethodDecl {
     pub name: StrId,
     pub unit: Option<UnitId>, // None = abstract
+    /// Parameters and return type of an abstract method (a unit without body).
+    #[serde(default)]
+    pub sig_unit: Option<UnitId>,
     pub visibility: Visibility,
     pub is_static: bool,
     pub is_final: bool,

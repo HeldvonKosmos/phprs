@@ -11,7 +11,7 @@ interface Iterator extends Traversable {
     public function valid(): bool;
 }
 interface IteratorAggregate extends Traversable {
-    public function getIterator(): Iterator;
+    public function getIterator(): Traversable;
 }
 interface ArrayAccess {
     public function offsetExists(mixed $offset): bool;

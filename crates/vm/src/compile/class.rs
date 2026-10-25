@@ -362,9 +362,22 @@ impl Compiler {
         let attributes = self.compile_attributes(&m.attribute_lists)?;
         let name = self.intern(m.name.value);
         let line = self.line(m.span());
+        let mut sig_unit = None;
         let unit = match &m.body {
             MethodBody::Abstract(_) => {
                 let _ = is_abstract;
+                let spec = FnSpec {
+                    name: m.name.value.to_vec(),
+                    display,
+                    params: &m.parameter_list,
+                    ret: m.return_type_hint.as_ref(),
+                    body: FnBody::Signature,
+                    is_method: true,
+                    is_closure: false,
+                    uses: Vec::new(),
+                    line,
+                };
+                sig_unit = Some(self.compile_function_like(spec)?);
                 None
             }
             MethodBody::Concrete(block) => {
@@ -382,7 +395,7 @@ impl Compiler {
                 Some(self.compile_function_like(spec)?)
             }
         };
-        Ok(MethodDecl { name, unit, visibility, is_static, is_final, attributes })
+        Ok(MethodDecl { name, unit, sig_unit, visibility, is_static, is_final, attributes })
     }
 
     /// Constant expression → `Init`: folded when it is made of literals,

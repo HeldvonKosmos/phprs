@@ -12,6 +12,7 @@ mod generator;
 mod iter;
 mod link;
 pub mod native;
+mod inherit;
 pub mod project;
 pub(crate) mod ops;
 mod path;

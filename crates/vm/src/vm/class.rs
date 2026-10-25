@@ -28,6 +28,8 @@ pub struct MethodInfo {
     pub name: Vec<u8>,
     pub module: u32,
     pub unit: Option<UnitId>,
+    /// Signature of an abstract method (see `MethodDecl::sig_unit`).
+    pub sig_unit: Option<UnitId>,
     pub visibility: Visibility,
     pub is_static: bool,
     pub is_final: bool,
@@ -44,6 +46,7 @@ pub struct ConstInfo {
     pub module: u32,
     pub visibility: Visibility,
     pub declaring: ClassId,
+    pub is_final: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -238,55 +241,68 @@ impl Vm {
         // own members
         for c in &decl.consts {
             let cname = module.str(c.name).to_vec();
-            rt.consts.insert(cname, ConstInfo { value: None, init: c.value.clone(), module: midx, visibility: c.visibility, declaring: id });
+            if let Some(existing) = rt.consts.get(&cname)
+                && existing.is_final
+                && existing.declaring != id
+            {
+                let n = String::from_utf8_lossy(&cname);
+                return Err(Throw::error(format!("{}::{n} cannot override final constant {}::{n}", String::from_utf8_lossy(&name), String::from_utf8_lossy(&self.class(existing.declaring).name))));
+            }
+            rt.consts.insert(cname, ConstInfo { value: None, init: c.value.clone(), module: midx, visibility: c.visibility, declaring: id, is_final: c.is_final });
         }
         for p in &decl.props {
             let pname = module.str(p.name).to_vec();
             if p.is_static {
                 rt.static_props.insert(pname, StaticPropInfo { declaring: id, visibility: p.visibility, init: p.default.clone(), module: midx });
             } else {
-                add_prop(
-                    &mut rt,
-                    PropInfo {
-                        name: pname,
-                        declaring: id,
-                        visibility: p.visibility,
-                        readonly: p.is_readonly || decl.is_readonly,
-                        ty: p.ty.clone(),
-                        default: p.default.clone(),
-                        module: midx,
-                        attributes: p.attributes.clone(),
-                    },
-                );
+                let info = PropInfo {
+                    name: pname.clone(),
+                    declaring: id,
+                    visibility: p.visibility,
+                    readonly: p.is_readonly || decl.is_readonly,
+                    ty: p.ty.clone(),
+                    default: p.default.clone(),
+                    module: midx,
+                    attributes: p.attributes.clone(),
+                };
+                if let Some(&idx) = rt.prop_index.get(&pname)
+                    && rt.props[idx].declaring != id
+                {
+                    self.check_property_redeclare(&rt, &rt.props[idx], &info, super::inherit::Linking { idx: midx, module })?;
+                }
+                add_prop(&mut rt, info);
             }
         }
         for m in &decl.methods {
             let mname = module.str(m.name).to_vec();
             let key = mname.to_ascii_lowercase();
-            if let Some(existing) = rt.methods.get(&key)
-                && existing.is_final
-                && existing.declaring != id
-            {
-                return Err(Throw::error(format!("Cannot override final method {}::{}", String::from_utf8_lossy(&self.class(existing.declaring).name), String::from_utf8_lossy(&mname))));
+            let info = MethodInfo {
+                name: mname.clone(),
+                module: midx,
+                unit: m.unit,
+                sig_unit: m.sig_unit,
+                visibility: m.visibility,
+                is_static: m.is_static,
+                is_final: m.is_final,
+                declaring: id,
+                attributes: m.attributes.clone(),
+                native: None,
+            };
+            // PHP's inheritance checks against the method this one overrides
+            let overridden = rt.methods.get(&key).filter(|e| e.declaring != id).cloned();
+            if let Some(parent) = &overridden {
+                self.check_method_override(&rt, parent, &info, super::inherit::Linking { idx: midx, module })?;
             }
-            rt.methods.insert(
-                key,
-                MethodInfo {
-                    name: mname,
-                    module: midx,
-                    unit: m.unit,
-                    visibility: m.visibility,
-                    is_static: m.is_static,
-                    is_final: m.is_final,
-                    declaring: id,
-                    attributes: m.attributes.clone(),
-                    native: None,
-                },
-            );
+            let overrides = overridden.as_ref().is_some_and(|p| p.visibility != Visibility::Private || (p.unit.is_none() && p.native.is_none()));
+            if !overrides && m.attributes.iter().any(|a| module.str(a.name).eq_ignore_ascii_case(b"Override")) {
+                return Err(Throw::error(format!("{}::{}() has #[\\Override] attribute, but no matching parent method exists", String::from_utf8_lossy(&name), String::from_utf8_lossy(&mname))));
+            }
+            rt.methods.insert(key, info);
         }
         for c in &decl.cases {
             rt.cases.push((module.str(c.name).to_vec(), c.value.clone()));
         }
+        self.check_abstract_left(&rt)?;
         if decl.kind == ClassKind::Enum {
             let wk_unit = self.lookup_class(b"UnitEnum");
             let wk_backed = self.lookup_class(b"BackedEnum");

@@ -386,7 +386,7 @@ impl Vm {
             }
         }
         for (name, v) in def.constants {
-            rt.consts.insert(name.as_bytes().to_vec(), ConstInfo { value: Some(v), init: Init::Const(0), module: NATIVE_MODULE, visibility: Visibility::Public, declaring: id });
+            rt.consts.insert(name.as_bytes().to_vec(), ConstInfo { value: Some(v), init: Init::Const(0), module: NATIVE_MODULE, visibility: Visibility::Public, declaring: id, is_final: false });
         }
         for m in def.methods {
             rt.methods.insert(
@@ -395,6 +395,7 @@ impl Vm {
                     name: m.name.as_bytes().to_vec(),
                     module: NATIVE_MODULE,
                     unit: None,
+                    sig_unit: None,
                     visibility: m.visibility,
                     is_static: m.is_static,
                     is_final: false,
