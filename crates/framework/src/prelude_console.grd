@@ -1,0 +1,20 @@
+<?grd
+namespace OpenGrid\Console;
+
+/**
+ * A task (J1, Laravel's Artisan command on Loco's task runner):
+ * `modules/notes/app/Tasks/Prune.grd` with class `Notes\Tasks\Prune` is
+ * `opengrid task run task:notes:prune days:30`; the arguments arrive as
+ * strings in `$args`. In a project with a running server the task runs
+ * inside it (control socket), otherwise on its own. Constructor injection
+ * works as for controllers.
+ */
+abstract class Task
+{
+    /** 0 = success; anything else fails the command. */
+    abstract public function handle(array $args): int;
+
+    protected function line(string $text): void { echo $text, "\n"; }
+    protected function info(string $text): void { echo $text, "\n"; }
+    protected function error(string $text): void { echo 'ERROR: ', $text, "\n"; }
+}

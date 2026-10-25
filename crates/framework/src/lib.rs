@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod app;
+pub mod control;
 pub mod dispatch;
 pub mod http;
 pub mod native;

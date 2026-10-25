@@ -5,6 +5,8 @@
 mod api_script;
 #[path = "suite/auth.rs"]
 mod auth;
+#[path = "suite/control.rs"]
+mod control;
 #[path = "suite/database.rs"]
 mod database;
 #[path = "suite/db_embedded.rs"]

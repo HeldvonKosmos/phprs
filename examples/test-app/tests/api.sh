@@ -212,8 +212,12 @@ if [ "$TARGET" = opengrid ]; then
   check "data survived the restart" 200 '.total == 2 and [.data[].title] == ["Steuer", "Urlaub"]'
   req GET /api/me "" "$TOKEN2"
   check "the second user's token survived the restart" 200 '.name == "Bob"'
+  # J1: with the server running, the task runs inside it (control socket);
+  # on its own it could not open the embedded database
+  STATS=$(cd "$APP" && "$BIN" task run task:notes:stats 2>&1)
+  if printf '%s' "$STATS" | grep -q "^notes: 2$"; then pass "task through the control socket"; else fail "task through the control socket" "$(printf '%s' "$STATS" | tail -n 3)"; fi
 else
-  for name in "restart on the same database" "login after restart" "data survived the restart" "the second user's token survived the restart"; do
+  for name in "restart on the same database" "login after restart" "data survived the restart" "the second user's token survived the restart" "task through the control socket"; do
     skip "$name" "restart on the same embedded database directory"
   done
 fi

@@ -1,0 +1,15 @@
+<?grd
+namespace Notes\Tasks;
+
+use Notes\Models\Note;
+use OpenGrid\Console\Task;
+
+/** `opengrid task run task:notes:stats`: how many notes there are. */
+final class Stats extends Task
+{
+    public function handle(array $args): int
+    {
+        $this->info('notes: ' . Note::query()->count());
+        return 0;
+    }
+}

@@ -114,6 +114,7 @@ pub const FRAMEWORK_PRELUDE_VALIDATION: &str = include_str!("prelude_validation.
 pub const FRAMEWORK_PRELUDE_DATABASE: &str = include_str!("prelude_database.grd");
 pub const FRAMEWORK_PRELUDE_AUTH: &str = include_str!("prelude_auth.grd");
 pub const FRAMEWORK_PRELUDE_MAIL: &str = include_str!("prelude_mail.grd");
+pub const FRAMEWORK_PRELUDE_CONSOLE: &str = include_str!("prelude_console.grd");
 
 type Job = Box<dyn FnOnce(&mut Vm) + Send>;
 
@@ -149,7 +150,7 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
         vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
     }
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
-    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL)] {
+    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL), ("{framework/console}", FRAMEWORK_PRELUDE_CONSOLE)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
     vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, services, debug: options.debug, stale_error: None }));
