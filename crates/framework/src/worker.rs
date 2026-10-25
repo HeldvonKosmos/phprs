@@ -115,8 +115,9 @@ pub const FRAMEWORK_PRELUDE_DATABASE: &str = include_str!("prelude_database.grd"
 pub const FRAMEWORK_PRELUDE_AUTH: &str = include_str!("prelude_auth.grd");
 pub const FRAMEWORK_PRELUDE_MAIL: &str = include_str!("prelude_mail.grd");
 pub const FRAMEWORK_PRELUDE_CONSOLE: &str = include_str!("prelude_console.grd");
+pub const FRAMEWORK_PRELUDE_QUEUE: &str = include_str!("prelude_queue.grd");
 
-type Job = Box<dyn FnOnce(&mut Vm) + Send>;
+pub type Job = Box<dyn FnOnce(&mut Vm) + Send>;
 
 pub struct Pool {
     tx: mpsc::Sender<Job>,
@@ -125,6 +126,7 @@ pub struct Pool {
     /// Bumped on reload; a worker whose VM is older rebuilds it before its next job.
     generation: Arc<AtomicU64>,
     sessions: Arc<SessionStore>,
+    services: Arc<Services>,
     /// The pool's one database connection (shared by all workers).
     db: Option<Arc<Db>>,
 }
@@ -150,7 +152,7 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
         vm.set_jit(Box::new(grd_jit::CraneliftJit::new()));
     }
     crate::native::register(&mut vm).map_err(|t| format!("native classes: {}", t.message))?;
-    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL), ("{framework/console}", FRAMEWORK_PRELUDE_CONSOLE)] {
+    for (name, src) in [("{framework/http}", FRAMEWORK_PRELUDE_HTTP), ("{framework/validation}", FRAMEWORK_PRELUDE_VALIDATION), ("{framework/database}", FRAMEWORK_PRELUDE_DATABASE), ("{framework/auth}", FRAMEWORK_PRELUDE_AUTH), ("{framework/mail}", FRAMEWORK_PRELUDE_MAIL), ("{framework/console}", FRAMEWORK_PRELUDE_CONSOLE), ("{framework/queue}", FRAMEWORK_PRELUDE_QUEUE)] {
         vm.run_file(name, src.as_bytes()).map_err(|e| format!("framework prelude {name}: {e}"))?;
     }
     vm.set_host(Box::new(WorkerCtx { root: options.root.clone(), routes: RouteTable::default(), settings: options.settings.clone(), request: None, logs: Vec::new(), db, txn: None, model_meta: HashMap::new(), schema_cache: HashMap::new(), sessions, limits, services, debug: options.debug, stale_error: None }));
@@ -229,7 +231,8 @@ impl Pool {
         if options.watch {
             start_watcher(options.root.clone(), Arc::clone(&generation));
         }
-        Ok(Pool { tx, workers: options.workers, options, generation, sessions, db })
+        services.open_jobs(tx.clone());
+        Ok(Pool { tx, workers: options.workers, options, generation, sessions, services, db })
     }
 
     /// Ask every worker to rebuild its VM before its next job (hot reload).
@@ -258,6 +261,11 @@ impl Pool {
         self.db.clone()
     }
 
+    /// Mail, storage and the job queue of this pool.
+    pub fn services(&self) -> &Services {
+        &self.services
+    }
+
     fn submit(&self, job: Job) {
         // The receiver lives as long as any worker thread does.
         let _ = self.tx.send(job);
@@ -279,6 +287,14 @@ impl Pool {
             let _ = tx.send(f(vm));
         }));
         rx.await.map_err(|_| PoolError::WorkerFailed)
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        // the job queue holds a sender of the workers' channel: drop it, so
+        // the workers end once the pool's own sender is gone
+        self.services.close_jobs();
     }
 }
 

@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod database;
+pub mod jobs;
 pub mod log;
 pub mod mail;
 pub mod rate_limiter;
@@ -30,6 +31,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     session::register(vm)?;
     rate_limiter::register(vm)?;
     mail::register(vm);
+    jobs::register(vm);
     storage::register(vm)?;
     vm.register_native("opengrid_run_controller", |vm, _| crate::dispatch::run_controller(vm));
     // I1: `opengrid_resolve(Foo::class)` creates an object with constructor injection

@@ -1,0 +1,34 @@
+<?grd
+namespace OpenGrid\Queue;
+
+/**
+ * A background job (J2, Laravel's queued job; runs inside the server):
+ *
+ *     final class SendDigest extends Job
+ *     {
+ *         public int $tries = 3;
+ *         public function __construct(private string $email) {}
+ *         public function handle(): void { … }
+ *     }
+ *     SendDigest::dispatch($user->email);
+ *
+ * The constructor arguments are kept as JSON (scalars and arrays, not
+ * objects); a worker runs the job after its current work, outside the
+ * request. A failing job runs again up to `$tries` times.
+ */
+abstract class Job
+{
+    public int $tries = 1;
+
+    abstract public function handle(): void;
+
+    public function maxTries(): int { return $this->tries; }
+
+    public static function dispatch(mixed ...$args): void { \opengrid_job_dispatch(static::class, $args); }
+
+    /** Run it now, in this request. */
+    public static function dispatchSync(mixed ...$args): void { (new static(...$args))->handle(); }
+
+    /** [pending, done, failed] of this server's queue. */
+    public static function stats(): array { return \opengrid_job_stats(); }
+}

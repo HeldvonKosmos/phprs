@@ -27,7 +27,28 @@ use std::sync::{Arc, Mutex};
 use loco_rs::mailer::{EmailSender, MultiEmail};
 use loco_rs::storage::{Storage, drivers};
 
+/// J2: the pool's job queue. Jobs go into the workers' own task channel, so
+/// a worker runs them between requests. The sender is dropped with the
+/// pool (`close_jobs`), otherwise the workers would never see the channel close.
+#[derive(Default)]
+pub struct JobQueue {
+    tx: Mutex<Option<std::sync::mpsc::Sender<crate::worker::Job>>>,
+    pub pending: std::sync::atomic::AtomicUsize,
+    pub done: std::sync::atomic::AtomicUsize,
+    pub failed: std::sync::atomic::AtomicUsize,
+}
+
+impl JobQueue {
+    pub fn push(&self, job: crate::worker::Job) -> Result<(), String> {
+        let guard = self.tx.lock().map_err(|_| "job queue poisoned".to_string())?;
+        let tx = guard.as_ref().ok_or("the pool is shutting down")?;
+        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        tx.send(job).map_err(|_| "no worker takes jobs".to_string())
+    }
+}
+
 pub struct Services {
+    pub jobs: JobQueue,
     rt: tokio::runtime::Runtime,
     mailer: Option<EmailSender>,
     pub mail_from: Option<String>,
@@ -75,7 +96,19 @@ impl Services {
             disks.insert(name, Arc::new(disk));
         }
         let default_disk = settings.pointer("/storage/default").and_then(|v| v.as_str()).unwrap_or("local").to_string();
-        Ok(Services { rt, mailer, mail_from, outbox: Mutex::new(Vec::new()), disks, default_disk, root: root.to_path_buf() })
+        Ok(Services { jobs: JobQueue::default(), rt, mailer, mail_from, outbox: Mutex::new(Vec::new()), disks, default_disk, root: root.to_path_buf() })
+    }
+
+    pub fn open_jobs(&self, tx: std::sync::mpsc::Sender<crate::worker::Job>) {
+        if let Ok(mut g) = self.jobs.tx.lock() {
+            *g = Some(tx);
+        }
+    }
+
+    pub fn close_jobs(&self) {
+        if let Ok(mut g) = self.jobs.tx.lock() {
+            *g = None;
+        }
     }
 
     pub fn block_on<F: std::future::Future>(&self, f: F) -> F::Output {
