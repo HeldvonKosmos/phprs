@@ -154,45 +154,6 @@ impl Vm {
                             continue 'frames;
                         }
                     }
-                    // FRAME1: calls of user functions and cached user methods with
-                    // positional arguments switch frames here, without `exec`.
-                    // With the JIT on, `exec` keeps the compiled-function path.
-                    Op::CallFuncId { id, spec } if self.jit.is_none() => {
-                        if let FuncRef::User { module: tm, unit: tu } = self.function_table[id.0 as usize]
-                            && unit.arg_specs[*spec as usize].is_simple()
-                        {
-                            let n = unit.arg_specs[*spec as usize].count();
-                            self.frames[fidx].ip = ip + 1;
-                            match self.push_frame_from_stack(tm, tu, n, 0, None, None, None, None) {
-                                Ok(true) => continue 'frames,
-                                Ok(false) => {}
-                                Err(t) => {
-                                    let exc = self.materialize(t)?;
-                                    self.unwind(exc, base_depth)?;
-                                    continue 'frames;
-                                }
-                            }
-                        }
-                    }
-                    Op::CallMethodSel { spec, .. } if unit.arg_specs[*spec as usize].is_simple() => {
-                        let n = unit.arg_specs[*spec as usize].count();
-                        if let Val::Object(h) = self.stack[self.stack.len() - n - 1] {
-                            let class = self.objects.get(h).class;
-                            let e = self.ics[icx][ip];
-                            if e.class == Some(class) && e.b != super::IC_NATIVE {
-                                self.frames[fidx].ip = ip + 1;
-                                match self.push_frame_from_stack(e.a, e.b, n, 1, if e.flag { None } else { Some(h) }, Some(ClassId(e.c)), Some(class), None) {
-                                    Ok(true) => continue 'frames,
-                                    Ok(false) => {}
-                                    Err(t) => {
-                                        let exc = self.materialize(t)?;
-                                        self.unwind(exc, base_depth)?;
-                                        continue 'frames;
-                                    }
-                                }
-                            }
-                        }
-                    }
                     // scalar constants and built strings/arrays already in the cache
                     Op::PushConst(c) => {
                         let v = match &module.consts[*c as usize] {
@@ -1128,7 +1089,58 @@ impl Vm {
                             return Ok(Flow::Next);
                         }
                     }
-                    if self.push_frame_from_stack(tm, tu, n, 0, None, None, None, None)? {
+                    let tmod = self.modules[tm as usize].clone();
+                    let tunit = &tmod.units[tu as usize];
+                    if !tunit.is_generator && n <= tunit.params.len() && !tunit.params.iter().any(|p| p.variadic) {
+                        let base = self.slot_stack.len();
+                        super::path::grow_slots(&mut self.slot_stack, tunit.num_slots as usize);
+                        let at = self.stack.len() - n;
+                        for i in 0..n {
+                            let v = std::mem::take(&mut self.stack[at + i]);
+                            let p = &tunit.params[i];
+                            match self.coerce_param(&tmod, tunit, p, v, None) {
+                                Ok(v) => self.slot_stack[base + p.slot as usize] = Some(v),
+                                Err(e) => {
+                                    self.slot_stack.truncate(base);
+                                    self.stack.truncate(at);
+                                    return Err(e);
+                                }
+                            }
+                        }
+                        super::path::shrink(&mut self.stack, at);
+                        if tunit.params[n..].iter().any(|p| !p.has_default) {
+                            self.slot_stack.truncate(base);
+                            return Err(Throw::argument_count(format!(
+                                "Too few arguments to function {}(), {} passed and at least {} expected",
+                                tunit.name, n, tunit.required_params
+                            )));
+                        }
+                        let ic = self.ic_base[tm as usize] + tu as usize;
+                        {
+                            let prof = &mut self.profiles[ic];
+                            prof.calls = prof.calls.saturating_add(1);
+                            if prof.calls >= super::HOT_CALLS {
+                                prof.hot = true;
+                            }
+                        }
+                        let frame = super::Frame {
+                            module: tmod.clone(),
+                            module_idx: tm,
+                            unit: tu,
+                            ip: 0,
+                            slot_base: base,
+                            num_slots: tunit.num_slots,
+                            this: None,
+                            class: None,
+                            static_class: None,
+                            stack_base: self.stack.len(),
+                            arg_present: if n >= 64 { u64::MAX } else { (1u64 << n) - 1 },
+                            pending: Pending::None,
+                            generator: None,
+                            ic,
+                            return_override: None,
+                        };
+                        self.frames.push(frame);
                         return Ok(Flow::Switch);
                     }
                 }
