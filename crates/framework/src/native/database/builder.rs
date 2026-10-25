@@ -449,6 +449,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let def = NativeClassDef::new(CLASS)
         .final_class()
         .payload(|| Box::new(BuilderData::default()))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .method("where", |vm, c| {
             let field = string_arg(&c, 0, "Builder::where")?;
             let value = to_surreal(vm, &c.arg(1))?;

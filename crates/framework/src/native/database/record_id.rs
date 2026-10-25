@@ -78,7 +78,9 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .final_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(RecordId::new("none", RecordIdKey::Number(0))))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .handlers(ObjectHandlers {
+            trace: None,
             get: None,
             set: None,
             isset: None,

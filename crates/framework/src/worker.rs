@@ -156,6 +156,8 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
         c.routes.aliases.insert("auth".into(), "OpenGrid\\Auth\\Authenticate".into());
         c.routes.aliases.insert("throttle".into(), "OpenGrid\\Http\\Middleware\\ThrottleRequests".into());
     }
+    // MEM1b: the request state holds values the collector must see
+    vm.host_tracer = Some(trace_host);
     // MEM1a: live objects per request (settings.opengrid.limits.objects, 0 = none)
     if let Some(n) = options.settings.pointer("/opengrid/limits/objects").and_then(|v| v.as_u64()) {
         vm.object_limit = n as usize;
@@ -163,6 +165,19 @@ pub fn build_vm(options: &PoolOptions, db: Option<Arc<Db>>, sessions: Arc<Sessio
     let summary = vm.load_project(&options.root).map_err(|e| e.to_string())?;
     vm.reset_request();
     Ok((vm, summary))
+}
+
+/// MEM1b roots of the host: request object, parsed input, user, session data.
+fn trace_host(host: &dyn std::any::Any, out: &mut Vec<Val>) {
+    let Some(ctx) = host.downcast_ref::<WorkerCtx>() else { return };
+    if let Some(r) = &ctx.request {
+        out.extend(r.object.map(Val::Object));
+        out.extend(r.input.iter().cloned());
+        out.extend(r.user.iter().cloned());
+        if let Some(s) = &r.session {
+            out.extend(s.data.values().cloned());
+        }
+    }
 }
 
 impl Pool {

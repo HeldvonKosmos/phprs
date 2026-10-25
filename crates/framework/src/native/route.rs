@@ -23,6 +23,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let def = NativeClassDef::new(CLASS)
         .final_class()
         .payload(|| Box::new(RouteRef::default()))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .static_method("get", |vm, c| add(vm, c, "GET"))
         .static_method("post", |vm, c| add(vm, c, "POST"))
         .static_method("put", |vm, c| add(vm, c, "PUT"))

@@ -18,6 +18,7 @@ pub(crate) mod ops;
 mod path;
 mod run;
 pub mod jit;
+pub mod gc;
 pub mod inject;
 #[cfg(feature = "opstats")]
 pub mod opstats;
@@ -166,6 +167,19 @@ pub struct Vm {
     pub objects: ObjectStore,
     /// MEM1a: most live request objects before `new` throws (0 = no limit).
     pub object_limit: usize,
+    /// MEM1b (gc.rs): first collection after this many live objects (0 = off),
+    /// the next one at `gc_next`.
+    pub gc_threshold: usize,
+    pub(crate) gc_next: usize,
+    /// Active `run`s that are not GC-safe (native callbacks); collect only at 0.
+    pub(crate) unsafe_runs: u32,
+    /// Set by `call_*_gc_safe`: the next `run` is GC-safe.
+    pub(crate) gc_safe_next: bool,
+    /// Extra roots the host or a native can push while it holds values.
+    pub gc_roots: Vec<Val>,
+    /// Reports the values the host context holds (the framework's request state).
+    pub host_tracer: Option<gc::TraceFn>,
+    pub gc_stats: gc::GcStats,
     pub(crate) frames: Vec<Frame>,
     /// Local variable slots of all live frames (RUNTIME_ARCHITECTURE §5.1).
     pub(crate) slot_stack: Vec<Option<Val>>,
@@ -243,6 +257,13 @@ impl Vm {
             constants: HashMap::new(),
             objects: ObjectStore::new(),
             object_limit: default_object_limit(),
+            gc_threshold: gc::default_gc_threshold(),
+            gc_next: gc::default_gc_threshold(),
+            unsafe_runs: 0,
+            gc_safe_next: false,
+            gc_roots: Vec::new(),
+            host_tracer: None,
+            gc_stats: gc::GcStats::default(),
             frames: Vec::new(),
             slot_stack: Vec::new(),
             stack: Vec::new(),
@@ -376,6 +397,8 @@ impl Vm {
         self.output.clear();
         self.json_error = None;
         self.strtok = None;
+        self.gc_roots.clear();
+        self.gc_next = self.gc_threshold;
     }
 
     pub fn lookup_class(&self, name: &[u8]) -> Option<ClassId> {

@@ -67,6 +67,7 @@ fn fill_body(vm: &mut Vm, h: grd_vm::value::ObjHandle, body: &[u8], status: u16,
 pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let def = NativeClassDef::new(CLASS)
         .payload(|| Box::new(ResponseData::default()))
+        .trace(grd_vm::vm::gc::trace_nothing)
         // static constructors
         .static_method("json", |vm, c| {
             let h = new_response(vm, c.class)?;

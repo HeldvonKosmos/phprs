@@ -289,9 +289,9 @@ fn clone_payload(p: &dyn Any) -> Option<Box<dyn Any>> {
 /// Register both classes; call after the prelude is loaded.
 pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let handlers = ObjectHandlers { compare: Some(compare), clone: Some(clone_payload), ..Default::default() };
-    let immutable = methods(NativeClassDef::new(IMMUTABLE).implements(&["DateTimeInterface", "JsonSerializable"]).payload(|| Box::new(DateTimeData::default())).handlers(handlers));
+    let immutable = methods(NativeClassDef::new(IMMUTABLE).implements(&["DateTimeInterface", "JsonSerializable"]).payload(|| Box::new(DateTimeData::default())).trace(crate::vm::gc::trace_nothing).handlers(handlers));
     vm.register_class(immutable)?;
-    let mutable = methods(NativeClassDef::new(MUTABLE).implements(&["DateTimeInterface", "JsonSerializable"]).payload(|| Box::new(DateTimeData { mutable: true, ..Default::default() })).handlers(handlers));
+    let mutable = methods(NativeClassDef::new(MUTABLE).implements(&["DateTimeInterface", "JsonSerializable"]).payload(|| Box::new(DateTimeData { mutable: true, ..Default::default() })).trace(crate::vm::gc::trace_nothing).handlers(handlers));
     vm.register_class(mutable)?;
     Ok(())
 }

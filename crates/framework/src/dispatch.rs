@@ -57,7 +57,8 @@ pub fn run_controller(vm: &mut Vm) -> Result<Val, Throw> {
     // I1: constructor injection (interfaces bind to their one implementation)
     let controller = vm.resolve(class)?;
     let args: Vec<Val> = params.iter().map(|(_, v)| Val::str(v)).collect();
-    vm.call_method_sync(controller, handler.method.as_bytes(), args)
+    // GC-safe (MEM1b): everything held here is passed into the call
+    vm.call_method_sync_gc_safe(controller, handler.method.as_bytes(), args)
 }
 
 fn run_pipeline(vm: &mut Vm, middleware: &[String]) -> Result<Val, Throw> {
@@ -65,7 +66,7 @@ fn run_pipeline(vm: &mut Vm, middleware: &[String]) -> Result<Val, Throw> {
     let pipeline_class = vm.lookup_class(b"OpenGrid\\Http\\Pipeline").ok_or_else(|| Throw::error("Pipeline class missing"))?;
     let list = Val::array(grd_vm::value::PhpArray::from_values(middleware.iter().map(|m| Val::str(m))));
     let pipeline = vm.instantiate(pipeline_class, vec![list, Val::Int(0)])?;
-    vm.call_method_sync(pipeline, b"proceed", vec![request])
+    vm.call_method_sync_gc_safe(pipeline, b"proceed", vec![request])
 }
 
 /// Return-value mapping (ROADMAP §3 "Response"): array → JSON, string →

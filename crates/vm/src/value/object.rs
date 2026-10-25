@@ -49,20 +49,25 @@ impl PhpObject {
 
 #[derive(Debug, Default)]
 pub struct ObjectStore {
-    /// Request objects; cleared by `reset_request`.
-    slots: Vec<Option<PhpObject>>,
+    /// Request objects; cleared by `reset_request`. Boxed, so a collected
+    /// object (MEM1b) leaves only a null pointer behind; slots are not reused
+    /// within a request, so a stale handle is an error, never another object.
+    slots: Vec<Option<Box<PhpObject>>>,
     /// Engine objects (enum cases): immutable singletons that live as long as the VM.
     engine: Vec<Option<PhpObject>>,
+    /// Request objects alive now (allocated minus collected).
+    live: usize,
 }
 
 impl ObjectStore {
     pub fn new() -> Self {
         // Slot 0 stays empty so that ObjHandle(0) is never valid.
-        ObjectStore { slots: vec![None], engine: vec![None] }
+        ObjectStore { slots: vec![None], engine: vec![None], live: 0 }
     }
     pub fn alloc(&mut self, object: PhpObject) -> ObjHandle {
         let h = ObjHandle(self.slots.len() as u32);
-        self.slots.push(Some(object));
+        self.slots.push(Some(Box::new(object)));
+        self.live += 1;
         h
     }
     /// An engine object: survives `reset_request` (RUNTIME_ARCHITECTURE §12, enum cases).
@@ -71,23 +76,27 @@ impl ObjectStore {
         self.engine.push(Some(object));
         h
     }
-    fn slot(&self, h: ObjHandle) -> Option<&Option<PhpObject>> {
-        if h.is_engine() { self.engine.get((h.0 & !ENGINE_BIT) as usize) } else { self.slots.get(h.0 as usize) }
+    fn slot(&self, h: ObjHandle) -> Option<&PhpObject> {
+        if h.is_engine() { self.engine.get((h.0 & !ENGINE_BIT) as usize).and_then(|s| s.as_ref()) } else { self.slots.get(h.0 as usize).and_then(|s| s.as_deref()) }
     }
     /// Panics on an invalid handle: that is an interpreter bug, not a script error.
     pub fn get(&self, h: ObjHandle) -> &PhpObject {
-        self.slot(h).and_then(|s| s.as_ref()).expect("dangling object handle")
+        self.slot(h).expect("dangling object handle")
     }
     pub fn get_mut(&mut self, h: ObjHandle) -> &mut PhpObject {
-        let slot = if h.is_engine() { self.engine.get_mut((h.0 & !ENGINE_BIT) as usize) } else { self.slots.get_mut(h.0 as usize) };
-        slot.and_then(|s| s.as_mut()).expect("dangling object handle")
+        let slot = if h.is_engine() { self.engine.get_mut((h.0 & !ENGINE_BIT) as usize).and_then(|s| s.as_mut()) } else { self.slots.get_mut(h.0 as usize).and_then(|s| s.as_deref_mut()) };
+        slot.expect("dangling object handle")
     }
     pub fn is_valid(&self, h: ObjHandle) -> bool {
-        matches!(self.slot(h), Some(Some(_)))
+        self.slot(h).is_some()
     }
     /// Live request objects (engine objects not counted).
     pub fn len(&self) -> usize {
-        self.slots.len() - 1
+        self.live
+    }
+    /// Request slots handed out in this request (live and collected); handles are below this.
+    pub fn slot_count(&self) -> usize {
+        self.slots.len()
     }
     pub fn engine_len(&self) -> usize {
         self.engine.len() - 1
@@ -96,9 +105,23 @@ impl ObjectStore {
     pub fn reset_request(&mut self) {
         self.slots.clear();
         self.slots.push(None);
+        self.live = 0;
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    /// MEM1b sweep: drops every live request object whose index is not marked.
+    /// Returns how many were freed.
+    pub fn sweep(&mut self, marked: &[bool]) -> usize {
+        let mut freed = 0;
+        for (i, slot) in self.slots.iter_mut().enumerate().skip(1) {
+            if slot.is_some() && !marked.get(i).copied().unwrap_or(false) {
+                *slot = None;
+                freed += 1;
+            }
+        }
+        self.live -= freed;
+        freed
     }
     /// `clone $o`: a new slot with copied properties; `__clone` is the VM's job.
     pub fn clone_object(&mut self, h: ObjHandle) -> ObjHandle {

@@ -85,6 +85,9 @@ pub struct ObjectHandlers {
     pub compare: Option<CompareFn>,
     pub arith: Option<ArithFn>,
     pub clone: Option<CloneFn>,
+    /// MEM1b: reports the values the payload holds; a payload without it
+    /// stops in-request collection while such an object is alive.
+    pub trace: Option<super::gc::TraceFn>,
 }
 
 pub struct NativeMethodDef {
@@ -137,7 +140,15 @@ impl NativeClassDef {
         self
     }
     pub fn handlers(mut self, h: ObjectHandlers) -> Self {
+        let trace = self.handlers.trace;
         self.handlers = h;
+        self.handlers.trace = self.handlers.trace.or(trace);
+        self
+    }
+    /// MEM1b: how the payload reports the values it holds (`gc::trace_nothing`
+    /// for payloads without values).
+    pub fn trace(mut self, f: super::gc::TraceFn) -> Self {
+        self.handlers.trace = Some(f);
         self
     }
     pub fn constant(mut self, name: &'static str, v: Val) -> Self {

@@ -128,6 +128,7 @@ fn register_decimal(vm: &mut Vm) -> Result<(), Throw> {
         .final_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(Dec::ZERO))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .handlers(ObjectHandlers { compare: Some(decimal_compare), arith: Some(decimal_arith), clone: Some(clone_of::<Dec>), ..Default::default() })
         .method("__construct", |vm, c| {
             let this = c.this()?;
@@ -343,6 +344,7 @@ fn register_duration(vm: &mut Vm) -> Result<(), Throw> {
         .final_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(SDuration::from_secs(0)))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .handlers(ObjectHandlers { compare: Some(duration_compare), arith: Some(duration_arith), clone: Some(clone_of::<SDuration>), ..Default::default() })
         .method("__construct", |vm, c| {
             let this = c.this()?;
@@ -396,6 +398,7 @@ fn register_uuid(vm: &mut Vm) -> Result<(), Throw> {
         .final_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(SUuid::new_v4()))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .handlers(ObjectHandlers { compare: Some(uuid_compare), clone: Some(clone_of::<SUuid>), ..Default::default() })
         .method("__construct", |vm, c| {
             let this = c.this()?;
@@ -441,6 +444,7 @@ fn register_bytes(vm: &mut Vm) -> Result<(), Throw> {
         .final_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(SBytes::from(Vec::<u8>::new())))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .handlers(ObjectHandlers { compare: Some(bytes_compare), clone: Some(clone_of::<SBytes>), ..Default::default() })
         .method("__construct", |vm, c| {
             let this = c.this()?;
@@ -503,6 +507,7 @@ fn register_geometry(vm: &mut Vm) -> Result<(), Throw> {
         .final_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(SGeometry::Point(geo::Point::new(0.0, 0.0))))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .handlers(ObjectHandlers { compare: Some(geometry_compare), clone: Some(clone_of::<SGeometry>), ..Default::default() })
         .static_method("point", |vm, c| {
             let (x, y) = (c.float(0, "Geometry::point")?, c.float(1, "Geometry::point")?);

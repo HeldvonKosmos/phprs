@@ -26,6 +26,8 @@ impl Vm {
         let depth = self.frames.len();
         let target = super::call::CallTarget { module: module_idx, unit: main, this: None, class: None, static_class: None, captures: Vec::new(), return_override: None };
         self.push_frame(target, Vec::new(), Vec::new())?;
+        // the script itself holds nothing outside the VM: GC-safe
+        self.gc_safe_next = true;
         self.run(depth)
     }
 
@@ -40,7 +42,16 @@ impl Vm {
             return Err(Throw::error("Maximum call stack size reached. Infinite recursion?"));
         }
         self.nested_runs += 1;
+        // MEM1b: a run started by a native callback may leave values in Rust
+        // locals; collection waits until all such runs are done (gc.rs)
+        let safe = std::mem::take(&mut self.gc_safe_next);
+        if !safe {
+            self.unsafe_runs += 1;
+        }
         let r = self.run_frames(base_depth);
+        if !safe {
+            self.unsafe_runs -= 1;
+        }
         self.nested_runs -= 1;
         r
     }
@@ -129,6 +140,7 @@ impl Vm {
                     Op::Jump(l) => {
                         let t = *l as usize;
                         if t <= ip {
+                            self.gc_safepoint();
                             let prof = &mut self.profiles[icx];
                             prof.backedges = prof.backedges.saturating_add(1);
                             if prof.backedges >= super::HOT_BACKEDGES {
@@ -573,6 +585,7 @@ impl Vm {
 
             Op::Jump(l) => {
                 if (*l as usize) <= ip {
+                    self.gc_safepoint();
                     let prof = &mut self.profiles[self.frames[fidx].ic];
                     prof.backedges = prof.backedges.saturating_add(1);
                     if prof.backedges >= super::HOT_BACKEDGES {
@@ -1130,6 +1143,8 @@ impl Vm {
                 }
             }
             Op::New { class, spec } => {
+                // arguments are still on the operand stack (roots)
+                self.gc_safepoint();
                 let (args, named) = self.pop_args(midx, &unit.arg_specs[*spec as usize])?;
                 let cid = self.resolve_class_ref(class, midx)?;
                 match self.invoke_new(cid, args, named)? {

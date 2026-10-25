@@ -3,6 +3,8 @@
 
 #[path = "suite/dialect.rs"]
 mod dialect;
+#[path = "suite/gc.rs"]
+mod gc;
 #[path = "suite/inheritance.rs"]
 mod inheritance;
 #[path = "suite/names.rs"]

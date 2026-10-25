@@ -164,6 +164,7 @@ fn register(vm: &mut Vm) {
         .abstract_class()
         .payload(|| Box::new(ModelData::default()))
         .handlers(ObjectHandlers {
+            trace: None,
             get: Some(|vm, h, name| Ok(vm.native_payload::<ModelData>(h).and_then(|m| m.attributes.get(&String::from_utf8_lossy(name).into_owned()).cloned()))),
             set: Some(|vm, h, name, v| {
                 let key = String::from_utf8_lossy(name).into_owned();

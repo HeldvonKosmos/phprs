@@ -257,7 +257,13 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .abstract_class()
         .implements(&["JsonSerializable"])
         .payload(|| Box::new(ModelData::default()))
+        .trace(|p, out| {
+            if let Some(m) = p.downcast_ref::<ModelData>() {
+                out.extend(m.attributes.values().cloned());
+            }
+        })
         .handlers(ObjectHandlers {
+            trace: None,
             get: Some(|vm, h, name| materialize(vm, h, &String::from_utf8_lossy(name))),
             set: Some(|vm, h, name, v| {
                 let key = String::from_utf8_lossy(name).into_owned();

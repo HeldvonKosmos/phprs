@@ -195,6 +195,11 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let column = NativeClassDef::new(COLUMN)
         .final_class()
         .payload(|| Box::new(ColRef { blueprint: None, index: 0 }))
+        .trace(|p, out| {
+            if let Some(h) = p.downcast_ref::<ColRef>().and_then(|c| c.blueprint) {
+                out.push(Val::Object(h));
+            }
+        })
         .method("nullable", |vm, c| {
             col_mut(vm, &c)?.nullable = true;
             Ok(Val::Object(c.this()?))
@@ -226,6 +231,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     let blueprint = NativeClassDef::new(BLUEPRINT)
         .final_class()
         .payload(|| Box::new(BlueprintData::default()))
+        .trace(grd_vm::vm::gc::trace_nothing)
         .method("id", |vm, c| {
             let this = c.this()?;
             let index = bp(vm, this)?.add("id", "");
