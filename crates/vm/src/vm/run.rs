@@ -8,6 +8,9 @@ use crate::bytecode::*;
 use crate::error::Throw;
 use crate::value::*;
 
+/// Nesting limit for calls from Rust back into the VM (see `Vm::run`).
+pub(crate) const MAX_NESTED_RUNS: u32 = 1000;
+
 pub(crate) enum Flow {
     Next,
     /// The frame stack changed: reload the current frame.
@@ -27,7 +30,22 @@ impl Vm {
     }
 
     /// Run until the frame stack drops back to `base_depth`.
+    /// Run frames until the stack is back at `base_depth`. Every call from Rust
+    /// back into the VM (callbacks, magic methods, `jsonSerialize`, …) nests one
+    /// `run`, which uses native stack; past `MAX_NESTED_RUNS` the call throws
+    /// Error like PHP's stack limit instead of overflowing the native stack and
+    /// aborting the process.
     pub(crate) fn run(&mut self, base_depth: usize) -> Result<Val, Throw> {
+        if self.nested_runs >= MAX_NESTED_RUNS {
+            return Err(Throw::error("Maximum call stack size reached. Infinite recursion?"));
+        }
+        self.nested_runs += 1;
+        let r = self.run_frames(base_depth);
+        self.nested_runs -= 1;
+        r
+    }
+
+    fn run_frames(&mut self, base_depth: usize) -> Result<Val, Throw> {
         'frames: loop {
             if self.frames.len() <= base_depth {
                 return Ok(Val::Null);

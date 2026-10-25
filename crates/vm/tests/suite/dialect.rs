@@ -127,3 +127,33 @@ fn allowed_constructs_compile() {
     compiles("<?php class P { public function __construct(private readonly int $a, protected string $b = 'x') {} }");
     compiles("<?php $o->items[$k]->v = 1; $this_is_fine = 1; $a['x']['y'][] = 2; $o->n++; ++$a['k'];");
 }
+
+/// Endless recursion through Rust (callbacks, magic methods, `jsonSerialize`)
+/// throws Error at the nesting limit instead of overflowing the native stack
+/// and aborting the process; the script goes on after catching it.
+#[test]
+fn native_recursion_throws_instead_of_aborting() {
+    let src = r#"<?grd
+function f(int $n): int { return array_map(fn (int $x): int => f($x + 1), [$n])[0]; }
+try { f(0); } catch (Error $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+final class Loop implements JsonSerializable { public function jsonSerialize(): mixed { return json_encode($this); } }
+try { json_encode(new Loop()); } catch (Error $e) { echo 'json: ', $e->getMessage(), "\n"; }
+echo array_sum(array_map(fn (int $x): int => $x * 2, [1, 2, 3])), "\n";
+"#;
+    // a thread with a small stack, so the limit must hold well below 8 MB
+    let out = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || {
+            let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+            let r = vm.run_file("t.grd", src.as_bytes());
+            let mut out = String::from_utf8_lossy(&vm.output).into_owned();
+            if let Err(e) = r {
+                out.push_str(&format!("{e}"));
+            }
+            out
+        })
+        .unwrap()
+        .join()
+        .expect("no stack overflow");
+    assert_eq!(out, "Error: Maximum call stack size reached. Infinite recursion?\njson: Maximum call stack size reached. Infinite recursion?\n12\n");
+}
