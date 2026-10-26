@@ -50,7 +50,8 @@ fn validation_errors_and_validated_data() {
     let r = send(&pool, with_token(HttpRequest::post("/admin/tasks", "application/json", br#"{"title":"","priority":9,"email":"nope"}"#)));
     assert_eq!(r.status, 422, "{}", r.body_str());
     let body: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
-    assert_eq!(body["message"], "The title field is required.");
+    // Laravel's summary: first message plus the count of the others
+    assert_eq!(body["message"], "The title field is required. (and 2 more errors)");
     assert_eq!(body["errors"]["title"][0], "The title field is required.");
     assert_eq!(body["errors"]["priority"][0], "The priority field must be between 1 and 5.");
     assert_eq!(body["errors"]["email"][0], "The email field must be a valid email address.");

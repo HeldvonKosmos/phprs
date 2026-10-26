@@ -365,14 +365,25 @@ pub fn validate_vm(vm: &mut Vm, data: &Val, rules: &Val) -> Result<Result<Val, E
     validate_with(data, rules, Some(&mut count))
 }
 
+/// The exception message, as Laravel's `ValidationException::summarize`: the
+/// first message, then "(and :count more error[s])" for all the others.
+pub fn summarize(errors: &Errors) -> String {
+    let mut all = errors.0.iter().flat_map(|(_, m)| m.iter());
+    let Some(first) = all.next() else { return "The given data was invalid.".into() };
+    match all.count() {
+        0 => first.clone(),
+        1 => format!("{first} (and 1 more error)"),
+        n => format!("{first} (and {n} more errors)"),
+    }
+}
+
 /// Validate or throw `ValidationException`.
 pub fn validate_or_throw(vm: &mut Vm, data: &Val, rules: &Val) -> Result<Val, Throw> {
     match validate_vm(vm, data, rules)? {
         Ok(v) => Ok(v),
         Err(errors) => {
             let class = vm.lookup_class(EXCEPTION.as_bytes()).ok_or_else(|| Throw::error("ValidationException class missing"))?;
-            let first = errors.0.first().and_then(|(_, m)| m.first()).cloned().unwrap_or_else(|| "The given data was invalid.".into());
-            let h = vm.instantiate(class, vec![Val::str(&first), errors_array(&errors)])?;
+            let h = vm.instantiate(class, vec![Val::str(&summarize(&errors)), errors_array(&errors)])?;
             Err(Throw::existing(h))
         }
     }
@@ -414,6 +425,20 @@ mod tests {
         // a present null: a failed implicit rule stops the field (Laravel's shouldStopValidating)
         let Err(errors) = validate(&arr(&[("title", Val::Null)]), &rules).unwrap() else { panic!("expected errors") };
         assert_eq!(errors.0[0].1, vec!["The title field is required.".to_string()]);
+    }
+
+    #[test]
+    fn message_summarizes_the_other_errors() {
+        // Laravel 13.38, ValidationException::summarize
+        let rules = arr(&[("a", Val::str("required")), ("b", Val::str("required")), ("c", Val::str("integer|min:5"))]);
+        let summary = |data: &Val| match validate(data, &rules).unwrap() {
+            Err(e) => summarize(&e),
+            Ok(_) => panic!("expected errors"),
+        };
+        assert_eq!(summary(&arr(&[("b", Val::Int(1))])), "The a field is required.");
+        assert_eq!(summary(&arr(&[])), "The a field is required. (and 1 more error)");
+        assert_eq!(summary(&arr(&[("c", Val::Int(1))])), "The a field is required. (and 2 more errors)");
+        assert_eq!(summarize(&Errors(Vec::new())), "The given data was invalid.");
     }
 
     #[test]
