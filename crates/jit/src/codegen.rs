@@ -69,6 +69,7 @@ pub struct Gen<'a, 'b> {
     blocks: HashMap<usize, Block>,
     pub callees: HashMap<usize, NativeCallee>,
     rt: Runtime,
+    force: crate::ForceExit,
 }
 
 fn mf() -> MemFlagsData {
@@ -76,12 +77,13 @@ fn mf() -> MemFlagsData {
 }
 
 impl<'a, 'b> Gen<'a, 'b> {
-    pub fn new(b: &'a mut FunctionBuilder<'b>, module: &'a Module, unit: &'a CodeUnit, an: &'a Analysis, whole: bool, callees: HashMap<usize, NativeCallee>, rt: Runtime) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(b: &'a mut FunctionBuilder<'b>, module: &'a Module, unit: &'a CodeUnit, an: &'a Analysis, whole: bool, callees: HashMap<usize, NativeCallee>, rt: Runtime, force: crate::ForceExit) -> Self {
         let entry = b.create_block();
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
         let buf = b.block_params(entry)[0];
-        let mut g = Gen { b, module, unit, an, whole, buf, slots: Vec::new(), flags: Vec::new(), blocks: HashMap::new(), callees, rt };
+        let mut g = Gen { b, module, unit, an, whole, buf, slots: Vec::new(), flags: Vec::new(), blocks: HashMap::new(), callees, rt, force };
         g.declare_slots();
         g
     }
@@ -323,8 +325,10 @@ impl<'a, 'b> Gen<'a, 'b> {
     }
 
     /// Branch to a failure path when `cond` holds: exit with the state before
-    /// the op (regions) or bail out (functions).
+    /// the op (regions) or bail out (functions). Every exit point goes
+    /// through here, so the forced-exit test mode only needs this place.
     fn guard(&mut self, cond: Value, ip: usize, pre_stack: &[V]) {
+        let cond = if self.force.forces(&self.unit.name, ip) { self.i8c(1) } else { cond };
         let fail = self.b.create_block();
         let cont = self.b.create_block();
         self.b.ins().brif(cond, fail, &[], cont, &[]);

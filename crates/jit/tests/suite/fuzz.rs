@@ -17,7 +17,7 @@
 
 use std::process::Command;
 
-use grd_jit::CraneliftJit;
+use grd_jit::{CraneliftJit, ForceExit};
 use grd_vm::vm::Vm;
 
 struct Rng(u64);
@@ -191,10 +191,18 @@ fn program(rng: &mut Rng) -> (String, bool) {
 /// Output (with an uncaught error appended) and the number of compiled
 /// functions/loops.
 fn run(src: &str, jit: Option<bool>) -> (String, usize) {
+    run_with(src, jit, ForceExit::Off, None)
+}
+
+/// `run` with forced exits (JITD2 §8c) and a GC threshold (MEM1b).
+fn run_with(src: &str, jit: Option<bool>, force: ForceExit, gc: Option<usize>) -> (String, usize) {
     let mut vm = Vm::with_prelude().expect("prelude");
     if let Some(advanced) = jit {
-        vm.set_jit(Box::new(CraneliftJit::with_tiers(advanced, true)));
+        vm.set_jit(Box::new(CraneliftJit::with_options(advanced, true, force)));
         vm.set_jit_threshold(1, 1);
+    }
+    if let Some(t) = gc {
+        vm.set_gc_threshold(t);
     }
     let r = vm.run_file("fuzz.grd", src.as_bytes());
     let mut out = String::from_utf8_lossy(&vm.output).into_owned();
@@ -202,6 +210,15 @@ fn run(src: &str, jit: Option<bool>) -> (String, usize) {
         out.push_str(&format!("\nuncaught: {e}"));
     }
     (out, vm.jit_tiers().len())
+}
+
+/// JITD2 §8c: the program leaves compiled code at every exit point, and at
+/// a seeded half of them, and still prints what the interpreter printed.
+fn forced_exits_agree(src: &str, want: &str, seed: u64, case: u64) {
+    for force in [ForceExit::All, ForceExit::Seed(seed ^ case)] {
+        let (got, _) = run_with(src, Some(false), force, None);
+        assert_eq!(got, want, "seed {seed}, case {case}, {force:?}\n--- program ---\n{src}");
+    }
 }
 
 #[test]
@@ -245,6 +262,7 @@ fn interpreter_and_jit_agree_on_random_programs() {
                 compiled_programs += (compiled > 0) as u64;
             }
         }
+        forced_exits_agree(&src, &want, seed, case);
     }
     eprintln!("differential test: exceptions by kind {kinds:?}");
     eprintln!("differential test: {exceptions} programs with exceptions, {compiled_programs} with compiled code, {compiled_total} compiled functions/loops");
@@ -370,6 +388,7 @@ fn interpreter_and_jit_agree_on_array_programs() {
                 compiled_programs += (compiled > 0) as u64;
             }
         }
+        forced_exits_agree(&src, &want, seed, case);
     }
     eprintln!("array differential test: {exceptions} programs with exceptions, {compiled_programs} with compiled code");
     assert!(compiled_programs > cases / 2, "only {compiled_programs} of {cases} programs had compiled code");

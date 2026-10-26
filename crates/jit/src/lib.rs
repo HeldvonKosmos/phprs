@@ -76,6 +76,37 @@ fn runtime_symbols(b: &mut JITBuilder) {
 }
 
 use analysis::{analyse, declared_sig, Analysis, CallKind, Ctx, Sig};
+
+/// Test mode (JITD2 §8c): compiled code leaves at exit points although
+/// nothing failed, so that every exit is checked against the interpreter.
+/// `GRD_JIT_FORCE_EXIT=all` takes every exit point, `=<seed>` about half of
+/// them, chosen by the seed. Applied when code is compiled; off costs nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ForceExit {
+    #[default]
+    Off,
+    All,
+    Seed(u64),
+}
+
+impl ForceExit {
+    pub fn from_env() -> Self {
+        match std::env::var("GRD_JIT_FORCE_EXIT").as_deref() {
+            Ok("all") => ForceExit::All,
+            Ok(v) => v.parse().map(ForceExit::Seed).unwrap_or(ForceExit::Off),
+            Err(_) => ForceExit::Off,
+        }
+    }
+
+    /// Whether the exit point at `ip` of the unit `name` is taken always.
+    pub(crate) fn forces(self, name: &str, ip: usize) -> bool {
+        match self {
+            ForceExit::Off => false,
+            ForceExit::All => true,
+            ForceExit::Seed(s) => hash_of((s, name, ip)) & 1 == 1,
+        }
+    }
+}
 use codegen::{buf_words, signature, Gen, NativeCallee, ST_EXIT, ST_RETURN};
 
 /// A function compiled for native calls.
@@ -108,6 +139,7 @@ pub(crate) struct Req<'a> {
     functions: &'a [Callee],
     /// Element kinds at the dim fetches, `[module][unit][ip]`.
     types: &'a [Vec<Vec<u8>>],
+    force: ForceExit,
 }
 
 /// One Cranelift module at one optimisation level. `prog` identifies the
@@ -218,7 +250,7 @@ impl Compiler {
                 callees.insert(*ip, NativeCallee { fref, buf_words: f.buf_words, param_slots: f.param_slots.clone() });
             }
             let rt = runtime(&mut self.module, &mut b)?;
-            let mut g = Gen::new(&mut b, m, unit, &an, whole, callees, rt);
+            let mut g = Gen::new(&mut b, m, unit, &an, whole, callees, rt, req.force);
             g.emit(tags);
             b.seal_all_blocks();
             b.finalize(self.module.target_config());
@@ -347,6 +379,7 @@ pub struct CraneliftJit {
     /// `Arc` copy and a content hash (computed once per module).
     snapshots: HashMap<usize, (Arc<Module>, u64)>,
     tiers: Tiers,
+    force: ForceExit,
     log: bool,
     /// With GRD_JIT_LOG: per code id, runs and (status, exit ip) counts.
     stats: Vec<HashMap<(i64, u64), u64>>,
@@ -388,12 +421,18 @@ impl CraneliftJit {
     /// thread; `sync`: wait for that before running it. Without
     /// `background`: compile once with `"speed"`.
     pub fn with_tiers(background: bool, sync: bool) -> Self {
+        Self::with_options(background, sync, ForceExit::from_env())
+    }
+
+    /// As `with_tiers`, with the forced-exit test mode given explicitly.
+    pub fn with_options(background: bool, sync: bool, force: ForceExit) -> Self {
         let tiers = Tiers { background, sync };
         CraneliftJit {
             tier1: if background { Compiler::new("none", 1) } else { Compiler::new("speed", 1) },
             codes: Vec::new(),
             snapshots: HashMap::new(),
             tiers,
+            force,
             log: std::env::var("GRD_JIT_LOG").is_ok(),
             stats: Vec::new(),
         }
@@ -428,14 +467,14 @@ impl JitBackend for CraneliftJit {
         // element kinds of the profile are not part of the key: compiled reads
         // check them at run time, so shared code stays correct for any profile
         // (with them in the key, workers missed each other's tier-2 code)
-        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags));
+        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, self.force));
         // another worker (or an earlier VM) already has tier-2 code for it
         if self.tiers.background
             && let Some((ptr, meta)) = service::lookup(key)
         {
             return Some(self.push_code(CodeSlot::new(ptr, 2), meta));
         }
-        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions, types: req.unit_types };
+        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions, types: req.unit_types, force: self.force };
         let (ptr, meta) = self.tier1.compile(&r, prog)?;
         let slot = CodeSlot::new(ptr, 1);
         // JIT5: past the process budget, hot code stays at tier 1
@@ -451,6 +490,7 @@ impl JitBackend for CraneliftJit {
                 tags: req.entry_tags.to_vec(),
                 functions: req.functions.to_vec(),
                 types: req.unit_types.to_vec(),
+                force: self.force,
                 meta: meta.clone(),
                 slot: slot.clone(),
             };

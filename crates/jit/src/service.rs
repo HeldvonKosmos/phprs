@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use grd_vm::bytecode::Module;
 use grd_vm::vm::jit::Callee;
 
-use crate::{CodeSlot, Compiler, Meta, Req};
+use crate::{CodeSlot, Compiler, ForceExit, Meta, Req};
 
 /// One recompilation, self-contained (`Send`).
 pub(crate) struct Job {
@@ -34,6 +34,7 @@ pub(crate) struct Job {
     pub functions: Vec<Callee>,
     /// Element kinds seen at the unit's dim fetches (JIT2b).
     pub types: Vec<Vec<Vec<u8>>>,
+    pub force: ForceExit,
     /// Layout of the tier-1 code; tier 2 must match it to be swapped in.
     pub meta: Meta,
     pub slot: Arc<CodeSlot>,
@@ -124,6 +125,7 @@ fn worker(rx: Receiver<(Job, SyncSender<()>)>) {
                     entry_tags: &job.tags,
                     functions: &job.functions,
                     types: &job.types,
+                    force: job.force,
                 };
                 // a Cranelift panic must not take the service down
                 let r = catch_unwind(AssertUnwindSafe(|| compiler.compile(&req, job.prog))).ok().flatten();

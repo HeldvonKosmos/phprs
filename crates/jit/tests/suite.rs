@@ -15,12 +15,16 @@ mod stress;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use grd_jit::CraneliftJit;
+use grd_jit::{CraneliftJit, ForceExit};
 use grd_vm::vm::Vm;
 
 fn vm_with(background: bool, sync: bool, threshold: u32) -> Vm {
+    vm_forcing(background, sync, threshold, ForceExit::Off)
+}
+
+fn vm_forcing(background: bool, sync: bool, threshold: u32, force: ForceExit) -> Vm {
     let mut vm = Vm::with_prelude().expect("prelude");
-    vm.set_jit(Box::new(CraneliftJit::with_tiers(background, sync)));
+    vm.set_jit(Box::new(CraneliftJit::with_options(background, sync, force)));
     vm.set_jit_threshold(threshold, threshold);
     vm
 }
@@ -34,7 +38,7 @@ struct Compiled {
     tier2: usize,
 }
 
-fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Compiled {
+fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>, force: ForceExit) -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vm/tests/probes");
     let mut probes: Vec<_> = std::fs::read_dir(&dir).expect("probes dir").filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "grd")).collect();
     probes.sort();
@@ -42,7 +46,7 @@ fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Comp
     let mut compiled = Compiled { probes: 0, names: Vec::new(), units: 0, tier2: 0 };
     for probe in &probes {
         let source = std::fs::read(probe).expect("read probe");
-        let mut vm = vm_with(background, sync, 1);
+        let mut vm = vm_forcing(background, sync, 1, force);
         if let Some(t) = gc_threshold {
             vm.set_gc_threshold(t);
         }
@@ -64,20 +68,20 @@ fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Comp
         compiled.tier2 += tiers.iter().filter(|t| **t == 2).count();
     }
     assert!(failures.is_empty(), "{} of {} probes differ (background {background}, sync {sync}):\n{}", failures.len(), probes.len(), failures.join("\n"));
-    eprintln!("JIT over the probes (background {background}, sync {sync}, gc {gc_threshold:?}): {} probes with compiled code, {} units, {} on tier 2", compiled.probes, compiled.units, compiled.tier2);
+    eprintln!("JIT over the probes (background {background}, sync {sync}, gc {gc_threshold:?}, {force:?}): {} probes with compiled code, {} units, {} on tier 2", compiled.probes, compiled.units, compiled.tier2);
     compiled
 }
 
 #[test]
 fn probes_match_php_with_tier1_only() {
-    let c = run_probes(false, false, None);
+    let c = run_probes(false, false, None, ForceExit::Off);
     assert_floor(&c);
     assert_eq!(c.tier2, 0, "tier 1 only");
 }
 
 #[test]
 fn probes_match_php_with_tier2() {
-    let c = run_probes(true, true, None);
+    let c = run_probes(true, true, None, ForceExit::Off);
     assert_floor(&c);
     assert!(c.tier2 >= c.units * 9 / 10, "tier 2 was swapped in for only {} of {} units", c.tier2, c.units);
 }
@@ -86,7 +90,15 @@ fn probes_match_php_with_tier2() {
 /// (MEM1b): compiled code must keep its values reachable for the GC.
 #[test]
 fn probes_match_php_with_jit_and_constant_collection() {
-    let c = run_probes(true, true, Some(1));
+    let c = run_probes(true, true, Some(1), ForceExit::Off);
+    assert_floor(&c);
+}
+
+/// JITD2 §8c: every exit point of the compiled probe code is taken (the
+/// interpreter continues or reruns the call) and the output stays PHP's.
+#[test]
+fn probes_match_php_with_every_exit_forced() {
+    let c = run_probes(false, false, None, ForceExit::All);
     assert_floor(&c);
 }
 
