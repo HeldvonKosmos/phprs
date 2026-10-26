@@ -25,6 +25,19 @@ cd "$APP"
 composer require --no-interaction -W "laravel/framework:$LARAVEL_FRAMEWORK" laravel/sanctum:^4.3 laravel/octane:^2.22 \
   spiral/roadrunner-cli:^3.0 spiral/roadrunner-http:^4.2
 [ -x ./rr ] || vendor/bin/rr get-binary --no-interaction --location .
+# Octane 2.x compares the RoadRunner version with 2023.3.0, but RoadRunner now
+# counts 3.x: Octane would call it too old and download it again on every
+# start (and an interrupted start leaves only rr.backup). A wrapper shows
+# Octane a calendar version; everything else goes to the real binary.
+if [ ! -f ./rr.bin ] && ./rr --version 2>/dev/null | grep -q '^rr version 3\.'; then
+  mv ./rr ./rr.bin
+  cat > ./rr <<'WRAP'
+#!/bin/sh
+here=$(dirname "$0")
+if [ "$1" = --version ]; then "$here/rr.bin" --version | sed 's/^rr[.a-z]* version 3\./rr version 2099.3./'; else exec "$here/rr.bin" "$@"; fi
+WRAP
+  chmod +x ./rr
+fi
 
 # the application: own files only, the skeleton's migrations and welcome page go
 rm -f database/migrations/*.php resources/views/welcome.blade.php

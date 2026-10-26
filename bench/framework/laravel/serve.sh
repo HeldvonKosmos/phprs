@@ -17,6 +17,8 @@ APP=${LARAVEL_APP:-$(cd "$HERE/../../../.." && pwd)/bench/laravel-app}
 [ -f "$APP/artisan" ] || { echo "serve: no Laravel app at $APP (run setup.sh)" >&2; exit 2; }
 mkdir -p "$W"
 cd "$APP"
+# an Octane start interrupted while it replaced the binary leaves rr.backup
+[ -e rr ] || [ ! -f rr.backup ] || mv rr.backup rr
 php artisan optimize:clear >/dev/null
 php artisan optimize >/dev/null
 
