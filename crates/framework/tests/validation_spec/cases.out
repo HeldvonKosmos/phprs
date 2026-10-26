@@ -130,3 +130,7 @@
 {"errors":{"a":["The a field must be an integer."]}}
 {"errors":{"a":["The a field must be an integer.","The a field must be at least 5."]}}
 {"errors":{"a":["The a field must not be greater than 2 characters."]}}
+{"errors":{"title":["The title field is required."]}}
+{"errors":{"a":["The a field is required."]}}
+{"errors":{"a":["The a field must have a value."]}}
+{"errors":{"a":["The a field must be present."]}}

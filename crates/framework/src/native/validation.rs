@@ -278,6 +278,11 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
             if nullable && value.is_null() {
                 break;
             }
+            // Laravel's shouldStopValidating: once an implicit rule failed,
+            // the other rules of the field are not checked
+            if matches!(name_r, "required" | "present" | "filled" | "accepted") || name_r.starts_with("required_") {
+                break;
+            }
             // `bail`: stop at the first failing rule of this field
             if rules.iter().any(|r| r == "bail") {
                 break;
@@ -406,9 +411,9 @@ mod tests {
         let rules = arr(&[("title", Val::str("required|string|max:3")), ("note", Val::str("string|max:2"))]);
         let Err(errors) = validate(&arr(&[("note", Val::str("  "))]), &rules).unwrap() else { panic!("expected errors") };
         assert_eq!(errors.0, vec![("title".to_string(), vec!["The title field is required.".to_string()])]);
-        // a present null is checked by the other rules too
+        // a present null: a failed implicit rule stops the field (Laravel's shouldStopValidating)
         let Err(errors) = validate(&arr(&[("title", Val::Null)]), &rules).unwrap() else { panic!("expected errors") };
-        assert_eq!(errors.0[0].1, vec!["The title field is required.".to_string(), "The title field must be a string.".to_string()]);
+        assert_eq!(errors.0[0].1, vec!["The title field is required.".to_string()]);
     }
 
     #[test]

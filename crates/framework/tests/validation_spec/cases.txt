@@ -131,3 +131,7 @@
 {"a": "bail|integer|min:5"}	{"a": "x"}
 {"a": "integer|min:5"}	{"a": "x"}
 {"a": ["required", "string", "max:2"]}	{"a": "abc"}
+{"title": "required|string|max:3"}	{"title": null}
+{"a": "required|integer|min:1"}	{"a": ""}
+{"a": "filled|string"}	{"a": null}
+{"a": "present|string"}	{}
