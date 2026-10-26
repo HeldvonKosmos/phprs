@@ -216,7 +216,12 @@ impl Val {
             Val::Bool(b) => *b as i64 as f64,
             Val::Int(i) => *i as f64,
             Val::Float(f) => *f,
-            Val::Str(s) => parse_numeric(s.as_bytes()).map(|(n, _)| n.as_f64()).unwrap_or(0.0),
+            Val::Str(s) => match parse_numeric(s.as_bytes()) {
+                // PHP reads the string as a float: "-0" keeps its sign
+                Some((Numeric::Int(0), _)) if s.as_bytes().iter().find(|b| !is_ws(**b)) == Some(&b'-') => -0.0,
+                Some((n, _)) => n.as_f64(),
+                None => 0.0,
+            },
             Val::Array(a) => (!a.is_empty()) as i64 as f64,
             Val::Object(_) => return Err(Throw::type_error("Cannot convert object to float")),
         })
