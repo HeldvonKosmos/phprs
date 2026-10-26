@@ -1,0 +1,27 @@
+<?grd
+// TEST2.4: code the JIT compiles (int/float functions and loops, array
+// reads), so that the JIT probe runs execute compiled code; the output is
+// PHP's.
+function fib(int $n): int { $a = 0; $b = 1; for ($i = 0; $i < $n; $i++) { $t = $a + $b; $a = $b; $b = $t; } return $a; }
+function gcd(int $a, int $b): int { while ($b !== 0) { $t = $a % $b; $a = $b; $b = $t; } return $a; }
+function collatz(int $n): int { $steps = 0; while ($n !== 1) { $n = $n % 2 === 0 ? intdiv($n, 2) : 3 * $n + 1; $steps++; } return $steps; }
+function poly(float $x): float { return ((2.5 * $x - 1.25) * $x + 0.5) * $x - 3.0; }
+function newton(float $v): float { $x = $v; for ($i = 0; $i < 20; $i++) { $x = 0.5 * ($x + $v / $x); } return $x; }
+function bits(int $n): int { $c = 0; while ($n > 0) { $c += $n & 1; $n = $n >> 1; } return $c; }
+function mix(int $a, int $b, float $x): int { if ($a > $b) { return ($a ^ $b) % 1000003; } return ($a * 31 + $b) % 1000003; }
+function sum_list(array $a): int { $s = 0; $n = count($a); for ($k = 0; $k < $n; $k++) { $s = ($s + $a[$k] * ($k + 1)) % 1000003; } return $s; }
+function avg(array $f): float { $s = 0.0; $n = count($f); for ($k = 0; $k < $n; $k++) { $s = $s + $f[$k]; } return $s / $n; }
+function cmp3(int $a, int $b): int { return ($a <=> $b) + max($a, $b) - min($a, $b) + abs($a - $b); }
+
+$acc = 0; $u = 0.0;
+for ($i = 1; $i < 60; $i++) {
+    $acc = ($acc + fib($i % 40) + gcd($i * 12, 18) + collatz($i) + bits($i * 977) + mix($i, 30, 0.5) + cmp3($i, 25)) % 1000003;
+    $u = $u + poly($i * 0.25) / 100.0 + newton((float) $i);
+}
+echo $acc, ' ', round($u, 6), "\n";
+echo sum_list([3, 1, 4, 1, 5, 9, 2, 6]), ' ', avg([0.5, 1.5, 2.25, 4.0]), "\n";
+$m = [[1, 2, 3], [4, 5, 6]];
+$t = 0;
+for ($r = 0; $r < 40; $r++) { $t = ($t + $m[$r % 2][$r % 3] * $r) % 1000003; }
+echo $t, ' ', fib(90), ' ', gcd(1071, 462), ' ', collatz(27), ' ', poly(-1.5), ' ', newton(2.0), "\n";
+try { echo gcd(5, 0), ' ', intdiv(7, 0), "\n"; } catch (DivisionByZeroError $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }

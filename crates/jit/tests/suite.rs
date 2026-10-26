@@ -1,11 +1,14 @@
 //! JIT correctness and tiering (JIT1b, JIT2c): every frozen probe of grd-vm
 //! runs with the JIT compiling as eagerly as possible (threshold 1) and must
-//! print exactly what PHP 8.4 printed, once with tier 1 only and once with
-//! tier 2 swapped in before the code runs. A further test shows the
-//! asynchronous hot swap.
+//! print exactly what PHP 8.4 printed, once with tier 1 only, once with
+//! tier 2 swapped in before the code runs and once with tier 2 and constant
+//! collection; each run must have compiled a minimum of code (TEST2.4). A
+//! further test shows the asynchronous hot swap.
 
 #[path = "suite/fuzz.rs"]
 mod fuzz;
+#[path = "suite/oracle.rs"]
+mod oracle;
 #[path = "suite/stress.rs"]
 mod stress;
 
@@ -22,14 +25,26 @@ fn vm_with(background: bool, sync: bool, threshold: u32) -> Vm {
     vm
 }
 
-fn run_probes(background: bool, sync: bool) {
+/// What the JIT did over all probes: probes with compiled code, compiled
+/// units, units on tier 2.
+struct Compiled {
+    probes: usize,
+    units: usize,
+    tier2: usize,
+}
+
+fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vm/tests/probes");
     let mut probes: Vec<_> = std::fs::read_dir(&dir).expect("probes dir").filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "grd")).collect();
     probes.sort();
     let mut failures = Vec::new();
+    let mut compiled = Compiled { probes: 0, units: 0, tier2: 0 };
     for probe in &probes {
         let source = std::fs::read(probe).expect("read probe");
         let mut vm = vm_with(background, sync, 1);
+        if let Some(t) = gc_threshold {
+            vm.set_gc_threshold(t);
+        }
         let r = vm.run_file(&probe.display().to_string(), &source);
         let mut out = String::from_utf8_lossy(&vm.output).into_owned();
         if let Err(e) = r {
@@ -39,19 +54,43 @@ fn run_probes(background: bool, sync: bool) {
         if out.trim_end() != expected.trim_end() {
             failures.push(format!("{}\n  expected: {:?}\n  got:      {:?}", probe.display(), expected, out));
         }
+        let tiers = vm.jit_tiers();
+        compiled.probes += !tiers.is_empty() as usize;
+        compiled.units += tiers.len();
+        compiled.tier2 += tiers.iter().filter(|t| **t == 2).count();
     }
     assert!(failures.is_empty(), "{} of {} probes differ (background {background}, sync {sync}):\n{}", failures.len(), probes.len(), failures.join("\n"));
+    eprintln!("JIT over the probes (background {background}, sync {sync}, gc {gc_threshold:?}): {} probes with compiled code, {} units, {} on tier 2", compiled.probes, compiled.units, compiled.tier2);
+    compiled
 }
 
 #[test]
 fn probes_match_php_with_tier1_only() {
-    run_probes(false, false);
+    let c = run_probes(false, false, None);
+    assert!(c.probes >= MIN_PROBES && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+    assert_eq!(c.tier2, 0, "tier 1 only");
 }
 
 #[test]
 fn probes_match_php_with_tier2() {
-    run_probes(true, true);
+    let c = run_probes(true, true, None);
+    assert!(c.probes >= MIN_PROBES && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+    assert!(c.tier2 >= c.units * 9 / 10, "tier 2 was swapped in for only {} of {} units", c.tier2, c.units);
 }
+
+/// The JIT probes with a collection whenever the live objects have doubled
+/// (MEM1b): compiled code must keep its values reachable for the GC.
+#[test]
+fn probes_match_php_with_jit_and_constant_collection() {
+    let c = run_probes(true, true, Some(1));
+    assert!(c.probes >= MIN_PROBES && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+}
+
+/// Floors for the probe runs (26.10.: 3 probes, 15 units). The JIT takes
+/// only int/float functions and loops, so most probes run interpreted;
+/// `jit_int_float_kernels` exists to give these runs compiled code.
+const MIN_PROBES: usize = 3;
+const MIN_UNITS: usize = 13;
 
 const HOT: &[u8] = b"<?php
 function sq(int $n): int { return $n * $n; }

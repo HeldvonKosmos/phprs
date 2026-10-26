@@ -7,8 +7,15 @@
 //! modulo by zero, shifts by negative or large amounts, int/float mixing,
 //! float formatting.
 //!
+//! The scalar programs without an `ArithmeticError` (no overflow, where the
+//! dialect throws and PHP turns to float, D10) are also run by PHP 8.4 with
+//! `strict_types=1`, which must print the same (TEST2.4). The array programs
+//! are not: PHP warns and goes on where the dialect throws (DIALECT §5.2/§5.3).
+//!
 //! The seed is printed and can be set: `GRD_FUZZ_SEED=<n>` (default fixed),
 //! `GRD_FUZZ_CASES=<n>` (default 400; longer runs are optional).
+
+use std::process::Command;
 
 use grd_jit::CraneliftJit;
 use grd_vm::vm::Vm;
@@ -40,6 +47,9 @@ struct Gen<'a> {
     rng: &'a mut Rng,
     ints: Vec<String>,
     floats: Vec<String>,
+    /// an int / int division was generated (float in the dialect, D10; PHP
+    /// gives an int when it divides evenly)
+    int_div: bool,
 }
 
 impl Gen<'_> {
@@ -99,7 +109,10 @@ impl Gen<'_> {
                 format!("({} / {den})", self.float(d))
             }
             4 => format!("((float) {})", self.int(d)),
-            5 => format!("({} / {})", self.int(d), self.divisor(d)),
+            5 => {
+                self.int_div = true;
+                format!("({} / {})", self.int(d), self.divisor(d))
+            }
             6 => format!("({} * {})", self.float(d), self.int(d)),
             _ => format!("(- {})", self.float(d)),
         }
@@ -122,15 +135,17 @@ impl Gen<'_> {
     }
 }
 
-/// One random program.
-fn program(rng: &mut Rng) -> String {
+/// One random program, and whether PHP can serve as its oracle (no int / int
+/// division).
+fn program(rng: &mut Rng) -> (String, bool) {
+    let mut int_div = false;
     let mut src = String::from("<?php\n");
     let nfuncs = 1 + rng.below(3);
     // JIT2a: g{f} has a default parameter in every other program; compiled code
     // runs for calls with all arguments, the others stay in the interpreter
     let with_default = rng.below(2) == 0;
     for f in 0..nfuncs {
-        let mut g = Gen { rng: &mut *rng, ints: vec!["$a".into(), "$b".into()], floats: vec!["$x".into()] };
+        let mut g = Gen { rng: &mut *rng, ints: vec!["$a".into(), "$b".into()], floats: vec!["$x".into()], int_div: false };
         let body = if g.rng.below(3) == 0 {
             // loop inside a function
             let e = g.int(2);
@@ -141,15 +156,17 @@ fn program(rng: &mut Rng) -> String {
             let e = g.int(3);
             format!("if ({c}) {{ return {t}; }} return {e};")
         };
+        int_div |= g.int_div;
         src.push_str(&format!("function f{f}(int $a, int $b, float $x): int {{ {body} }}\n"));
-        let mut g = Gen { rng: &mut *rng, ints: vec!["$a".into()], floats: vec!["$x".into(), "$y".into()] };
+        let mut g = Gen { rng: &mut *rng, ints: vec!["$a".into()], floats: vec!["$x".into(), "$y".into()], int_div: false };
         let e = g.float(3);
         let third = if with_default { format!("int $a = {}", g.rng.pick(INT_SMALL)) } else { "int $a".to_string() };
+        int_div |= g.int_div;
         src.push_str(&format!("function g{f}(float $x, float $y, {third}): float {{ return {e}; }}\n"));
     }
     let nloops = 1 + rng.below(3);
     for l in 0..nloops {
-        let mut g = Gen { rng: &mut *rng, ints: vec!["$i".into(), "$p".into(), "$q".into()], floats: vec!["$u".into()] };
+        let mut g = Gen { rng: &mut *rng, ints: vec!["$i".into(), "$p".into(), "$q".into()], floats: vec!["$u".into()], int_div: false };
         let p0 = g.rng.pick(INT_SMALL);
         let q0 = g.rng.pick(INT_SMALL);
         let u0 = g.rng.pick(FLOAT_SMALL);
@@ -163,11 +180,12 @@ fn program(rng: &mut Rng) -> String {
             g.float(2)
         };
         let n = 2 + g.rng.below(30);
+        int_div |= g.int_div;
         src.push_str(&format!(
             "try {{ $p = {p0}; $q = {q0}; $u = {u0}; $c = 0;\n  for ($i = 0; $i < {n}; $i++) {{ $p = {pe}; $q = {qe}; $u = {ue}; if ($p > $q) {{ $c++; }} }}\n  echo \"L{l} \", $p, ' ', $q, ' ', $u, ' ', $c, \"\\n\";\n}} catch (Throwable $e) {{ echo \"L{l} \", get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n"
         ));
     }
-    src
+    (src, !int_div)
 }
 
 /// Output (with an uncaught error appended) and the number of compiled
@@ -196,9 +214,15 @@ fn interpreter_and_jit_agree_on_random_programs() {
     let mut compiled_programs = 0;
     let mut compiled_total = 0;
     let mut kinds = std::collections::BTreeMap::new();
+    let mut for_php = Vec::new();
     for case in 0..cases {
-        let src = program(&mut rng);
+        let (src, php_comparable) = program(&mut rng);
         let (want, _) = run(&src, None);
+        // D10: overflow (ArithmeticError) and locals keeping their type
+        // (GRD021) are where the dialect differs from PHP on purpose
+        if php_comparable && !want.contains("ArithmeticError") && !want.contains("GRD021") && !want.contains("uncaught") {
+            for_php.push((case, src.clone(), want.clone()));
+        }
         if want.contains("Error") {
             exceptions += 1;
         }
@@ -227,6 +251,49 @@ fn interpreter_and_jit_agree_on_random_programs() {
     // the JIT must actually run the programs, and the error paths be reached
     assert!(compiled_programs > cases * 3 / 4, "only {compiled_programs} of {cases} programs had compiled code");
     assert!(exceptions > cases / 20, "only {exceptions} of {cases} programs raised an exception");
+    php_agrees(seed, &for_php, cases);
+}
+
+/// PHP's output for the overflow-free programs must be the interpreter's.
+fn php_agrees(seed: u64, programs: &[(u64, String, String)], cases: u64) {
+    if !Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success()) {
+        crate::oracle::missing(crate::oracle::Oracle::Php, "php not available: random programs not compared with PHP");
+        return;
+    }
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fuzz-php");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let results: Vec<(Vec<String>, usize)> = std::thread::scope(|s| {
+        let handles: Vec<_> = programs
+            .chunks(programs.len().div_ceil(8))
+            .map(|chunk| {
+                let dir = &dir;
+                s.spawn(move || {
+                    let (mut bad, mut lossy) = (Vec::new(), 0usize);
+                    for (case, src, want) in chunk {
+                        let file = dir.join(format!("case{case}.php"));
+                        std::fs::write(&file, src.replacen("<?php\n", "<?php declare(strict_types=1);\n", 1)).expect("write program");
+                        let out = Command::new("php").args(["-d", "display_errors=1", "-d", "error_reporting=E_ALL", "-d", "log_errors=0"]).arg(&file).output().expect("run php");
+                        let php = String::from_utf8_lossy(&out.stdout);
+                        // PHP converts a non-integral or out-of-range float to
+                        // int with only a deprecation, the dialect silently
+                        // (open question, KNOWN_ISSUES): not compared
+                        if php.contains("Deprecated: Implicit conversion from float") {
+                            lossy += 1;
+                        } else if php.trim_end() != want.trim_end() {
+                            bad.push(format!("seed {seed}, case {case}\n--- program ---\n{src}\n--- php ---\n{php}\n--- grd ---\n{want}"));
+                        }
+                    }
+                    (bad, lossy)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("php thread")).collect()
+    });
+    let lossy: usize = results.iter().map(|r| r.1).sum();
+    let mismatches: Vec<String> = results.into_iter().flat_map(|r| r.0).collect();
+    eprintln!("differential test: {} programs compared with PHP ({lossy} skipped for a lossy float-to-int conversion), {} differ", programs.len() - lossy, mismatches.len());
+    assert!(((programs.len() - lossy) as u64) > cases / 3, "only {} of {cases} programs compared with PHP", programs.len() - lossy);
+    assert!(mismatches.is_empty(), "{} programs print differently in PHP:\n{}", mismatches.len(), mismatches.iter().take(3).cloned().collect::<Vec<_>>().join("\n"));
 }
 
 /// An array literal: mostly ints, sometimes one element of another kind
@@ -257,7 +324,7 @@ fn array_program(rng: &mut Rng) -> String {
     src.push_str(&format!("$F = [{}];\n", fl.join(", ")));
     // functions with array parameters; the bound may run past the end
     let bound = rng.pick(&["count($a)", "count($a)", "$n", "$n + 1"]);
-    let mut g = Gen { rng: &mut *rng, ints: vec!["$a[$k]".into(), "$k".into(), "$s".into()], floats: vec![] };
+    let mut g = Gen { rng: &mut *rng, ints: vec!["$a[$k]".into(), "$k".into(), "$s".into()], floats: vec![], int_div: false };
     let e = g.int(2);
     src.push_str(&format!("function s(array $a, int $n): int {{ $s = 0; for ($k = 0; $k < {bound}; $k++) {{ $s = ($s + {e}) % 1000003; }} return $s; }}\n"));
     src.push_str("function fs(array $a): float { $s = 0.0; $c = count($a); for ($k = 0; $k < $c; $k++) { $s = $s + $a[$k] * 0.5; } return $s; }\n");
