@@ -1,0 +1,19 @@
+<?grd
+// MUT2, dialect: where the operators deliberately differ from PHP.
+// DIALECT 5.2: an integer power that overflows throws (PHP gives a float),
+// arithmetic on a string names the conversion; 5.1: native value types
+// (DateTime) compare by value with === (== is ===), PHP compares identity.
+function attempt(callable $f): string
+{
+    try { return var_export($f(), true); } catch (Throwable $e) { return get_class($e) . ': ' . $e->getMessage(); }
+}
+echo attempt(fn () => pow(2, 5000000000)), "\n";
+echo attempt(fn () => 3 ** 64), "\n";
+echo attempt(fn () => pow(-1, 5000000001)), ' ', attempt(fn () => pow(1, 5000000000)), "\n";
+echo attempt(fn () => 'a' * 1), "\n";
+echo attempt(fn () => 1 - '5'), "\n";
+echo attempt(fn () => [] * 'x'), "\n";
+$a = new DateTimeImmutable('2024-01-01 10:00:00');
+$b = new DateTimeImmutable('2024-01-01 10:00:00');
+$c = new DateTimeImmutable('2024-01-02 10:00:00');
+var_dump($a === $b, $a !== $b, $a === $c, $a !== $c, $a <=> $b, $b <=> $a, $a <=> $c);

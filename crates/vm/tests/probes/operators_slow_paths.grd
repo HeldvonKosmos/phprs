@@ -32,7 +32,7 @@ foreach ([['a', 'b'], ['b', 'a'], ['a', 'a'], ['abc', 'abd'], ['', 'a'], ['B', '
 $s = ['a' => 'x'];
 $s['a'] .= 'y';
 echo $s['a'], ' ', -(-5), ' ', -(2.5), ' ', +3, "\n";
-foreach ([fn () => 1 % 0, fn () => 1 / 0, fn () => intdiv(1, 0), fn () => 1 << -1, fn () => 1 >> -1, fn () => 1.5 / 0.0, fn () => [] + 1] as $f) {
+foreach ([fn () => 1 % 0, fn () => 1 / 0, fn () => intdiv(1, 0), fn () => 1 << -1, fn () => 1 >> -1, fn () => 1.5 / 0.0, fn () => [] + 1, fn () => [] - 1, fn () => 2 * [], fn () => [] / 1, fn () => [] % 2, fn () => [] ** 2, fn () => null + [], fn () => [] & 1] as $f) {
     try { var_dump($f()); } catch (Throwable $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
 }
 // the same operators on run-time values (no constant folding)
@@ -62,3 +62,8 @@ $d1 = new DateTimeImmutable('2020-01-01 00:00:00');
 $d2 = new DateTimeImmutable('2021-06-01 12:00:00');
 var_dump($d1 < $d2, $d1 > $d2, $d1 <= $d1, $d2 >= $d1, $d1 <=> $d2, $d2 <=> $d1);
 var_export([PHP_INT_MIN, -PHP_INT_MAX, PHP_INT_MAX]);
+// MUT2: integer division on the general path (compound assignment on an element)
+$q = ['q' => 7, 'r' => -9];
+$q['q'] /= 2;
+$q['r'] /= 4;
+var_dump($q);

@@ -1,0 +1,13 @@
+ArithmeticError: Integer overflow in **
+ArithmeticError: Integer overflow in **
+-1 1
+TypeError: Unsupported operand types: string * int; use (int)/(float)
+TypeError: Unsupported operand types: int - string; use (int)/(float)
+TypeError: Unsupported operand types: array * string; use (int)/(float)
+bool(true)
+bool(false)
+bool(false)
+bool(true)
+int(0)
+int(0)
+int(-1)

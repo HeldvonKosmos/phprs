@@ -387,4 +387,22 @@ mod tests {
         a.push(Val::Int(9));
         assert_eq!(a.last().unwrap().0, &ArrayKey::Int(3));
     }
+
+    /// MUT2: iteration from the back (the iterators are double-ended, packed
+    /// and hashed), and `clear` empties the array and restarts the keys.
+    #[test]
+    fn iterates_from_the_back_and_clears() {
+        let packed = PhpArray::from_values([Val::Int(1), Val::Int(2), Val::Int(3)]);
+        let back: Vec<i64> = packed.iter().rev().map(|(_, v)| if let Val::Int(i) = v { *i } else { 0 }).collect();
+        assert_eq!(back, vec![3, 2, 1]);
+        let mut hashed = PhpArray::new();
+        hashed.insert(ArrayKey::from_str("a"), Val::Int(1));
+        hashed.insert(ArrayKey::from_str("b"), Val::Int(2));
+        let keys: Vec<ArrayKey> = hashed.keys().rev().cloned().collect();
+        assert_eq!(keys, vec![ArrayKey::from_str("b"), ArrayKey::from_str("a")]);
+        hashed.clear();
+        assert!(hashed.is_empty());
+        hashed.push(Val::Int(7));
+        assert_eq!(hashed.last().unwrap().0, &ArrayKey::Int(0));
+    }
 }

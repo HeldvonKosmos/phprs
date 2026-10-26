@@ -74,6 +74,13 @@ ArithmeticError: Bit shift by negative number
 ArithmeticError: Bit shift by negative number
 DivisionByZeroError: Division by zero
 TypeError: Unsupported operand types: array + int
+TypeError: Unsupported operand types: array - int
+TypeError: Unsupported operand types: int * array
+TypeError: Unsupported operand types: array / int
+TypeError: Unsupported operand types: array % int
+TypeError: Unsupported operand types: array ** int
+TypeError: Unsupported operand types: null + array
+TypeError: Unsupported operand types: array & int
 +=9.0 -=1.0 *=20.0 %=1 **=625.0 &=4 |=5 ^=1 <<=80 >>=0 <=false <==false >=true >==true <=>=1 ====false
 +=9.0 -=3.0 *=18.0 %=0 **=216.0 &=2 |=7 ^=5 <<=48 >>=0 <=false <==false >=true >==true <=>=1 ====false
 +=7 -=7 *=0 %!DivisionByZeroError **=1 &=0 |=7 ^=7 <<=7 >>=7 <=false <==false >=true >==true <=>=1 ====false
@@ -94,4 +101,9 @@ array (
   0 => -9223372036854775807-1,
   1 => -9223372036854775807,
   2 => 9223372036854775807,
-)
+)array(2) {
+  ["q"]=>
+  float(3.5)
+  ["r"]=>
+  float(-2.25)
+}
