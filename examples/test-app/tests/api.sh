@@ -19,11 +19,13 @@ set -u -o pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=opengrid
 RUNTIME=fpm
+DB=sqlite
 while [ $# -gt 0 ]; do
   case "$1" in
     --app) TARGET=$2; shift 2;;
     --runtime) RUNTIME=$2; shift 2;;
-    *) echo "usage: api.sh [--app opengrid|laravel] [--runtime fpm|octane]"; exit 2;;
+    --db) DB=$2; shift 2;;
+    *) echo "usage: api.sh [--app opengrid|laravel] [--runtime fpm|octane] [--db sqlite|pgsql]"; exit 2;;
   esac
 done
 BIN=${OPENGRID_BIN:-$HERE/../../../target/debug/opengrid}
@@ -36,7 +38,7 @@ case "$TARGET" in
   laravel) [ -x "$SERVE" ] || { echo "FAIL setup: $SERVE is missing"; exit 2; };;
   *) echo "FAIL setup: unknown app $TARGET"; exit 2;;
 esac
-echo "app: $TARGET$([ "$TARGET" = laravel ] && echo " ($RUNTIME)")"
+echo "app: $TARGET$([ "$TARGET" = laravel ] && echo " ($RUNTIME, $DB)")"
 
 WORK=$(mktemp -d)
 APP="$WORK/app"
@@ -45,6 +47,16 @@ mkdir -p "$APP"
 (cd "$HERE" && tar --exclude=./.opengrid --exclude=./tests -cf - .) | (cd "$APP" && tar -xf -)
 export OPENGRID_DB_URL="surrealkv://$WORK/db"
 export DB_CONNECTION=sqlite DB_DATABASE="$WORK/db.sqlite"
+# LV2: Laravel on PostgreSQL (the compose service `postgres`); a fresh
+# database per run, dropped at the end. Connection only through the
+# environment: PGHOST/PGPORT/PGUSER/PGPASSWORD (defaults: compose service).
+PG_DB=""
+if [ "$TARGET" = laravel ] && [ "$DB" = pgsql ]; then
+  export PGHOST=${PGHOST:-postgres} PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-opengrid} PGPASSWORD=${PGPASSWORD:-opengrid}
+  PG_DB="apish_$$_$RANDOM"
+  psql -q -d postgres -c "CREATE DATABASE $PG_DB" >/dev/null || { echo "FAIL setup: cannot create database on $PGHOST"; exit 2; }
+  export DB_CONNECTION=pgsql DB_HOST=$PGHOST DB_PORT=$PGPORT DB_DATABASE=$PG_DB DB_USERNAME=$PGUSER DB_PASSWORD=$PGPASSWORD
+fi
 PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 BASE="http://127.0.0.1:$PORT"
 PID=""
@@ -56,6 +68,7 @@ cleanup() {
   if [ -n "$PID" ]; then kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; fi
   if [ "$FAILS" -ne 0 ] && [ -f "$WORK/server.log" ]; then echo "--- server log (last lines) ---"; tail -n 30 "$WORK/server.log"; fi
   rm -rf "$WORK"
+  if [ -n "$PG_DB" ]; then psql -q -d postgres -c "DROP DATABASE IF EXISTS $PG_DB WITH (FORCE)" >/dev/null 2>&1; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -105,7 +118,7 @@ if [ "$TARGET" = opengrid ]; then
   if (cd "$APP" && "$BIN" task migrate_push >"$WORK/migrate.log" 2>&1); then pass "schema: migrate_push"; else fail "schema: migrate_push" "$(tail -n 5 "$WORK/migrate.log")"; exit 1; fi
 else
   LARAVEL_APP=${LARAVEL_APP:-$(cd "$HERE/../../.." && pwd)/bench/laravel-app}
-  touch "$DB_DATABASE"
+  [ "$DB" = pgsql ] || touch "$DB_DATABASE"
   if (cd "$LARAVEL_APP" && php artisan config:clear >/dev/null && php artisan migrate --force >"$WORK/migrate.log" 2>&1); then pass "schema: artisan migrate"; else fail "schema: artisan migrate" "$(tail -n 5 "$WORK/migrate.log")"; exit 1; fi
 fi
 if start_server; then pass "server starts, GET /health answers"; else fail "server start" "no answer on $BASE/health"; exit 1; fi

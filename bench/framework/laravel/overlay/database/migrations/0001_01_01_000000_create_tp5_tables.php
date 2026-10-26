@@ -40,6 +40,10 @@ return new class extends Migration
             $table->integer('priority')->default(3);
             $table->timestamps(6);
             $table->softDeletes('deleted_at', 6);
+            // the same composite indexes as the OpenGrid test app (DBP1 M3):
+            // list filtered by done and sorted by priority, and unfiltered
+            $table->index(['user', 'done', 'deleted_at', 'priority']);
+            $table->index(['user', 'deleted_at', 'priority']);
         });
     }
 

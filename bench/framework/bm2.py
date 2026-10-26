@@ -9,6 +9,13 @@ Targets (each started fresh, data created over the API, no seeds):
                      trained on api.sh, never on this load)
   laravel-fpm        Laravel + Sanctum, nginx + PHP-FPM (opcache on, JIT off)
   laravel-octane     Laravel + Sanctum, Octane on RoadRunner
+  laravel-fpm-pgsql, laravel-octane-pgsql
+                     the same on PostgreSQL (LV2, "Vergleich der Standard-Setups"):
+                     the compose service `postgres`, a fresh database per run,
+                     connection only through PGHOST/PGPORT/PGUSER/PGPASSWORD
+  opengrid-embedded-touch0
+                     opengrid-embedded with auth.token_touch_seconds = 0 (the
+                     token's last use written on every request, as Sanctum)
 The Laravel app uses its database from the environment: SQLite until the
 platform's SurrealDB layer is installed (setup.sh), then the same SurrealDB
 server as OpenGrid.
@@ -98,11 +105,19 @@ def oha(url, conc, duration, cores, method="GET", body=None, token=None):
     return json.loads(out.stdout)
 
 
-def patch_config(app, workers):
+def patch_config(app, workers, touch=None):
     p = os.path.join(app, "config/development.yaml")
     s = open(p).read()
     s = s.replace("level: info", "level: warn").replace("workers: 2", f"workers: {workers}\n    debug: false\n    watch: false")
+    if touch is not None:
+        assert "  auth:\n" in s, "settings.auth missing in the test app's config"
+        s = s.replace("  auth:\n", f"  auth:\n    token_touch_seconds: {touch}\n", 1)
     open(p, "w").write(s)
+
+
+def pg_env():
+    # the compose service; the password only through the environment
+    return {k: os.environ.get(k, v) for k, v in (("PGHOST", "postgres"), ("PGPORT", "5432"), ("PGUSER", "opengrid"), ("PGPASSWORD", "opengrid"))}
 
 
 class Target:
@@ -114,6 +129,7 @@ class Target:
         self.env = dict(os.environ)
         for k in ("OPENGRID_DB_URL", "SURREAL_DB_HOST", "GRD_JIT", "OPENGRID_JIT"):
             self.env.pop(k, None)
+        self.pg_db = None
 
     def surreal_server(self):
         port = free_port()
@@ -131,20 +147,26 @@ class Target:
         if self.name.startswith("opengrid"):
             app = os.path.join(self.work, "app")
             shutil.copytree(TEST_APP, app, ignore=shutil.ignore_patterns(".opengrid", "tests"))
-            patch_config(app, w)
+            patch_config(app, w, 0 if self.name.endswith("-touch0") else None)
             if self.name == "opengrid-server":
                 self.surreal_server()
             else:
                 self.env["OPENGRID_DB_URL"] = f"surrealkv://{self.work}/db"
-            binary = self.a.opengrid_pgo if self.name.endswith("-pgo") else self.a.opengrid
+            binary = self.a.opengrid_pgo if "-pgo" in self.name else self.a.opengrid
             r = subprocess.run([binary, "task", "migrate_push"], cwd=app, env=self.env, capture_output=True, text=True)
             if r.returncode != 0:
                 sys.exit(f"migrate_push failed: {r.stdout[-800:]}{r.stderr[-800:]}")
             p = start([binary, "start", "--no-banner", "--binding", "127.0.0.1", "--port", str(self.port)], self.a.app_cores, self.env, f"{self.work}/server.log", cwd=app)
+        elif self.name.endswith("-pgsql"):
+            pg = pg_env()
+            self.pg_db = f"bm2_{os.getpid()}_{secrets.token_hex(4)}"
+            subprocess.run(["psql", "-q", "-d", "postgres", "-c", f"CREATE DATABASE {self.pg_db}"], env=dict(self.env, **pg), check=True)
+            self.env.update(pg, DB_CONNECTION="pgsql", DB_HOST=pg["PGHOST"], DB_PORT=pg["PGPORT"], DB_DATABASE=self.pg_db, DB_USERNAME=pg["PGUSER"], DB_PASSWORD=pg["PGPASSWORD"])
         else:
             db = os.path.join(self.work, "db.sqlite")
             open(db, "w").close()
             self.env.update(DB_CONNECTION="sqlite", DB_DATABASE=db)
+        if self.name.startswith("laravel"):
             subprocess.run(["php", "artisan", "config:clear"], cwd=LARAVEL_APP, env=self.env, capture_output=True)
             r = subprocess.run(["php", "artisan", "migrate", "--force"], cwd=LARAVEL_APP, env=self.env, capture_output=True, text=True)
             if r.returncode != 0:
@@ -180,6 +202,8 @@ class Target:
     def close(self):
         for p in reversed(self.procs):
             stop(p)
+        if self.pg_db:
+            subprocess.run(["psql", "-q", "-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {self.pg_db} WITH (FORCE)"], env=dict(self.env, **pg_env()), capture_output=True)
 
 
 def main():
@@ -197,12 +221,18 @@ def main():
     ap.add_argument("--opengrid", default=os.path.join(WS, "target/profiling/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
+    ap.add_argument("--label", default="", help="heading of the result, e.g. 'Vergleich der Standard-Setups'")
     a = ap.parse_args()
     a.opengrid = os.path.abspath(a.opengrid)
     a.opengrid_pgo = os.path.abspath(a.opengrid_pgo)
     sh = lambda c, cwd=None: subprocess.run(c, capture_output=True, text=True, cwd=cwd).stdout.strip()
     laravel = sh(["php", "artisan", "--version"], LARAVEL_APP) if os.path.isdir(LARAVEL_APP) else "–"
     platform_db = os.path.isdir(os.path.join(LARAVEL_APP, "app/Database"))
+    if a.label:
+        print(f"### {a.label}\n")
+    pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
+    if pg_version:
+        print(f"PostgreSQL {pg_version} (eigener Container `postgres`, nicht auf Kerne gepinnt) · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
           f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else 'SQLite, Vorstufe'}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores}, DB-Server {a.db_cores}, Last {a.load_cores}"
