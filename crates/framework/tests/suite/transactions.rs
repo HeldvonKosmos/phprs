@@ -81,9 +81,11 @@ fn transaction_arguments() {
     let pool = pool(DbConfig::mem("tx", "args"), 1);
     let out = run(&pool, r#"<?grd
 use OpenGrid\Database\DB;
-try { DB::transaction(fn () => 1, 0); } catch (ValueError $e) { echo 'zero rejected '; }
+// Laravel: no attempt, the closure does not run, null comes back
+var_dump(DB::transaction(function (): int { echo 'ran '; return 1; }, 0));
+try { DB::transaction(fn () => 1, '2'); } catch (TypeError $e) { echo 'string rejected '; }
 echo DB::transaction(fn () => DB::transaction(fn () => 'nested'), 3), ' ';
-try { DB::transaction(function (): void { throw new RuntimeException('boom'); }, 5); } catch (RuntimeException $e) { echo $e->getMessage(); }
+try { DB::transaction(function (): void { echo 'try '; throw new RuntimeException('boom'); }, 5); } catch (RuntimeException $e) { echo $e->getMessage(); }
 "#);
-    assert_eq!(out, "zero rejected nested boom");
+    assert_eq!(out, "NULL\nstring rejected nested try boom");
 }

@@ -68,13 +68,15 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         // `DB::transaction(fn, $attempts = 1)` like Laravel: a write conflict that
         // SurrealDB reports as retriable (optimistic transactions) runs the whole
         // closure again while attempts remain (TX1, D12); everything else is
-        // passed on. The default of 1 attempt means no retry, as in Laravel.
+        // passed on. The default of 1 attempt means no retry, as in Laravel;
+        // fewer than 1 attempt runs nothing and returns null, as Laravel's loop.
         .static_method("transaction", |vm, c| {
             let closure = c.arg(0);
             let attempts = match c.arg(1) {
                 Val::Null => 1,
                 Val::Int(n) if n >= 1 => n,
-                other => return Err(Throw::value_error(format!("DB::transaction(): Argument #2 ($attempts) must be at least 1, {} given", other.type_name()))),
+                Val::Int(_) => return Ok(Val::Null),
+                other => return Err(Throw::type_error(format!("DB::transaction(): Argument #2 ($attempts) must be of type int, {} given", other.type_name()))),
             };
             let db = ctx(vm).db.clone().ok_or_else(|| Throw::error("no database configured"))?;
             if ctx(vm).txn.is_some() {
