@@ -19,8 +19,98 @@ fn rules_of(v: &Val) -> Result<Vec<String>, Throw> {
     }
 }
 
+/// Laravel's displayable attribute: `_` becomes a space, dots of nested
+/// and wildcard paths stay (`items.1.name`).
 fn human(field: &str) -> String {
-    field.replace(['_', '.'], " ")
+    field.replace('_', " ")
+}
+
+/// The value at a dot path (`user.name`, `items.0.name`) in nested arrays.
+fn lookup<'a>(data: &'a PhpArray, path: &str) -> Option<&'a Val> {
+    let mut parts = path.split('.');
+    let mut cur = data.get(&ArrayKey::from_str(parts.next()?))?;
+    for p in parts {
+        match cur {
+            Val::Array(a) => cur = a.get(&ArrayKey::from_str(p))?,
+            _ => return None,
+        }
+    }
+    Some(cur)
+}
+
+/// Laravel's wildcard expansion: every `*` stands for each key of the array
+/// at that point of the data (`items.*.name` → `items.0.name`, …); nothing
+/// when the array is missing.
+fn expand(data: &PhpArray, field: &str) -> Vec<String> {
+    let Some(star) = field.find('*') else { return vec![field.to_string()] };
+    let head = field[..star].trim_end_matches('.');
+    let tail = &field[star + 1..];
+    let parent = if head.is_empty() { None } else { lookup(data, head) };
+    let Some(Val::Array(arr)) = parent else { return Vec::new() };
+    arr.iter()
+        .flat_map(|(k, _)| {
+            let key = match k {
+                ArrayKey::Int(i) => i.to_string(),
+                ArrayKey::Str(s) => s.to_string_lossy(),
+            };
+            expand(data, &format!("{head}.{key}{tail}"))
+        })
+        .collect()
+}
+
+/// Put `value` at a dot path, creating the arrays on the way.
+fn set_path(out: &mut PhpArray, path: &str, value: Val) {
+    match path.split_once('.') {
+        None => out.insert(ArrayKey::from_str(path), value),
+        Some((first, rest)) => {
+            let slot = out.entry_mut(ArrayKey::from_str(first));
+            if !matches!(slot, Val::Array(_)) {
+                *slot = Val::empty_array();
+            }
+            if let Some(inner) = slot.array_mut() {
+                set_path(inner, rest, value);
+            }
+        }
+    }
+}
+
+/// Laravel's `validateRequired` on another field: there and not empty.
+fn filled(data: &PhpArray, field: &str) -> bool {
+    lookup(data, field).is_some_and(|v| !is_empty(v))
+}
+
+/// How Laravel compares another field's value with the listed values of
+/// `required_if`/`required_unless` (booleans as `true`/`false`, null as `null`).
+fn shown(v: Option<&Val>) -> String {
+    match v {
+        None | Some(Val::Null) => "null".into(),
+        Some(Val::Bool(b)) => if *b { "true".into() } else { "false".into() },
+        Some(v) => str_of(v),
+    }
+}
+
+/// The message of an active conditional `required_*` rule, or None when it
+/// does not apply to `data`.
+fn conditional_required(data: &PhpArray, name: &str, rule: &str, arg: Option<&str>) -> Option<String> {
+    let args: Vec<&str> = arg.map(|a| a.split(',').map(str::trim).collect()).unwrap_or_default();
+    let others = || args.iter().map(|a| human(a)).collect::<Vec<_>>().join(" / ");
+    match rule {
+        "required_if" => {
+            let (other, values) = args.split_first()?;
+            let v = shown(lookup(data, other));
+            values.contains(&v.as_str()).then(|| format!("The {name} field is required when {} is {v}.", human(other)))
+        }
+        "required_unless" => {
+            let (other, values) = args.split_first()?;
+            let v = shown(lookup(data, other));
+            (!values.contains(&v.as_str())).then(|| format!("The {name} field is required unless {} is in {}.", human(other), values.join(", ")))
+        }
+        "required_with" => args.iter().any(|a| filled(data, a)).then(|| format!("The {name} field is required when {} is present.", others())),
+        "required_with_all" => args.iter().all(|a| filled(data, a)).then(|| format!("The {name} field is required when {} are present.", others())),
+        "required_without" => args.iter().any(|a| !filled(data, a)).then(|| format!("The {name} field is required when {} is not present.", others())),
+        "required_without_all" => args.iter().all(|a| !filled(data, a)).then(|| format!("The {name} field is required when none of {} are present.", others())),
+        _ => None,
+    }
 }
 
 fn is_empty(v: &Val) -> bool {
@@ -122,14 +212,23 @@ pub type DbCount<'a> = &'a mut dyn FnMut(&str, &str, &Val, Option<&Val>) -> Resu
 
 /// Checks one field against its rules; the failure messages.
 fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<DbCount<'_>>) -> Result<Vec<String>, Throw> {
-    let key = ArrayKey::from_str(field);
-    let present = data.contains_key(&key);
-    let value = data.get(&key).cloned().unwrap_or(Val::Null);
+    let present = lookup(data, field).is_some();
+    let value = lookup(data, field).cloned().unwrap_or(Val::Null);
     let nullable = rules.iter().any(|r| r == "nullable");
     let mut msgs = Vec::new();
     let name = human(field);
     if rules.iter().any(|r| r == "sometimes") && !present {
         return Ok(msgs);
+    }
+    // the `required_*` family: implicit once its condition holds (Laravel)
+    if is_empty(&value) {
+        for rule in rules {
+            let (name_r, arg) = rule.split_once(':').map(|(a, b)| (a, Some(b))).unwrap_or((rule.as_str(), None));
+            if let Some(m) = conditional_required(data, &name, name_r, arg) {
+                msgs.push(m);
+                return Ok(msgs);
+            }
+        }
     }
     if !rules.iter().any(|r| r == "required") && is_empty(&value) {
         // optional and empty: only `present`/`filled` can complain
@@ -155,6 +254,8 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
         let ok = match name_r {
             "required" => !is_empty(&value),
             "nullable" | "sometimes" | "present" | "filled" | "bail" => true,
+            // checked above: with a value they hold
+            n if n.starts_with("required_") => true,
             "string" => matches!(value, Val::Str(_)),
             "integer" | "int" => is_integer(&value),
             "numeric" => is_numeric(&value),
@@ -199,9 +300,9 @@ fn check_field(data: &PhpArray, field: &str, rules: &[String], db: &mut Option<D
                 let body = pattern.strip_prefix('/').and_then(|p| p.rfind('/').map(|i| &p[..i])).unwrap_or(pattern);
                 regex::Regex::new(body).map(|re| re.is_match(&str_of(&value))).unwrap_or(false)
             }
-            "confirmed" => data.get(&ArrayKey::from_str(&format!("{field}_confirmation"))).is_some_and(|c| same(c, &value)),
-            "same" => args.first().and_then(|o| data.get(&ArrayKey::from_str(o))).is_some_and(|c| same(c, &value)),
-            "different" => !args.first().and_then(|o| data.get(&ArrayKey::from_str(o))).is_some_and(|c| same(c, &value)),
+            "confirmed" => lookup(data, &format!("{field}_confirmation")).is_some_and(|c| same(c, &value)),
+            "same" => args.first().and_then(|o| lookup(data, o)).is_some_and(|c| same(c, &value)),
+            "different" => !args.first().and_then(|o| lookup(data, o)).is_some_and(|c| same(c, &value)),
             "accepted" => matches!(str_of(&value).as_str(), "1" | "true" | "yes" | "on") || matches!(value, Val::Bool(true)),
             // V1: `exists:table[,column]`, `unique:table[,column[,except]]`;
             // the column defaults to the field name (as in Laravel)
@@ -313,13 +414,15 @@ pub fn validate_with(data: &Val, rules: &Val, mut db: Option<DbCount<'_>>) -> Re
             ArrayKey::Int(i) => i.to_string(),
         };
         let field_rules = rules_of(r)?;
-        let msgs = check_field(data, &field, &field_rules, &mut db)?;
-        if msgs.is_empty() {
-            if let Some(v) = data.get(&ArrayKey::from_str(&field)) {
-                validated.insert(ArrayKey::from_str(&field), v.clone());
+        for path in expand(data, &field) {
+            let msgs = check_field(data, &path, &field_rules, &mut db)?;
+            if msgs.is_empty() {
+                if let Some(v) = lookup(data, &path) {
+                    set_path(&mut validated, &path, v.clone());
+                }
+            } else {
+                errors.push((path, msgs));
             }
-        } else {
-            errors.push((field, msgs));
         }
     }
     Ok(if errors.is_empty() { Ok(Val::array(validated)) } else { Err(Errors(errors)) })

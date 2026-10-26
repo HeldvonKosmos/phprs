@@ -138,3 +138,30 @@
 {"valid":{"a":"a-b_c9"}}
 {"errors":{"a":["The a field must be true or false."]}}
 {"errors":{"a":["The a field must be an integer."]}}
+{"errors":{"items.1.name":["The items.1.name field is required."],"items.2.name":["The items.2.name field must be a string."]}}
+{"valid":{"items":[{"name":"a"},{"name":"b"}]}}
+{"errors":{"items.1":["The items.1 field must be an integer."]}}
+{"errors":{"items.0":["The items.0 field must be at least 2."]}}
+{"errors":{"tags.1":["The tags.1 field must not be greater than 3 characters."]}}
+{"errors":{"users.0.emails.1":["The users.0.emails.1 field must be a valid email address."],"users.1.emails.0":["The users.1.emails.0 field must be a valid email address."]}}
+{"valid":[]}
+{"valid":[]}
+{"errors":{"a":["The a field is required when b is yes."]}}
+{"valid":[]}
+{"errors":{"a":["The a field is required when b is ja."]}}
+{"errors":{"a":["The a field is required unless b is in yes."]}}
+{"valid":[]}
+{"errors":{"a":["The a field is required when b is present."]}}
+{"errors":{"a":["The a field is required when b / c is present."]}}
+{"valid":[]}
+{"errors":{"a":["The a field is required when b / c are present."]}}
+{"valid":[]}
+{"errors":{"a":["The a field is required when b is not present."]}}
+{"valid":[]}
+{"errors":{"a":["The a field is required when none of b / c are present."]}}
+{"valid":[]}
+{"errors":{"a":["The a field must be an integer."]}}
+{"errors":{"a":["The a field is required when b is 1."]}}
+{"errors":{"a":["The a field is required when b is true."]}}
+{"valid":[]}
+{"errors":{"a":["The a field is required when b is yes."]}}

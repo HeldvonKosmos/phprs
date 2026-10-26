@@ -139,3 +139,30 @@
 {"a": "alpha_dash"}	{"a": "a-b_c9"}
 {"a": "bool"}	{"a": "x"}
 {"a": "int"}	{"a": "1.5"}
+{"items.*.name": "required|string"}	{"items": [{"name": "a"}, {}, {"name": 5}]}
+{"items.*.name": "required|string"}	{"items": [{"name": "a"}, {"name": "b"}]}
+{"items.*": "integer"}	{"items": [1, "x", 3]}
+{"items": "array", "items.*": "integer|min:2"}	{"items": [1, 2, 3]}
+{"tags.*": "string|max:3"}	{"tags": ["ok", "toolong"]}
+{"users.*.emails.*": "email"}	{"users": [{"emails": ["a@b.c", "bad"]}, {"emails": ["x"]}]}
+{"items.*.name": "required"}	{}
+{"items.*.name": "required"}	{"items": []}
+{"a": "required_if:b,yes"}	{"b": "yes"}
+{"a": "required_if:b,yes"}	{"b": "no"}
+{"a": "required_if:b,yes,ja"}	{"b": "ja"}
+{"a": "required_unless:b,yes"}	{"b": "no"}
+{"a": "required_unless:b,yes"}	{"b": "yes"}
+{"a": "required_with:b"}	{"b": 1}
+{"a": "required_with:b,c"}	{"c": 1}
+{"a": "required_with:b"}	{}
+{"a": "required_with_all:b,c"}	{"b": 1, "c": 2}
+{"a": "required_with_all:b,c"}	{"b": 1}
+{"a": "required_without:b"}	{}
+{"a": "required_without:b"}	{"b": 1}
+{"a": "required_without_all:b,c"}	{}
+{"a": "required_without_all:b,c"}	{"c": 1}
+{"a": "required_if:b,yes|integer"}	{"b": "yes", "a": "x"}
+{"a": "required_if:b,1"}	{"b": 1}
+{"a": "required_if:b,true"}	{"b": true}
+{"a": "required_with:b"}	{"b": ""}
+{"a": "required_if:b,yes"}	{"b": "yes", "a": ""}
