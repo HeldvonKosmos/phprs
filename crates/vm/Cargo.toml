@@ -34,6 +34,8 @@ sha1 = "0.10"
 sha2 = "0.10"
 hmac = "0.12"
 subtle = "2"
+# crc32() (table/SIMD; the version SurrealDB already pulls in)
+crc32fast = "1"
 
 [dev-dependencies]
 

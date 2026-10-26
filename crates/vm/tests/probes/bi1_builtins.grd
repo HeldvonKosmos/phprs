@@ -49,3 +49,5 @@ echo count($wm), "\n";
 $ci = new CachingIterator(new ArrayIterator(['a' => 1, 'b' => 2, 'c' => 3]));
 foreach ($ci as $k => $v) { echo $k, $v, $ci->hasNext() ? ', ' : "\n"; }
 var_dump(hrtime(true) > 0, is_array(hrtime()));
+// crc32 over longer and binary input (PERF3: table/SIMD implementation)
+echo crc32(str_repeat("ab\x00\xff", 1000)), ' ', crc32(str_repeat('0123456789', 777)), ' ', hash('crc32b', str_repeat('x', 4099)), "\n";

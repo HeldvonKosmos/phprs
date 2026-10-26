@@ -1055,14 +1055,7 @@ pub(crate) fn base64_decode(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 pub(crate) fn crc32(data: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    for &b in data {
-        crc ^= b as u32;
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
-        }
-    }
-    !crc
+    crc32fast::hash(data)
 }
 
 /// Argument #3 `$length` of strncmp/strncasecmp: negative is a ValueError.
