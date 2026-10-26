@@ -2,10 +2,11 @@
 // TEST2.8: the operators' general paths (ops.rs) that the int/float fast path
 // of the interpreter loop does not take: compound assignment on array
 // elements and properties, pow(), array_sum/array_product, comparisons of
-// strings, arrays, bools and null, ++/-- on null and floats, bit operations
-// on floats, shifts at the edges. Output is PHP's.
-final class Box { public int $i = 10; public float $f = 2.5; public ?int $n = null; public string $s = 'b'; }
-$a = ['i' => 7, 'f' => 1.5, 'n' => null, 'm' => 9];
+// strings, arrays, bools and null, ++/-- on ints and floats, shifts at the
+// edges. Output is PHP's; `%` and bit operations on floats and ++/-- on null
+// are dialect errors (DIA2) and live in dialect_numeric_edges.
+final class Box { public int $i = 10; public float $f = 2.5; public ?int $n = 0; public string $s = 'b'; }
+$a = ['i' => 7, 'f' => 1.5, 'n' => 0, 'm' => 9];
 $a['i'] += 5; $a['i'] -= 2; $a['i'] *= 3; $a['i'] %= 7; $a['i'] **= 3;
 $a['f'] += 1; $a['f'] -= 0.25; $a['f'] *= 4; $a['f'] /= 2; $a['f'] **= 2;
 $a['m'] &= 12; $a['m'] |= 3; $a['m'] ^= 5; $a['m'] <<= 3; $a['m'] >>= 1;
@@ -20,8 +21,8 @@ $m = [1.5];
 $m[0]++; $m[0]--; $m[0]--;
 var_dump($m[0], pow(2, 10), pow(2, -1), pow(2.0, 3), pow(-1, 7), pow(-1, 8), pow(0, 5), pow(1, 200), pow(-2, 3));
 var_dump(array_sum([1, 2, 3]), array_sum([1, 2.5]), array_sum([]), array_product([2, 3, 4]), array_product([2, 0.5]), array_product([]));
-var_dump(7 % -3, -7 % 3, 7.0 % 3, -8.0 % 3.0, 5 % -1, PHP_INT_MIN % -1, intdiv(7, -2), 7 / 2, 7.0 / 2, -7 / 2.0);
-var_dump(5 & 3.0, 5 | 2.0, 6 ^ 3.0, 1 << 0, 1 << 63, 1 << 64, 1 << 65, -8 >> 1, -8 >> 63, -8 >> 64, 8 >> 64, 3 << 2.0);
+var_dump(7 % -3, -7 % 3, 5 % -1, PHP_INT_MIN % -1, intdiv(7, -2), 7 / 2, 7.0 / 2, -7 / 2.0);
+var_dump(5 & 3, 5 | 2, 6 ^ 3, 1 << 0, 1 << 63, 1 << 64, 1 << 65, -8 >> 1, -8 >> 63, -8 >> 64, 8 >> 64, 3 << 2);
 function cmp(mixed $x, mixed $y): string
 {
     return json_encode($x) . ' ' . json_encode($y) . ': ' . var_export($x < $y, true) . ' ' . var_export($x <= $y, true) . ' ' . var_export($x > $y, true) . ' ' . var_export($x >= $y, true) . ' ' . ($x <=> $y) . ' ' . var_export($x === $y, true) . ' ' . var_export($x !== $y, true) . "\n";
@@ -53,7 +54,7 @@ function ops(mixed $x, mixed $y): string
     }
     return implode(' ', $r) . "\n";
 }
-foreach ([[5, 4.0], [6.0, 3], [7, 0], [-9, 2], [1, 0], [0, 64], [-1, 63], [12.0, 10.0], [3, -1]] as $p) {
+foreach ([[5, 4], [6, 3], [7, 0], [-9, 2], [1, 0], [0, 64], [-1, 63], [12, 10], [3, -1]] as $p) {
     echo ops($p[0], $p[1]);
 }
 function powers(int $base, int $exp): string { return var_export(pow($base, $exp), true) . ' ' . var_export($base ** $exp, true); }

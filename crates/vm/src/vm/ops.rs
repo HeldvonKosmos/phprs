@@ -54,15 +54,7 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
             // `/` is always float in the dialect (D10); `intdiv()` divides ints
             Val::Float(i as f64 / j as f64)
         }
-        (BinOp::Mod, _, _) => {
-            let i = match x {
-                Numeric::Int(i) => i,
-                Numeric::Float(f) => f as i64,
-            };
-            let j = match y {
-                Numeric::Int(j) => j,
-                Numeric::Float(f) => f as i64,
-            };
+        (BinOp::Mod, Numeric::Int(i), Numeric::Int(j)) => {
             if j == 0 {
                 return Err(modulo_by_zero());
             }
@@ -87,6 +79,8 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
             Val::Float(x.as_f64() / y.as_f64())
         }
         (BinOp::Pow, _, _) => Val::Float(x.as_f64().powf(y.as_f64())),
+        // `%` only on ints (DIALECT §5.2, D20): PHP truncates a float silently
+        (BinOp::Mod, _, _) => return Err(float_operand(a, sym, b, "fmod() or (int)")),
         _ => unreachable!(),
     })
 }
@@ -99,12 +93,10 @@ fn operand_types(a: &Val, sym: &str, b: &Val) -> Throw {
     Throw::type_error(format!("Unsupported operand types: {} {sym} {}{hint}", a.type_name(), b.type_name()))
 }
 
-fn int_operand(v: &Val) -> Option<i64> {
-    match v {
-        Val::Int(i) => Some(*i),
-        Val::Float(f) => Some(*f as i64),
-        _ => None,
-    }
+/// A float operand of `%` or a bit operation (DIALECT §5.2, D20): PHP
+/// truncates it to int, the dialect asks for the conversion.
+fn float_operand(a: &Val, sym: &str, b: &Val, hint: &str) -> Throw {
+    Throw::type_error(format!("Unsupported operand types: {} {sym} {}; use {hint}", a.type_name(), b.type_name()))
 }
 
 pub(crate) fn bitwise(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
@@ -126,7 +118,13 @@ pub(crate) fn bitwise(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
         }),
         _ => unreachable!(),
     };
-    let (Some(x), Some(y)) = (int_operand(a), int_operand(b)) else { return Err(operand_types(a, sym, b)) };
+    let (Val::Int(x), Val::Int(y)) = (a, b) else {
+        if matches!(a, Val::Int(_) | Val::Float(_)) && matches!(b, Val::Int(_) | Val::Float(_)) {
+            return Err(float_operand(a, sym, b, "(int)"));
+        }
+        return Err(operand_types(a, sym, b));
+    };
+    let (x, y) = (*x, *y);
     Ok(Val::Int(f(x, y)?))
 }
 
@@ -248,7 +246,11 @@ impl Vm {
             },
             UnOp::Plus => v.as_number("+")?.to_val(),
             UnOp::Not => Val::Bool(!v.to_bool()),
-            UnOp::BitNot => Val::Int(!int_operand(&v).ok_or_else(|| Throw::type_error(format!("Cannot perform bitwise not on {}", v.type_name())))?),
+            UnOp::BitNot => match v {
+                Val::Int(i) => Val::Int(!i),
+                Val::Float(_) => return Err(Throw::type_error("Cannot perform bitwise not on float; use (int)")),
+                _ => return Err(Throw::type_error(format!("Cannot perform bitwise not on {}", v.type_name()))),
+            },
             UnOp::CastInt => Val::Int(v.to_int()?),
             UnOp::CastFloat => Val::Float(v.to_float()?),
             UnOp::CastBool => Val::Bool(v.to_bool()),
@@ -327,9 +329,7 @@ impl Vm {
                 }
             }
             Val::Float(f) => Val::Float(if inc { f + 1.0 } else { f - 1.0 }),
-            Val::Null => {
-                if inc { Val::Int(1) } else { Val::Null }
-            }
+            // only int and float (DIALECT §5.2, D20): no `null++` to 1, no "a"++
             other => return Err(Throw::type_error(format!("Cannot {} {}", if inc { "increment" } else { "decrement" }, other.type_name()))),
         })
     }

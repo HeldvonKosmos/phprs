@@ -6,7 +6,7 @@ use crate::value::*;
 use crate::vm::Vm;
 
 pub fn register(vm: &mut Vm) {
-    vm.register_native("abs", |_, a| Ok(match a.first() { Some(Val::Int(i)) => i.checked_abs().map(Val::Int).unwrap_or(Val::Float((*i as f64).abs())), Some(_) => Val::Float(args::number(a, 0, "abs")?.abs()), None => return Err(Throw::argument_count("abs() expects exactly 1 argument, 0 given")) }));
+    vm.register_native("abs", |_, a| Ok(match a.first() { Some(Val::Int(i)) => Val::Int(i.checked_abs().ok_or_else(|| Throw::new("ArithmeticError", "Integer overflow in abs()"))?), Some(_) => Val::Float(args::number(a, 0, "abs")?.abs()), None => return Err(Throw::argument_count("abs() expects exactly 1 argument, 0 given")) }));
     vm.register_native("max", |_, a| minmax(a, true));
     vm.register_native("min", |_, a| minmax(a, false));
     vm.register_native("floor", |_, a| Ok(Val::Float(args::number(a, 0, "floor")?.floor())));

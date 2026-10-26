@@ -11,3 +11,14 @@ bool(true)
 int(0)
 int(0)
 int(-1)
+TypeError: Unsupported operand types: float % int; use fmod() or (int) TypeError: Unsupported operand types: float % float; use fmod() or (int) TypeError: Unsupported operand types: float % int; use fmod() or (int)
+TypeError: Unsupported operand types: int & float; use (int) TypeError: Unsupported operand types: int << float; use (int) TypeError: Cannot perform bitwise not on float; use (int)
+ArithmeticError: Integer overflow in abs() 9223372036854775807
+%!TypeError &!TypeError |!TypeError ^!TypeError <<!TypeError >>!TypeError
+%!TypeError &!TypeError |!TypeError ^!TypeError <<!TypeError >>!TypeError
+%!TypeError &!TypeError |!TypeError ^!TypeError <<!TypeError >>!TypeError
+TypeError: Cannot increment null
+TypeError: Cannot decrement null
+TypeError: Cannot increment string
+TypeError: Cannot decrement string
+TypeError: Cannot increment null TypeError: Cannot increment string

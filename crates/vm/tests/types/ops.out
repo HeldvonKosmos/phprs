@@ -8,8 +8,8 @@ string .= int ok string "a5"
 string += 1 TypeError
 int ++ max ArithmeticError
 int -- min ArithmeticError
-?int ++ null ok int 1
-?int -- null ok null null
+?int ++ null TypeError
+?int -- null TypeError
 array []=  ok array {"0":1,"k":"v"}
 int []= Error
 union = float TypeError

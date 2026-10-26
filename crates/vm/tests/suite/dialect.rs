@@ -113,6 +113,56 @@ fn local_variables_keep_their_type_at_run_time() {
     assert_eq!(run("<?grd var_dump(10 / 2, intdiv(10, 2));"), "float(5)\nint(5)\n");
 }
 
+/// DIA2 (D20, DIALECT §5.2): `%` and bit operations take only ints, `++`
+/// and `--` only ints and floats, and `abs(PHP_INT_MIN)` overflows like every
+/// other int operation. PHP truncates the floats, increments null and strings
+/// and gives a float for the absolute value.
+#[test]
+fn integer_only_operators_and_numeric_increments() {
+    let src = r#"<?grd
+function attempt(callable $f): string { try { return var_export($f(), true); } catch (Throwable $e) { return get_class($e) . ': ' . $e->getMessage(); } }
+function inc(mixed $v): mixed { $v++; return $v; }
+function dec(mixed $v): mixed { $v--; return $v; }
+echo attempt(fn () => 7.5 % 2), "\n";
+echo attempt(fn () => 7 % 2.0), "\n";
+echo attempt(fn () => 6 & 3.0), "\n";
+echo attempt(fn () => 1.0 << 2), "\n";
+echo attempt(fn () => ~1.5), "\n";
+echo attempt(fn () => 'a' % 2), "\n";
+echo attempt(function () { $a = ['n' => 1.5]; $a['n'] %= 2; return $a; }), "\n";
+echo attempt(fn () => 7 % 3), ' ', attempt(fn () => -7 % 3), ' ', attempt(fn () => 6 ^ 3), ' ', attempt(fn () => ~5), ' ', attempt(fn () => fmod(7.5, 2)), "\n";
+echo attempt(fn () => abs(PHP_INT_MIN)), ' ', attempt(fn () => abs(PHP_INT_MIN + 1)), ' ', attempt(fn () => abs(-2.5)), "\n";
+echo attempt(fn () => inc(null)), "\n";
+echo attempt(fn () => dec(null)), "\n";
+echo attempt(fn () => inc('a')), "\n";
+echo attempt(fn () => dec('5')), "\n";
+echo attempt(fn () => inc(true)), "\n";
+echo attempt(fn () => inc(1.5)), ' ', attempt(fn () => dec(3)), "\n";
+"#;
+    let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+    let r = vm.run_file("t.grd", src.as_bytes());
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&vm.output),
+        "TypeError: Unsupported operand types: float % int; use fmod() or (int)
+TypeError: Unsupported operand types: int % float; use fmod() or (int)
+TypeError: Unsupported operand types: int & float; use (int)
+TypeError: Unsupported operand types: float << int; use (int)
+TypeError: Cannot perform bitwise not on float; use (int)
+TypeError: Unsupported operand types: string % int; use (int)/(float)
+TypeError: Unsupported operand types: float % int; use fmod() or (int)
+1 -1 5 -6 1.5
+ArithmeticError: Integer overflow in abs() 9223372036854775807 2.5
+TypeError: Cannot increment null
+TypeError: Cannot decrement null
+TypeError: Cannot increment string
+TypeError: Cannot decrement string
+TypeError: Cannot increment bool
+2.5 2
+"
+    );
+}
+
 #[test]
 fn allowed_constructs_compile() {
     compiles("<?grd declare(strict_types=1); echo 1;");

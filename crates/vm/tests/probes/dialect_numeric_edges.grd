@@ -3,6 +3,9 @@
 // DIALECT 5.2: an integer power that overflows throws (PHP gives a float),
 // arithmetic on a string names the conversion; 5.1: native value types
 // (DateTime) compare by value with === (== is ===), PHP compares identity.
+// DIA2 (D20): `%` and bit operations take only ints, ++/-- only ints and
+// floats, abs(PHP_INT_MIN) overflows; PHP truncates, increments null and
+// strings and gives a float.
 function attempt(callable $f): string
 {
     try { return var_export($f(), true); } catch (Throwable $e) { return get_class($e) . ': ' . $e->getMessage(); }
@@ -17,3 +20,29 @@ $a = new DateTimeImmutable('2024-01-01 10:00:00');
 $b = new DateTimeImmutable('2024-01-01 10:00:00');
 $c = new DateTimeImmutable('2024-01-02 10:00:00');
 var_dump($a === $b, $a !== $b, $a === $c, $a !== $c, $a <=> $b, $b <=> $a, $a <=> $c);
+echo attempt(fn () => 7.0 % 3), ' ', attempt(fn () => -8.0 % 3.0), ' ', attempt(fn () => 9.223372036854776E+18 % 70), "\n";
+echo attempt(fn () => 5 & 3.0), ' ', attempt(fn () => 3 << 2.0), ' ', attempt(fn () => ~2.5), "\n";
+echo attempt(fn () => abs(PHP_INT_MIN)), ' ', attempt(fn () => abs(PHP_INT_MIN + 1)), "\n";
+function ops(mixed $x, mixed $y): string
+{
+    $r = [];
+    foreach (['%', '&', '|', '^', '<<', '>>'] as $op) {
+        try {
+            $v = match ($op) { '%' => $x % $y, '&' => $x & $y, '|' => $x | $y, '^' => $x ^ $y, '<<' => $x << $y, '>>' => $x >> $y };
+            $r[] = $op . '=' . var_export($v, true);
+        } catch (Throwable $e) {
+            $r[] = $op . '!' . get_class($e);
+        }
+    }
+    return implode(' ', $r) . "\n";
+}
+foreach ([[5, 4.0], [6.0, 3], [12.0, 10.0]] as $p) {
+    echo ops($p[0], $p[1]);
+}
+final class Counter { public ?int $n = null; public string $s = 'a'; }
+$c = new Counter();
+foreach ([fn () => $c->n++, fn () => $c->n--, fn () => ++$c->s, fn () => $c->s--] as $f) {
+    echo attempt($f), "\n";
+}
+$m = ['n' => null, 's' => 'z'];
+echo attempt(function () use ($m) { $m['n']++; return $m; }), ' ', attempt(function () use ($m) { $m['s']++; return $m; }), "\n";

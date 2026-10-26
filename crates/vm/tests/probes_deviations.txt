@@ -8,4 +8,4 @@ a79_return_widening	§5.2	`/` always gives float (D10): PHP_INT_MAX / 1
 serialize_object_references	§5.3	broken unserialize input throws ValueError where PHP warns and returns false
 comparisons_dialect	§5.1	<, >, <=, >=, <=> only between two numbers or two strings (bytewise, numeric strings too); other pairs throw TypeError
 sort_int_fast_path	§5.6	sort functions return the array instead of sorting by reference (the .out is PHP's by-reference output)
-dialect_numeric_edges	§5.2	integer power overflow throws ArithmeticError (PHP: float), arithmetic on strings adds the conversion hint; §5.1: DateTime === compares by value
+dialect_numeric_edges	§5.2	`%` and bit operations on floats, ++/-- on null and strings throw TypeError, abs(PHP_INT_MIN) throws ArithmeticError (D20, DIA2); integer power overflow throws ArithmeticError (PHP: float), arithmetic on strings adds the conversion hint; §5.1: DateTime === compares by value
