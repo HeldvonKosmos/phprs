@@ -11,8 +11,9 @@ Targets (each started fresh, data created over the API, no seeds):
   laravel-octane     Laravel + Sanctum, Octane on RoadRunner
   laravel-fpm-pgsql, laravel-octane-pgsql
                      the same on PostgreSQL (LV2, "Vergleich der Standard-Setups"):
-                     the compose service `postgres`, a fresh database per run,
-                     connection only through PGHOST/PGPORT/PGUSER/PGPASSWORD
+                     the in-container server of pg.sh (started when needed; the
+                     compose service `postgres` when PGHOST is set), a fresh
+                     database per run, connection only through PG* variables
   <opengrid target>-touch0
                      any OpenGrid target with auth.token_touch_seconds = 0 (the
                      token's last use written on every request, as Sanctum),
@@ -116,8 +117,14 @@ def patch_config(app, workers, touch=None):
     open(p, "w").write(s)
 
 
+PG_LOCAL = os.path.join(WS, ".pgdata")
+
+
 def pg_env():
-    # the compose service; the password only through the environment
+    # the in-container server of pg.sh when its socket exists, else the
+    # compose service; credentials only through the environment
+    if "PGHOST" not in os.environ and os.path.exists(os.path.join(PG_LOCAL, ".s.PGSQL.5432")):
+        return {"PGHOST": PG_LOCAL, "PGPORT": "5432", "PGUSER": os.environ.get("PGUSER", os.environ.get("USER", "dev")), "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
     return {k: os.environ.get(k, v) for k, v in (("PGHOST", "postgres"), ("PGPORT", "5432"), ("PGUSER", "opengrid"), ("PGPASSWORD", "opengrid"))}
 
 
@@ -229,11 +236,17 @@ def main():
     sh = lambda c, cwd=None: subprocess.run(c, capture_output=True, text=True, cwd=cwd).stdout.strip()
     laravel = sh(["php", "artisan", "--version"], LARAVEL_APP) if os.path.isdir(LARAVEL_APP) else "–"
     platform_db = os.path.isdir(os.path.join(LARAVEL_APP, "app/Database"))
+    if any(t.endswith("-pgsql") for t in a.targets.split(",")) and "PGHOST" not in os.environ:
+        # the in-container server (data on the volume); start it when needed
+        subprocess.run([os.path.join(HERE, "pg.sh"), "start"], check=True, capture_output=True)
     if a.label:
         print(f"### {a.label}\n")
     pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
     if pg_version:
-        print(f"PostgreSQL {pg_version} (eigener Container `postgres`, nicht auf Kerne gepinnt) · ", end="")
+        where = "im Workbench-Container (pg.sh), Kerne der DB-Server" if pg_env()["PGHOST"] == PG_LOCAL else "eigener Container `postgres`, nicht auf Kerne gepinnt"
+        print(f"PostgreSQL {pg_version} ({where}) · ", end="")
+    gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
+    print(f"Governor {gov} · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
           f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else ('PostgreSQL für *-pgsql, sonst SQLite' if pg_version else 'SQLite, Vorstufe')}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores}, DB-Server {a.db_cores}, Last {a.load_cores}"
