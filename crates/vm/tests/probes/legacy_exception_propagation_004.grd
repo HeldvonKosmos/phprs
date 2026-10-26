@@ -1,4 +1,4 @@
-<?php
+<?grd
         function c() {
             throw new Exception("deep");
         }

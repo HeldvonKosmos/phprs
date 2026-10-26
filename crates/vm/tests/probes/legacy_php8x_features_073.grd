@@ -1,4 +1,4 @@
-<?php
+<?grd
 function gen_kv() {
     yield "a" => 1;
     yield "b" => 2;

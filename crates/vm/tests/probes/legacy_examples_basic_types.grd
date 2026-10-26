@@ -1,4 +1,4 @@
-<?php
+<?grd
 // Basic types example (PHP) — mirrors examples/rust/basic_types.rs
 
 $long_val = 42;

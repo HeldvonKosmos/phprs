@@ -1,4 +1,4 @@
-<?php
+<?grd
 $obj = new class {
     public function greet() {
         return "hello";

@@ -1,4 +1,4 @@
-<?php
+<?grd
 // Typed static properties are checked on assignment like instance properties.
 final class T { public static int $i = 1; public static ?string $s = null; }
 T::$i += 2;

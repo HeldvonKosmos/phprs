@@ -1,4 +1,4 @@
-<?php
+<?grd
         try {
             try {
                 throw new Exception("inner");

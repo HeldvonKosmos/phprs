@@ -1,4 +1,4 @@
-<?php
+<?grd
 function range_gen($start, $end) {
     for ($i = $start; $i <= $end; $i++) {
         yield $i;

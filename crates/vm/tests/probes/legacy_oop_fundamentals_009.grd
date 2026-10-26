@@ -1,4 +1,4 @@
-<?php
+<?grd
 function s(...$a) { return implode(",", $a); }
 class M { public function i(...$a) { return count($a); } public static function t($x, ...$a) { return $x . ":" . count($a); } }
 $v = [1, 2, 3]; $m = new M;

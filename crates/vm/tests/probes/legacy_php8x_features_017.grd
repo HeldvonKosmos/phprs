@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Config {
     public final const VERSION = '2.0.0';
 }

@@ -1,4 +1,4 @@
-<?php
+<?grd
         function f($m) {
             throw new Exception($m);
         }

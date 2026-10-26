@@ -1,4 +1,4 @@
-<?php
+<?grd
 $k = 10;
 $m = function ($v) use ($k) { return $v * $k; };
 $k = 99;

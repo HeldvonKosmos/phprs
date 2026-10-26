@@ -1,4 +1,4 @@
-<?php
+<?grd
 // A ternary as if-condition whose else-branch is a comparison: the then-branch
 // jumps to the conditional jump, which must not be fused with the comparison.
 function find(array $items, mixed $value): string|int|null {

@@ -1,4 +1,4 @@
-<?php
+<?grd
 // BI1: builtins and classes found missing in ANALYSE_D13 (A3), against PHP 8.4.
 echo hash('sha256', 'abc'), "\n", hash('sha512', ''), "\n", hash('sha384', 'x'), "\n", hash('sha224', 'x'), "\n";
 echo bin2hex(hash('md5', 'abc', true)), ' ', md5('abc'), ' ', sha1('abc'), ' ', bin2hex(sha1('abc', true)), "\n";

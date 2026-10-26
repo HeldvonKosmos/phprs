@@ -1,4 +1,4 @@
-<?php
+<?grd
 echo ctype_alnum("abc123") ? "1" : "0";
 echo ctype_alpha("abc") ? "1" : "0";
 echo ctype_digit("123") ? "1" : "0";

@@ -1,4 +1,4 @@
-<?php
+<?grd
         function handler() {
             throw new Exception("from callback");
         }

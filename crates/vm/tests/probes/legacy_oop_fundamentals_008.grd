@@ -1,4 +1,4 @@
-<?php
+<?grd
 class R {
     public array $h = [];
     public function on(string $n, callable $cb): void { $this->h[$n] = $cb; }

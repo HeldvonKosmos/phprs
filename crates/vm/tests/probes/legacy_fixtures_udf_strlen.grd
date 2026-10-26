@@ -1,4 +1,4 @@
-<?php
+<?grd
 function test() {
     return strlen('x');
 }

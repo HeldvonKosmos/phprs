@@ -1,4 +1,4 @@
-<?php
+<?grd
 // Static calls on a class from a variable: the class name is evaluated before the arguments.
 final class Repo {
     public static function find(string $key, int $n = 1): string { return static::class . ":$key:$n"; }

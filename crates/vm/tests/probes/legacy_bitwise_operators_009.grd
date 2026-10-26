@@ -1,4 +1,4 @@
-<?php
+<?grd
         $r = (true xor true);
         $s = (true xor false);
         echo $r === false ? "f" : "t", "|", $s === true ? "t" : "f";

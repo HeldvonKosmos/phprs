@@ -1,4 +1,4 @@
-<?php
+<?grd
 // Full expression precedence in call / array / constructor arguments
 echo "comparisons: ";
 var_dump(1 < 2);

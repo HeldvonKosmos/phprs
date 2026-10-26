@@ -1,4 +1,4 @@
-<?php
+<?grd
 echo array_key_first([10, 20, 30]);
 echo "|";
 echo array_key_last([10, 20, 30]);

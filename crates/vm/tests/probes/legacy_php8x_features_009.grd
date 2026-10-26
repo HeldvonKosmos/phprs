@@ -1,4 +1,4 @@
-<?php
+<?grd
 function acceptsIntOrString(int|string $value): void {
     echo $value;
 }

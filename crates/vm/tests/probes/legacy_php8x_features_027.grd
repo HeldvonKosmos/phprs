@@ -1,4 +1,4 @@
-<?php
+<?grd
 $x = 5;
 echo isset($x) ? "set" : "unset";
 echo "\n";

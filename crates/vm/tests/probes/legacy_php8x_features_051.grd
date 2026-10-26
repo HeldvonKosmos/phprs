@@ -1,4 +1,4 @@
-<?php
+<?grd
 $tz = new DateTimeZone("+0530");
 echo $tz->getName() . "\n";
 $d = new DateTime("2024-01-15 10:30:00", $tz);

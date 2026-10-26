@@ -1,4 +1,4 @@
-<?php
+<?grd
 class Base {
     final public const VERSION = '1.0.0';
 }

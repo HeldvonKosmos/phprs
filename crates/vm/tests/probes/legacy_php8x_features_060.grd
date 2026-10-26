@@ -1,4 +1,4 @@
-<?php
+<?grd
 $summer = new DateTime("2024-07-15 12:00:00", new DateTimeZone("Asia/Tokyo"));
 $winter = new DateTime("2024-01-15 12:00:00", new DateTimeZone("Asia/Tokyo"));
 echo $summer->format("O") . "\n";

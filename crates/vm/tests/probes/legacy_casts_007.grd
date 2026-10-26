@@ -1,1 +1,1 @@
-<?php $x = "ab"; echo ($x), "|", (strlen($x));
+<?grd $x = "ab"; echo ($x), "|", (strlen($x));

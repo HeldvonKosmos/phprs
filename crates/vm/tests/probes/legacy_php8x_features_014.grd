@@ -1,4 +1,4 @@
-<?php
+<?grd
 $strlen = strlen(...);
 echo $strlen("hello");
 

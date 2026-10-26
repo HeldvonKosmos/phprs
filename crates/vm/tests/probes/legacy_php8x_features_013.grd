@@ -1,4 +1,4 @@
-<?php
+<?grd
 $obj = new class(5) {
     public $value;
     public function __construct($v) {

@@ -1,4 +1,4 @@
-<?php
+<?grd
         $u = null;
         $u .= "v";
         echo $u;

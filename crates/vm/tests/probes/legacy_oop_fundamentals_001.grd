@@ -1,4 +1,4 @@
-<?php
+<?grd
 class V extends Exception {}
 class W extends RuntimeException {
     public function __construct(string $m, private string $extra = "e") { parent::__construct("[" . $m . "]", 7); }

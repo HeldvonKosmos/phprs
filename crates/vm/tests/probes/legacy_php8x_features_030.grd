@@ -1,4 +1,4 @@
-<?php
+<?grd
 $arr = ["a" => 1, "b" => 2, "c" => 3];
 unset($arr["b"]);
 echo isset($arr["a"]) ? "a:set" : "a:unset";

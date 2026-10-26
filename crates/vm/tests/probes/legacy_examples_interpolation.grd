@@ -1,4 +1,4 @@
-<?php
+<?grd
 // Complex string interpolation demo
 // - simple: "$name"
 // - simple-syntax accessor: "$arr[key]", "$arr[0]", "$obj->prop"

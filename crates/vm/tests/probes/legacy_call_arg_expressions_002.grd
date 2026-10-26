@@ -1,4 +1,4 @@
-<?php
+<?grd
 function id($x) { return $x; }
 echo id(true && false) ? "t" : "f";
 echo "|";

@@ -1,4 +1,4 @@
-<?php
+<?grd
         class Repo {
             public function load($name) {
                 if ($name === "missing") {

@@ -1,4 +1,4 @@
-<?php
+<?grd
 $a = 'Home';
 $b = 'index';
 if ($a == 'Home' && $b == 'index') {

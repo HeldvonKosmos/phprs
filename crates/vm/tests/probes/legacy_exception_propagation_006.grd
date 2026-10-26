@@ -1,4 +1,4 @@
-<?php
+<?grd
         function inner() {
             try {
                 throw new Exception("first");

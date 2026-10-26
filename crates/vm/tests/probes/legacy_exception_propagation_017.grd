@@ -1,4 +1,4 @@
-<?php
+<?grd
         function risky() {
             try {
                 throw new Exception("boom");

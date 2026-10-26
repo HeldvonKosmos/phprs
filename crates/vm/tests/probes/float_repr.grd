@@ -1,4 +1,4 @@
-<?php
+<?grd
 // Floats in echo, json_encode (also JSON_PRESERVE_ZERO_FRACTION), var_export, var_dump, serialize.
 foreach ([1e20, 1.5e-7, -0.0, 1e300, 1e15, 1e14, 123456789012345678.0, 0.0001, 0.00001, 2.5, -1.5e-10, 1.0, 100.0] as $f) {
     echo $f, ' | ', json_encode($f), ' | ', var_export($f, true), ' | ', (string) $f, ' | ';

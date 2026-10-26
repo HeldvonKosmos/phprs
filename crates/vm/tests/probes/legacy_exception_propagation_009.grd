@@ -1,4 +1,4 @@
-<?php
+<?grd
         function normal() {
             try {
                 return "fine";

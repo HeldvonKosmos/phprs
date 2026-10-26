@@ -1,4 +1,4 @@
-<?php
+<?grd
         class C { public $p = 10; }
         $c = new C();
         $c->p += 5;

@@ -1,4 +1,4 @@
-<?php
+<?grd
 $it = new ArrayIterator(["a" => 1, "b" => 2]);
 echo $it->offsetGet("a") . "\n";
 echo ($it->offsetExists("b") ? "yes" : "no") . "\n";

@@ -1,4 +1,4 @@
-<?php
+<?grd
 echo filter_var("42", 257);
 echo "|";
 echo filter_var("3.14", 259);

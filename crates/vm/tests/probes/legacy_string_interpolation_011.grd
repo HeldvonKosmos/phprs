@@ -1,4 +1,4 @@
-<?php
+<?grd
         class Point {
             public $x = 3;
             public $y = 4;

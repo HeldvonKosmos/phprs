@@ -1,4 +1,4 @@
-<?php
+<?grd
 try {
     throw new RuntimeException("runtime error");
 } catch (Exception $e) {

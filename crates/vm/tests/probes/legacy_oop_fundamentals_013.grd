@@ -1,4 +1,4 @@
-<?php
+<?grd
 class K { public function n() { return static::class . "|" . self::class . "|" . __CLASS__; } }
 class L extends K {}
 echo (new L)->n(), "|", (new K)->n();

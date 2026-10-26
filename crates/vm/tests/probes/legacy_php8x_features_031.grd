@@ -1,4 +1,4 @@
-<?php
+<?grd
 $arr = [10, 20, 30];
 unset($arr[1]);
 echo isset($arr[0]) ? "0:set" : "0:unset";

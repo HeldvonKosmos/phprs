@@ -1,4 +1,4 @@
-<?php
+<?grd
 namespace App\Models;
 class A {} class B extends A {}
 $b = new B;
