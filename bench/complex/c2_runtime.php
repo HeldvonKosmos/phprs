@@ -12,7 +12,7 @@ $checksum = 0;
 $t = fn () => hrtime(true);
 $words = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa', 'lambda', 'my'];
 
-for ($round = 1; $round <= 20; $round++) {
+for ($round = 1; $round <= 40; $round++) {
     // deterministic input
     $rows = [];
     for ($i = 0; $i < 3000; $i++) {
