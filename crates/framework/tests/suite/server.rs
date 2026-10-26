@@ -23,7 +23,7 @@ impl TestServer {
             return Some(TestServer { child: None, url, user: std::env::var("OPENGRID_TEST_DB_USER").ok(), pass: std::env::var("OPENGRID_TEST_DB_PASS").ok() });
         }
         if Command::new("surreal").arg("version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| !s.success()).unwrap_or(true) {
-            eprintln!("skipped: no `surreal` binary on PATH and OPENGRID_TEST_DB_URL not set");
+            crate::oracle::missing(crate::oracle::Oracle::Surreal, "no `surreal` binary on PATH and OPENGRID_TEST_DB_URL not set");
             return None;
         }
         let port = std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).expect("free port").port();

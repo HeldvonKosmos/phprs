@@ -121,7 +121,7 @@ fn strict_types_match_php() {
         let php = run_php(&strict_matrix(true));
         assert_eq!(php, expected, "strict.out is stale; regenerate from PHP");
     } else {
-        eprintln!("skipped recheck: php not available");
+        crate::oracle::missing(crate::oracle::Oracle::Php, "php not available: recheck against PHP strict_types skipped");
     }
 }
 
@@ -133,7 +133,7 @@ fn typed_operations() {
     let diffs = compare(&expected, &got);
     assert!(diffs.is_empty(), "typed operations:\n{}", diffs.join("\n"));
     if !php_available() {
-        eprintln!("skipped recheck: php not available");
+        crate::oracle::missing(crate::oracle::Oracle::Php, "php not available: recheck against PHP strict_types skipped");
         return;
     }
     let deviations: Vec<String> = std::fs::read_to_string(dir().join("ops_deviations.txt"))

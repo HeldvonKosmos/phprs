@@ -23,10 +23,19 @@ fn golden_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/schema_golden")
 }
 
+/// The platform's schema tooling and php; a missing one is reported as a
+/// missing oracle (TEST2).
 fn tooling() -> Option<PathBuf> {
     let t = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../refs/platform/schema-tooling");
-    let php = Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success());
-    (php && t.join("Migration/SurqlFileParser.php").exists()).then_some(t)
+    if !Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success()) {
+        crate::oracle::missing(crate::oracle::Oracle::Php, "php not available: schema port not compared with the platform's PHP");
+        return None;
+    }
+    if !t.join("Migration/SurqlFileParser.php").exists() {
+        crate::oracle::missing(crate::oracle::Oracle::Platform, "refs/platform/schema-tooling not available (confidential, local only)");
+        return None;
+    }
+    Some(t)
 }
 
 fn cases() -> Vec<(String, Vec<PathBuf>, PathBuf)> {
@@ -92,10 +101,7 @@ fn schema_port_matches_php_on_edge_cases() {
 
 #[test]
 fn golden_expectations_are_current_php_output() {
-    let Some(tool) = tooling() else {
-        eprintln!("skipped: php or refs/platform/schema-tooling not available");
-        return;
-    };
+    let Some(tool) = tooling() else { return };
     for (name, files, expected) in cases() {
         let mut args = vec!["files".to_string()];
         args.extend(files.iter().map(|f| f.display().to_string()));
@@ -106,10 +112,7 @@ fn golden_expectations_are_current_php_output() {
 
 #[test]
 fn schema_port_matches_php_on_platform_files() {
-    let Some(tool) = tooling() else {
-        eprintln!("skipped: php or refs/platform/schema-tooling not available");
-        return;
-    };
+    let Some(tool) = tooling() else { return };
     // MigratePush's order: main, all blueprints, all manually (glob sorts)
     let mut files = Vec::new();
     let main = tool.join("database/sources/main.surql");

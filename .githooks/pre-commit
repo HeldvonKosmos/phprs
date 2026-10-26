@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Commit rule (CLAUDE.md rule 1, D18): no commit without a green suite.
+# tools/commit.sh has just tested the staged tree and says so through
+# OPENGRID_GREEN_TREE; any other `git commit` runs the suite here.
+# Enable once per clone: git config core.hooksPath .githooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if [ -n "${OPENGRID_GREEN_TREE:-}" ] && [ "$OPENGRID_GREEN_TREE" = "$(git write-tree)" ]; then
+    exit 0
+fi
+echo "pre-commit: running the suite (tools/green.sh); this takes a few minutes"
+tools/green.sh | tail -1
+exit "${PIPESTATUS[0]}"

@@ -25,6 +25,8 @@ mod mail_storage;
 mod modules;
 #[path = "suite/middleware.rs"]
 mod middleware;
+#[path = "suite/oracle.rs"]
+mod oracle;
 #[path = "suite/relations.rs"]
 mod relations;
 #[path = "suite/reload.rs"]

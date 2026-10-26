@@ -11,6 +11,8 @@ mod inheritance;
 mod names;
 #[path = "suite/native_classes.rs"]
 mod native_classes;
+#[path = "suite/oracle.rs"]
+mod oracle;
 #[path = "suite/probes.rs"]
 mod probes;
 #[path = "suite/project.rs"]

@@ -46,7 +46,7 @@ fn support_expectations_are_laravel_output() {
     let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../bench/laravel-app/vendor");
     let php = Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success());
     if !php || !vendor.join("autoload.php").exists() {
-        eprintln!("skipped: php or bench/laravel-app/vendor not available (run bench/framework/laravel/setup.sh)");
+        crate::oracle::missing(crate::oracle::Oracle::LaravelVendor, "php or bench/laravel-app/vendor not available (run bench/framework/laravel/setup.sh)");
         return;
     }
     let out = Command::new("php").arg(dir().join("driver_vendor.php")).arg(&vendor).arg(dir().join("cases.txt")).output().expect("php");

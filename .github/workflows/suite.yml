@@ -1,0 +1,52 @@
+# The whole suite on every push to vm-core and main (TEST2, D18), with the
+# independent oracles required: PHP 8.4, Laravel 13.38 (vendor from
+# bench/framework/laravel/setup.sh) and the surreal binary. refs/platform is
+# company code and never available here, so that oracle is exempt; the
+# platform comparison stays local.
+name: suite
+on:
+  push:
+    branches: [vm-core, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      OPENGRID_REQUIRE_ORACLES: "1"
+      OPENGRID_ORACLES_EXCEPT: platform
+      CARGO_TERM_COLOR: never
+      SURREAL_VERSION: v3.3.4
+    steps:
+      # the repository lives one level down, like in the workspace, so the
+      # Laravel app lands next to it (../bench/laravel-app), never inside
+      - uses: actions/checkout@v4
+        with:
+          path: phprs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: phprs
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: mbstring, intl, xml, sodium, pdo_sqlite, sqlite3
+          tools: composer
+      - name: surreal binary
+        run: |
+          curl -sSfL https://install.surrealdb.com | sh -s -- --version "$SURREAL_VERSION" "$HOME/.surrealdb"
+          echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
+      - name: Laravel comparison app (oracle for Support and validation)
+        run: phprs/bench/framework/laravel/setup.sh
+      - name: suite
+        working-directory: phprs
+        run: GREEN_LOG="$RUNNER_TEMP/green.log" tools/green.sh
+      - name: log of a red run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: green-log
+          path: ${{ runner.temp }}/green*.log
