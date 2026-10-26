@@ -126,7 +126,8 @@ try { Storage::disk('s3'); } catch (Error $e) { echo $e->getMessage(), "\n"; }
         r#"[true,true,true,"alpha",null,5]"#,
         r#"[true,true,false,"alpha"]"#,
         r#"[["docs\/a.txt","docs\/moved.txt"],["docs\/a.txt","docs\/moved.txt","docs\/sub\/c.txt"]]"#,
-        r#"[true,false,[]]"#,
+        // Laravel 13.38 local disk: deleting a missing file is true as well
+        r#"[true,true,[]]"#,
         "[2,false,true]",
         "rejected rejected rejected rejected ",
         "storage disk `s3` is not configured",

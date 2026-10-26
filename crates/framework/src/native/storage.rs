@@ -62,12 +62,12 @@ fn op(vm: &mut Vm, disk: &str, name: &str, c: &Call) -> Result<Val, Throw> {
                 Val::Str(s) => vec![s.to_string_lossy()],
                 o => return Err(Throw::type_error(format!("{what}(): Argument #1 ($paths) must be of type string|array, {} given", o.type_name()))),
             };
+            // Laravel (Flysystem 3): a missing file counts as deleted; a
+            // failed delete makes the result false, the other paths still go
             let mut all = true;
             for p in paths {
                 let p = check_path(&p).map_err(Throw::value_error)?;
-                if services.block_on(st.exists(&p)).unwrap_or(false) {
-                    services.block_on(st.delete(&p)).map_err(|e| Throw::error(format!("{what}: {e}")))?;
-                } else {
+                if services.block_on(st.exists(&p)).unwrap_or(false) && services.block_on(st.delete(&p)).is_err() {
                     all = false;
                 }
             }
