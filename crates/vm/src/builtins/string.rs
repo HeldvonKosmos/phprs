@@ -557,7 +557,7 @@ pub(crate) fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if from >= hay.len() || needle.len() > hay.len() - from {
         return None;
     }
-    hay[from..].windows(needle.len()).position(|w| w == needle).map(|p| p + from)
+    memchr::memmem::find(&hay[from..], needle).map(|p| p + from)
 }
 
 fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
@@ -567,7 +567,7 @@ fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.len() > hay.len() {
         return None;
     }
-    hay.windows(needle.len()).rposition(|w| w == needle)
+    memchr::memmem::rfind(hay, needle)
 }
 
 /// strcmp's result in PHP: the difference of the first differing bytes, else
@@ -672,7 +672,8 @@ fn replace_all(hay: &[u8], needle: &[u8], rep: &[u8], ci: bool, count: &mut i64)
     let (h, n) = if ci { (hay.to_ascii_lowercase(), needle.to_ascii_lowercase()) } else { (hay.to_vec(), needle.to_vec()) };
     let mut out = Vec::with_capacity(hay.len());
     let mut i = 0;
-    while let Some(p) = find(&h, &n, i) {
+    // one searcher for all occurrences (PERF3)
+    for p in memchr::memmem::find_iter(&h, &n) {
         out.extend_from_slice(&hay[i..p]);
         out.extend_from_slice(rep);
         i = p + n.len();

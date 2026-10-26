@@ -2431,6 +2431,7 @@ dependencies = [
  "mago-span",
  "mago-syntax",
  "md-5 0.10.6",
+ "memchr",
  "postcard",
  "serde",
  "serde_json",

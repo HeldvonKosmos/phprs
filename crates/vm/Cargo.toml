@@ -36,6 +36,8 @@ hmac = "0.12"
 subtle = "2"
 # crc32() (table/SIMD; the version SurrealDB already pulls in)
 crc32fast = "1"
+# substring search (SIMD; already in the tree via regex)
+memchr = "2"
 
 [dev-dependencies]
 

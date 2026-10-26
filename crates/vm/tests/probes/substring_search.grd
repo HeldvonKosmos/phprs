@@ -1,0 +1,6 @@
+<?grd
+// PERF3: substring search by memchr::memmem; edge cases against PHP.
+$h = "aaa-bab-aaaa\x00zz-ÄÖ-aa";
+var_dump(strpos($h, 'aa'), strpos($h, 'aa', 1), strpos($h, 'aa', 4), strpos($h, 'zz'), strpos($h, "\x00"), strpos($h, 'nope'), strpos($h, 'aa', -3), strrpos($h, 'aa'), strrpos($h, 'b'), strrpos($h, 'ÄÖ'), stripos($h, 'BAB'), strstr($h, 'bab'), strrchr($h, '-'), substr_count($h, 'aa'), substr_count('aaaa', 'aa'), str_contains($h, "\x00zz"), str_starts_with($h, 'aaa'), str_ends_with($h, '-aa'));
+var_dump(str_replace('aa', 'X', $h), str_replace('aa', '', 'aaaaa'), str_ireplace('AA', 'y', 'aAaA'), str_replace(['a', 'b'], ['b', 'c'], 'ab'), explode('aa', 'aaaaa'), explode('-', $h, 3), explode('-', $h, -2), implode('+', explode("\x00", $h)));
+var_dump(str_replace('ÄÖ', 'ae', $h), mb_strpos($h, 'Ö'), str_word_count('a bb ccc'));
