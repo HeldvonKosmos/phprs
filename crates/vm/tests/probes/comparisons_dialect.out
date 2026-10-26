@@ -1,0 +1,12 @@
+"10" "9": true false -1
+"10" "9a": true false -1
+"1e3" "999": true false -1
+[1,2] [1,3]: TypeError / false
+[1,2] [1,2]: TypeError / true
+true false: TypeError / false
+null 0: TypeError / false
+null false: TypeError / false
+null "a": TypeError / false
+false "a": TypeError / false
+"5" 5: TypeError / false
+1 "1": TypeError / false

@@ -33,8 +33,7 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
         BinOp::Pow => "**",
         _ => "?",
     };
-    let x = a.as_number(sym)?;
-    let y = b.as_number(sym)?;
+    let (Ok(x), Ok(y)) = (a.as_number(sym), b.as_number(sym)) else { return Err(operand_types(a, sym, b)) };
     Ok(match (op, x, y) {
         (BinOp::Add, Numeric::Int(i), Numeric::Int(j)) => match i.checked_add(j) {
             Some(v) => Val::Int(v),
@@ -92,11 +91,19 @@ pub(crate) fn arith(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
     })
 }
 
-fn int_operand(v: &Val, op: &str) -> Result<i64, Throw> {
+/// PHP's TypeError for operands of the wrong type ("Unsupported operand
+/// types: array + int"); with a string the dialect adds how to convert it
+/// (DIALECT §5.2: arithmetic only on int and float).
+fn operand_types(a: &Val, sym: &str, b: &Val) -> Throw {
+    let hint = if matches!(a, Val::Str(_)) || matches!(b, Val::Str(_)) { "; use (int)/(float)" } else { "" };
+    Throw::type_error(format!("Unsupported operand types: {} {sym} {}{hint}", a.type_name(), b.type_name()))
+}
+
+fn int_operand(v: &Val) -> Option<i64> {
     match v {
-        Val::Int(i) => Ok(*i),
-        Val::Float(f) => Ok(*f as i64),
-        other => Err(Throw::type_error(format!("Unsupported operand type {} for {}", other.type_name(), op))),
+        Val::Int(i) => Some(*i),
+        Val::Float(f) => Some(*f as i64),
+        _ => None,
     }
 }
 
@@ -119,8 +126,7 @@ pub(crate) fn bitwise(op: BinOp, a: &Val, b: &Val) -> Result<Val, Throw> {
         }),
         _ => unreachable!(),
     };
-    let x = int_operand(a, sym)?;
-    let y = int_operand(b, sym)?;
+    let (Some(x), Some(y)) = (int_operand(a), int_operand(b)) else { return Err(operand_types(a, sym, b)) };
     Ok(Val::Int(f(x, y)?))
 }
 
@@ -242,7 +248,7 @@ impl Vm {
             },
             UnOp::Plus => v.as_number("+")?.to_val(),
             UnOp::Not => Val::Bool(!v.to_bool()),
-            UnOp::BitNot => Val::Int(!int_operand(&v, "~")?),
+            UnOp::BitNot => Val::Int(!int_operand(&v).ok_or_else(|| Throw::type_error(format!("Cannot perform bitwise not on {}", v.type_name())))?),
             UnOp::CastInt => Val::Int(v.to_int()?),
             UnOp::CastFloat => Val::Float(v.to_float()?),
             UnOp::CastBool => Val::Bool(v.to_bool()),

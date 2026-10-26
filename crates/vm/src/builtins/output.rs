@@ -222,6 +222,8 @@ pub(crate) fn var_export(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) 
     match v {
         Val::Null => out.extend_from_slice(b"NULL"),
         Val::Bool(b) => out.extend_from_slice(if *b { b"true" } else { b"false" }),
+        // PHP writes the minimum as an expression, so the output parses back
+        Val::Int(i64::MIN) => out.extend_from_slice(b"-9223372036854775807-1"),
         Val::Int(i) => out.extend_from_slice(i.to_string().as_bytes()),
         Val::Float(f) => {
             let s = crate::value::repr_float(*f, b'E');

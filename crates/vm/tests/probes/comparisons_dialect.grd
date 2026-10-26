@@ -1,0 +1,15 @@
+<?grd
+// TEST2.8, dialect (DIALECT 5.1): `<`, `>`, `<=`, `>=`, `<=>` compare two
+// numbers or two strings (bytewise, also numeric strings); any other pair
+// throws a TypeError. `===` works on everything.
+function cmp(mixed $x, mixed $y): string
+{
+    try {
+        return json_encode($x) . ' ' . json_encode($y) . ': ' . var_export($x < $y, true) . ' ' . var_export($x >= $y, true) . ' ' . ($x <=> $y) . "\n";
+    } catch (TypeError $e) {
+        return json_encode($x) . ' ' . json_encode($y) . ': ' . get_class($e) . ' / ' . var_export($x === $y, true) . "\n";
+    }
+}
+foreach ([['10', '9'], ['10', '9a'], ['1e3', '999'], [[1, 2], [1, 3]], [[1, 2], [1, 2]], [true, false], [null, 0], [null, false], [null, 'a'], [false, 'a'], ['5', 5], [1, '1']] as $pair) {
+    echo cmp($pair[0], $pair[1]);
+}
