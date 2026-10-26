@@ -160,47 +160,14 @@ fn input_all(vm: &mut Vm) -> Result<Val, Throw> {
     Ok(all)
 }
 
-/// `filters[done]=1&tags[]=a&tags[]=b&a[b][c]=x` → nested arrays, like PHP's `$_GET`.
+/// `filters[done]=1&tags[]=a&tags[]=b&a[b][c]=x` → nested arrays, like PHP's
+/// `$_GET` (the same rules as the dialect's `parse_str`).
 pub fn nested_array(pairs: &[(String, String)]) -> Val {
     let mut root = PhpArray::new();
     for (key, value) in pairs {
-        let (head, rest) = match key.find('[') {
-            Some(i) => (&key[..i], &key[i..]),
-            None => (key.as_str(), ""),
-        };
-        let mut path: Vec<&str> = vec![head];
-        let mut r = rest;
-        while let Some(stripped) = r.strip_prefix('[') {
-            let Some(end) = stripped.find(']') else { break };
-            path.push(&stripped[..end]);
-            r = &stripped[end + 1..];
-        }
-        insert_path(&mut root, &path, Val::str(value));
+        grd_vm::builtins::insert_query_key(&mut root, key, Val::str(value));
     }
     Val::array(root)
-}
-
-fn insert_path(arr: &mut PhpArray, path: &[&str], value: Val) {
-    let (first, rest) = match path.split_first() {
-        Some(x) => x,
-        None => return,
-    };
-    if rest.is_empty() {
-        if first.is_empty() {
-            arr.push(value);
-        } else {
-            arr.insert(ArrayKey::from_str(first), value);
-        }
-        return;
-    }
-    let key = if first.is_empty() { ArrayKey::Int(arr.len() as i64) } else { ArrayKey::from_str(first) };
-    let slot = arr.entry_mut(key);
-    if !matches!(slot, Val::Array(_)) {
-        *slot = Val::empty_array();
-    }
-    if let Some(inner) = slot.array_mut() {
-        insert_path(inner, rest, value);
-    }
 }
 
 #[cfg(test)]

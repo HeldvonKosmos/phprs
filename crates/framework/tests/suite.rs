@@ -27,6 +27,8 @@ mod modules;
 mod middleware;
 #[path = "suite/oracle.rs"]
 mod oracle;
+#[path = "suite/php_oracles.rs"]
+mod php_oracles;
 #[path = "suite/relations.rs"]
 mod relations;
 #[path = "suite/reload.rs"]

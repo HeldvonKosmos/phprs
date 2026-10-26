@@ -10,6 +10,7 @@ pub mod datetime_class;
 pub mod json;
 mod math;
 mod misc;
+pub use misc::insert_query_key;
 mod output;
 mod reflect;
 mod regex;

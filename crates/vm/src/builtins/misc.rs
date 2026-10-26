@@ -342,38 +342,59 @@ fn build_query(vm: &mut Vm, data: &PhpArray, prefix_key: Option<String>, num_pre
     Ok(())
 }
 
-fn insert_query_key(out: &mut PhpArray, key: &str, val: Val) {
-    match key.find('[') {
-        None => out.insert(ArrayKey::from_str(key), val),
-        Some(p) => {
-            let head = &key[..p];
-            let mut cur = out.entry_mut(ArrayKey::from_str(head));
-            let mut rest = &key[p..];
-            while let Some(end) = rest.find(']') {
-                let part = &rest[1..end];
-                if !matches!(cur, Val::Array(_)) {
-                    *cur = Val::empty_array();
-                }
-                let arr = cur.array_mut().expect("array");
-                rest = &rest[end + 1..];
-                let last = !rest.starts_with('[');
-                if part.is_empty() {
-                    if last {
-                        arr.push(val);
-                        return;
-                    }
-                    arr.push(Val::empty_array());
-                    cur = arr.last_mut().expect("pushed");
-                } else {
-                    if last {
-                        arr.insert(ArrayKey::from_str(part), val);
-                        return;
-                    }
-                    cur = arr.entry_mut(ArrayKey::from_str(part));
-                }
+/// One `key=value` of a query string into `out`, as PHP registers request
+/// variables (`php_register_variable_ex`): leading spaces of the name are
+/// skipped, ` ` and `.` before the first `[` become `_`, an empty name is
+/// dropped, a first `[` without `]` becomes `_` (the name is then plain),
+/// `[]` appends, and anything after a `]` that is not `[` is ignored.
+pub fn insert_query_key(out: &mut PhpArray, key: &str, val: Val) {
+    let key = key.trim_start_matches(' ');
+    let (base, rest) = match key.find('[') {
+        Some(p) => (&key[..p], &key[p..]),
+        None => (key, ""),
+    };
+    let base: String = base.chars().map(|c| if c == ' ' || c == '.' { '_' } else { c }).collect();
+    if base.is_empty() {
+        return;
+    }
+    // the indexes; a first `[` without `]` makes the whole name plain
+    let mut path: Vec<&str> = Vec::new();
+    let mut r = rest;
+    while let Some(after) = r.strip_prefix('[') {
+        let Some(end) = after.find(']') else {
+            if path.is_empty() {
+                let plain: String = after.chars().map(|c| if matches!(c, ' ' | '.' | '[') { '_' } else { c }).collect();
+                out.insert(ArrayKey::from_str(&format!("{base}_{plain}")), val);
+                return;
             }
+            break;
+        };
+        path.push(&after[..end]);
+        r = &after[end + 1..];
+    }
+    let mut cur = out.entry_mut(ArrayKey::from_str(&base));
+    for (n, part) in path.iter().enumerate() {
+        if !matches!(cur, Val::Array(_)) {
+            *cur = Val::empty_array();
+        }
+        let arr = cur.array_mut().expect("array");
+        let last = n + 1 == path.len();
+        if part.is_empty() {
+            if last {
+                arr.push(val);
+                return;
+            }
+            arr.push(Val::empty_array());
+            cur = arr.last_mut().expect("pushed");
+        } else {
+            if last {
+                arr.insert(ArrayKey::from_str(part), val);
+                return;
+            }
+            cur = arr.entry_mut(ArrayKey::from_str(part));
         }
     }
+    *cur = val;
 }
 
 fn parse_url(s: &str) -> Option<PhpArray> {
