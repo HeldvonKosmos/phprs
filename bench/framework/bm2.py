@@ -234,7 +234,7 @@ def main():
     if pg_version:
         print(f"PostgreSQL {pg_version} (eigener Container `postgres`, nicht auf Kerne gepinnt) · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
-          f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else 'SQLite, Vorstufe'}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
+          f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else ('PostgreSQL für *-pgsql, sonst SQLite' if pg_version else 'SQLite, Vorstufe')}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores}, DB-Server {a.db_cores}, Last {a.load_cores}"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
     results = {}

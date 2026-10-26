@@ -12,8 +12,8 @@
 # directory so the normal build cache stays untouched.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# PGO_BIN=opengrid builds the framework binary instead and trains it with
-# BM2 traffic (bench/framework/bm2.py, embedded database)
+# PGO_BIN=opengrid builds the framework binary instead and trains it with the
+# test project's acceptance test (api.sh), never with BM2 traffic
 BINNAME=${PGO_BIN:-grd}
 PKG=$([ "$BINNAME" = opengrid ] && echo opengrid-framework || echo grd-jit)
 # opengrid with thin LTO (profiling profile, as BM2 uses it): fat LTO of the
