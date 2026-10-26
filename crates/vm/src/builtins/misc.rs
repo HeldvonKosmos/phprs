@@ -243,6 +243,15 @@ fn filter_var(_: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
             let ok = (v4 && (!want_v6 || want_v4)) || (v6 && (!want_v4 || want_v6));
             if ok { Val::from(t) } else { fail(default) }
         }
+        // FILTER_SANITIZE_NUMBER_INT / _FLOAT: keep digits and signs; the
+        // float filter keeps `.`, `,`, `eE` only with ALLOW_FRACTION,
+        // ALLOW_THOUSAND, ALLOW_SCIENTIFIC
+        519 | 520 => {
+            let keep = |c: char| {
+                c.is_ascii_digit() || c == '+' || c == '-' || filter == 520 && (c == '.' && flags & 4096 != 0 || c == ',' && flags & 8192 != 0 || (c == 'e' || c == 'E') && flags & 16384 != 0)
+            };
+            Val::from(s.chars().filter(|c| keep(*c)).collect::<String>())
+        }
         _ => Val::from(s),
     })
 }

@@ -343,7 +343,7 @@ pub fn register(vm: &mut Vm) {
             m => return Err(Throw::value_error(format!("mb_convert_case(): Argument #2 ($mode) must be one of the MB_CASE_* constants, {m} given"))),
         }))
     });
-    vm.register_native("mb_strwidth", |_, a| Ok(Val::Int(args::string(a, 0, "mb_strwidth")?.char_len() as i64)));
+    vm.register_native("mb_strwidth", |_, a| Ok(Val::Int(args::string(a, 0, "mb_strwidth")?.to_string_lossy().chars().map(char_width).sum())));
     vm.register_native("mb_substr_count", |_, a| Ok(Val::Int(args::string(a, 0, "mb_substr_count")?.to_string_lossy().matches(&*args::string(a, 1, "mb_substr_count")?.to_string_lossy()).count() as i64)));
     vm.register_native("mb_strrev_placeholder", |_, _| Ok(Val::Null));
     vm.register_native("mb_check_encoding", |_, a| Ok(Val::Bool(args::string(a, 0, "mb_check_encoding")?.as_str().is_some())));

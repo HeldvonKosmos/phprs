@@ -107,6 +107,11 @@ pub fn register(vm: &mut Vm) {
     vm.define_constant("FILTER_VALIDATE_IP", Val::Int(275));
     vm.define_constant("FILTER_DEFAULT", Val::Int(516));
     vm.define_constant("FILTER_NULL_ON_FAILURE", Val::Int(134217728));
+    vm.define_constant("FILTER_SANITIZE_NUMBER_INT", Val::Int(519));
+    vm.define_constant("FILTER_SANITIZE_NUMBER_FLOAT", Val::Int(520));
+    vm.define_constant("FILTER_FLAG_ALLOW_FRACTION", Val::Int(4096));
+    vm.define_constant("FILTER_FLAG_ALLOW_THOUSAND", Val::Int(8192));
+    vm.define_constant("FILTER_FLAG_ALLOW_SCIENTIFIC", Val::Int(16384));
 
     core::register(vm);
     string::register(vm);

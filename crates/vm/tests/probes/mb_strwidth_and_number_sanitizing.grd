@@ -1,0 +1,10 @@
+<?grd
+// legacy gaps (examples_mbstring, php8x_features_078): East Asian wide
+// characters count 2, FILTER_SANITIZE_NUMBER_INT/FLOAT keep digits and signs
+echo mb_strwidth("hello"), ' ', mb_strwidth("hello 世界"), ' ', mb_strwidth("ｶﾀｶﾅ　全角"), ' ', mb_strwidth("é€😀"), "\n";
+echo mb_strimwidth("世界世界世界", 0, 7, "…"), "\n";
+foreach (["3.14abc", "-1,234.5e+6x", "+12 34", "abc"] as $v) {
+    echo filter_var($v, FILTER_SANITIZE_NUMBER_INT), '|', filter_var($v, FILTER_SANITIZE_NUMBER_FLOAT), '|',
+        filter_var($v, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION), '|',
+        filter_var($v, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION | FILTER_FLAG_ALLOW_THOUSAND | FILTER_FLAG_ALLOW_SCIENTIFIC), "\n";
+}
