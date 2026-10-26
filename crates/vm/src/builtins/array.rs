@@ -683,8 +683,15 @@ fn sort_impl(vm: &mut Vm, a: &[Val], kind: SortKind, reverse: bool) -> Result<Va
     // result: PHP 8 sorts are stable, equal elements keep their order (a
     // reversed result would put them back to front)
     let dir = |o: Ordering| if reverse { o.reverse() } else { o };
+    // PERF3: only ints (the common case) compare as plain integers
+    let int_values = flags == 0 && entries.iter().all(|e| matches!(e.1, Val::Int(_)));
+    let int_keys = flags == 0 && entries.iter().all(|e| matches!(e.0, ArrayKey::Int(_)));
+    let int_of = |v: &Val| if let Val::Int(i) = v { *i } else { 0 };
+    let key_int = |k: &ArrayKey| if let ArrayKey::Int(i) = k { *i } else { 0 };
     match kind {
+        SortKind::Values | SortKind::ValuesKeepKeys if int_values => entries.sort_by(|x, y| dir(int_of(&x.1).cmp(&int_of(&y.1)))),
         SortKind::Values | SortKind::ValuesKeepKeys => entries.sort_by(|x, y| dir(php_sort_cmp(&x.1, &y.1, flags))),
+        SortKind::Keys if int_keys => entries.sort_by(|x, y| dir(key_int(&x.0).cmp(&key_int(&y.0)))),
         SortKind::Keys => entries.sort_by(|x, y| dir(php_sort_cmp(&x.0.to_val(), &y.0.to_val(), flags))),
         SortKind::Natural => entries.sort_by(|x, y| nat(&x.1, &y.1, false)),
         SortKind::NaturalCase => entries.sort_by(|x, y| nat(&x.1, &y.1, true)),

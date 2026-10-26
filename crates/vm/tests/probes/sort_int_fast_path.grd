@@ -1,0 +1,9 @@
+<?grd
+// PERF3: sorts of int values or int keys compare plain integers (stable as
+// in PHP 8); mixed values keep the general comparison. Output is PHP's.
+$a = [5 => 3, 1 => 1, 9 => 3, 2 => -7, 7 => 3, 4 => PHP_INT_MAX, 3 => PHP_INT_MIN, 8 => 0];
+echo json_encode([sort($a), rsort($a), asort($a), arsort($a), ksort($a), krsort($a)]), "\n";
+$m = [3, 1.5, 2, 1];
+echo json_encode([sort($m), asort($m), arsort($m)]), "\n";
+$k = [10 => 'a', 'x' => 'b', 2 => 'c'];
+echo json_encode([ksort($k), krsort($k)]), "\n";
