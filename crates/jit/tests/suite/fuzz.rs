@@ -394,3 +394,78 @@ fn interpreter_and_jit_agree_on_array_programs() {
     assert!(compiled_programs > cases / 2, "only {compiled_programs} of {cases} programs had compiled code");
     assert!(exceptions > cases / 20, "only {exceptions} of {cases} programs raised an exception");
 }
+
+/// JITO1: programs with objects — a base class with typed promoted and
+/// plain properties (one without a default, read before and after it is
+/// set), a subclass that overrides one method and inherits the others, a
+/// final class whose methods build new objects (int arguments widened to
+/// float), a readonly property, a constructor that throws, and overflow or
+/// division by zero inside methods.
+fn object_program(rng: &mut Rng) -> String {
+    let mut src = String::from("<?php\n");
+    let mut g = Gen { rng: &mut *rng, ints: vec!["$this->n".into()], floats: vec!["$this->x".into(), "$this->y".into()], int_div: false };
+    let (sum, ni) = (g.float(2), g.int(2));
+    let mut g = Gen { rng: &mut *rng, ints: vec!["$this->n".into(), "$o->n".into()], floats: vec!["$this->x".into(), "$o->x".into(), "$o->y".into()], int_div: false };
+    let (mx, my, mn, near) = (g.float(2), g.float(1), g.int(2), g.bool(2));
+    src.push_str(&format!(
+        "class P {{\n  public float $z;\n  public bool $flag = false;\n  public function __construct(public float $x, public float $y, public int $n) {{}}\n  public function sum(): float {{ return {sum}; }}\n  public function ni(): int {{ return {ni}; }}\n  public function make(P $o): P {{ return new P({mx}, {my}, {mn}); }}\n  public function near(P $o): bool {{ return {near}; }}\n  public function withZ(): float {{ return $this->z + $this->x; }}\n  public function flagged(): bool {{ return $this->flag; }}\n}}\n"
+    ));
+    let over = if rng.below(2) == 0 { "  public function sum(): float { return $this->x * 2.0 + (float) $this->extra; }\n" } else { "" };
+    src.push_str(&format!("class Q extends P {{\n  public int $extra = 3;\n{over}  public function more(): int {{ return $this->extra + $this->n; }}\n}}\n"));
+    let mut g = Gen { rng: &mut *rng, ints: vec!["$this->a".into(), "$k".into()], floats: vec!["$this->b".into()], int_div: false };
+    let (fa, fb) = (g.int(2), g.float(2));
+    src.push_str(&format!(
+        "final class F {{\n  public function __construct(public int $a, public float $b, public bool $c) {{}}\n  public function bump(int $k): F {{ return new F({fa}, {fb}, !$this->c); }}\n  public function wide(): F {{ return new F($this->a, $this->a, $this->c); }}\n  public function val(): float {{ return $this->b + (float) $this->a; }}\n}}\n"
+    ));
+    src.push_str("final class RO {\n  public function __construct(public readonly int $v) {}\n  public function next(): RO { return new RO($this->v + 1); }\n}\n");
+    let lim = rng.pick(&["5", "50", "500"]);
+    src.push_str(&format!("final class T {{\n  public function __construct(public int $v) {{ if ($v > {lim}) {{ throw new RangeException('too big: ' . $v); }} }}\n}}\nfunction mk(int $v): T {{ return new T($v); }}\n"));
+    let int0 = |rng: &mut Rng| if rng.below(8) == 0 { rng.pick(INT_EDGES) } else { rng.pick(INT_SMALL) }.to_string();
+    let (n0, n1, n2, a0) = (int0(rng), int0(rng), int0(rng), int0(rng));
+    let (x0, x1, x2, y0, b0) = (rng.pick(FLOAT_SMALL), rng.pick(FLOAT_SMALL), rng.pick(FLOAT_SMALL), rng.pick(FLOAT_SMALL), rng.pick(FLOAT_SMALL));
+    let r0 = rng.pick(&["0", "7", "9223372036854775800"]);
+    let zk = rng.below(5);
+    let iters = 3 + rng.below(30);
+    src.push_str(&format!(
+        "$ps = [new P({x0}, {y0}, {n0}), new Q({x1}, 0.25, {n1}), new P({x2}, -2.5, {n2})];\n$f = new F({a0}, {b0}, true);\n$r = new RO({r0});\n$m = $ps[0];\n"
+    ));
+    src.push_str(&format!(
+        "for ($i = 0; $i < {iters}; $i++) {{\n  try {{\n    $p = $ps[$i % 3];\n    if ($i % 5 === {zk}) {{ $p->z = 0.5 * $i; }}\n    $s = $p->sum();\n    $k = $p->ni();\n    $m = $p->make($ps[($i + 1) % 3]);\n    $f = $f->bump($i % 4);\n    if ($i % 3 === 0) {{ $f = $f->wide(); }}\n    $r = $r->next();\n    echo $i, ' ', $s, ' ', $k, ' ', $m->x, ' ', $m->n, ' ', var_export($p->near($m), true), ' ', var_export($p->flagged(), true), ' ', $f->val(), ' ', $r->v, \"\\n\";\n    echo $p->withZ(), \"\\n\";\n  }} catch (Throwable $e) {{ echo $i, ' ', get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n}}\n"
+    ));
+    let t = rng.pick(&["3", "40", "400"]);
+    src.push_str(&format!("try {{ echo $ps[1]->more(), ' ', mk({t})->v, \"\\n\"; }} catch (Throwable $e) {{ echo get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\nvar_dump($m, $f);\necho spl_object_id($r), \"\\n\";\n"));
+    src
+}
+
+#[test]
+fn interpreter_and_jit_agree_on_object_programs() {
+    let seed: u64 = std::env::var("GRD_FUZZ_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0x0B1E_2026_1026);
+    let cases: u64 = std::env::var("GRD_FUZZ_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(300);
+    eprintln!("object differential test: GRD_FUZZ_SEED={seed} GRD_FUZZ_CASES={cases}");
+    let mut rng = Rng(seed.max(1));
+    let (mut exceptions, mut compiled_total) = (0u64, 0usize);
+    for case in 0..cases {
+        let src = object_program(&mut rng);
+        let (want, _) = run(&src, None);
+        exceptions += want.contains("Error") as u64;
+        if let Ok(pat) = std::env::var("GRD_FUZZ_DUMP")
+            && want.contains(&pat)
+        {
+            eprintln!("--- case {case} ---\n{src}\n--- output ---\n{want}");
+            return;
+        }
+        for advanced in [false, true] {
+            let (got, compiled) = run(&src, Some(advanced));
+            assert_eq!(got, want, "seed {seed}, case {case}, advanced JIT {advanced}\n--- program ---\n{src}");
+            if !advanced {
+                compiled_total += compiled;
+            }
+        }
+        // MEM1b: a collection whenever the live objects have doubled
+        let (got, _) = run_with(&src, Some(true), ForceExit::Off, Some(1));
+        assert_eq!(got, want, "seed {seed}, case {case}, GC threshold 1\n--- program ---\n{src}");
+        forced_exits_agree(&src, &want, seed, case);
+    }
+    eprintln!("object differential test: {exceptions} programs with exceptions, {compiled_total} compiled functions/loops");
+    assert!(exceptions > cases / 5, "only {exceptions} of {cases} programs raised an exception");
+}
