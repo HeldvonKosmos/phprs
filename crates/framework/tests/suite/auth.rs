@@ -96,9 +96,10 @@ fn json(r: &HttpResponse) -> serde_json::Value {
     serde_json::from_str(&r.body_str()).unwrap_or_else(|e| panic!("{e}: {}", r.body_str()))
 }
 
-#[test]
-fn token_authentication() {
-    let root = std::env::temp_dir().join(format!("opengrid-auth-{}", std::process::id()));
+/// A project with users, auth routes and its schema pushed; `auth` settings
+/// are merged into the defaults.
+fn auth_pool(tag: &str, auth: serde_json::Value) -> (std::path::PathBuf, Arc<Pool>) {
+    let root = std::env::temp_dir().join(format!("opengrid-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     new_project(&root, Some("Auth")).unwrap();
     for (path, text) in [("modules/users/app/Models/User.grd", USER), ("modules/users/app/Controllers/AuthController.grd", CONTROLLER), ("modules/users/routes/web.grd", ROUTES), ("modules/users/database/schema/schema.surql", SCHEMA)] {
@@ -106,10 +107,64 @@ fn token_authentication() {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, text).unwrap();
     }
-    let opts = PoolOptions::new(root.clone()).workers(2).database(DbConfig::mem("test", "auth")).settings(serde_json::json!({ "app": { "name": "Auth" }, "auth": { "model": "Users\\Models\\User" } }));
+    let mut auth_settings = serde_json::json!({ "model": "Users\\Models\\User" });
+    if let (Some(a), Some(extra)) = (auth_settings.as_object_mut(), auth.as_object()) {
+        a.extend(extra.clone());
+    }
+    let opts = PoolOptions::new(root.clone()).workers(2).database(DbConfig::mem("test", tag)).settings(serde_json::json!({ "app": { "name": "Auth" }, "auth": auth_settings }));
     let pool = Arc::new(Pool::start(opts).expect("project loads"));
     let db = pool.db().unwrap();
     db.block_on(ops::push(db.client(), &root, SyncOptions::default())).expect("schema");
+    (root, pool)
+}
+
+fn last_used(pool: &Pool) -> String {
+    pool.run_sync(|vm| {
+        vm.run_file("q.grd", b"<?grd echo json_encode(OpenGrid\\Database\\DB::select('SELECT VALUE last_used_at FROM personal_access_tokens'));").unwrap();
+        let out = String::from_utf8_lossy(&vm.output).into_owned();
+        vm.reset_request();
+        out
+    })
+    .unwrap()
+}
+
+fn login_token(pool: &Pool) -> String {
+    let j = "application/json";
+    assert_eq!(send(pool, HttpRequest::post("/api/register", j, br#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#), None).status, 201);
+    let r = send(pool, HttpRequest::post("/api/login", j, br#"{"email":"ada@example.com","password":"secret123"}"#), None);
+    json(&r)["token"].as_str().unwrap().to_string()
+}
+
+/// DBP1: the use of a token is written at most every `auth.token_touch_seconds`
+/// (default 60), so read-only requests write nothing; 0 writes every time.
+#[test]
+fn token_use_is_noted_at_most_every_interval() {
+    let (root, pool) = auth_pool("auth-touch", serde_json::json!({}));
+    let token = login_token(&pool);
+    assert_eq!(last_used(&pool), "[null]", "not used yet");
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&token)).status, 200);
+    let first = last_used(&pool);
+    assert!(first.starts_with("[\"20"), "first use noted: {first}");
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&token)).status, 200);
+    assert_eq!(last_used(&pool), first, "within the interval nothing is written");
+    drop(pool);
+    let _ = std::fs::remove_dir_all(&root);
+
+    let (root, pool) = auth_pool("auth-touch0", serde_json::json!({ "token_touch_seconds": 0 }));
+    let token = login_token(&pool);
+    send(&pool, HttpRequest::get("/api/me"), Some(&token));
+    let first = last_used(&pool);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    send(&pool, HttpRequest::get("/api/me"), Some(&token));
+    let second = last_used(&pool);
+    assert!(first.starts_with("[\"20") && second != first, "0 = every request: {first} {second}");
+    drop(pool);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn token_authentication() {
+    let (root, pool) = auth_pool("auth", serde_json::json!({}));
 
     let j = "application/json";
     let r = send(&pool, HttpRequest::post("/api/register", j, br#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#), None);

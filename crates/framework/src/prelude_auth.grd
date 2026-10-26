@@ -111,7 +111,14 @@ final class Auth
             return null;
         }
         [$token, $user] = $found;
-        $token->update(['last_used_at' => new \DateTimeImmutable()]);
+        // DBP1: note the use at most every `auth.token_touch_seconds` (default 60;
+        // 0 = every request, as Sanctum): a read-only request then writes nothing
+        $every = (int) Config::get('auth.token_touch_seconds', 60);
+        $last = $token->last_used_at ?? null;
+        $now = new \DateTimeImmutable();
+        if ($every <= 0 || $last === null || $now->getTimestamp() - $last->getTimestamp() >= $every) {
+            $token->update(['last_used_at' => $now]);
+        }
         return $user;
     }
 
