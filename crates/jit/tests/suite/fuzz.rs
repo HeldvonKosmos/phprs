@@ -408,14 +408,14 @@ fn object_program(rng: &mut Rng) -> String {
     let mut g = Gen { rng: &mut *rng, ints: vec!["$this->n".into(), "$o->n".into()], floats: vec!["$this->x".into(), "$o->x".into(), "$o->y".into()], int_div: false };
     let (mx, my, mn, near) = (g.float(2), g.float(1), g.int(2), g.bool(2));
     src.push_str(&format!(
-        "class P {{\n  public float $z;\n  public bool $flag = false;\n  public function __construct(public float $x, public float $y, public int $n) {{}}\n  public function sum(): float {{ return {sum}; }}\n  public function ni(): int {{ return {ni}; }}\n  public function make(P $o): P {{ return new P({mx}, {my}, {mn}); }}\n  public function near(P $o): bool {{ return {near}; }}\n  public function withZ(): float {{ return $this->z + $this->x; }}\n  public function flagged(): bool {{ return $this->flag; }}\n}}\n"
+        "class P {{\n  public float $z;\n  public bool $flag = false;\n  public function __construct(public float $x, public float $y, public int $n) {{}}\n  public function sum(): float {{ return {sum}; }}\n  public function ni(): int {{ return {ni}; }}\n  public function make(P $o): P {{ return new P({mx}, {my}, {mn}); }}\n  public function near(P $o): bool {{ return {near}; }}\n  public function withZ(): float {{ return $this->z + $this->x; }}\n  public function flagged(): bool {{ return $this->flag; }}\n  public function setFlag(bool $f): P {{ $this->flag = $f; return $this; }}\n  public function shift(float $d): P {{ $this->x = $this->x + $d; return $this; }}\n  public function bumpN(int $k): int {{ $this->n = $this->n + 1; return $this->n * $k; }}\n  public function t(): int {{ return (new T($this->n))->v; }}\n}}\n"
     ));
     let over = if rng.below(2) == 0 { "  public function sum(): float { return $this->x * 2.0 + (float) $this->extra; }\n" } else { "" };
     src.push_str(&format!("class Q extends P {{\n  public int $extra = 3;\n{over}  public function more(): int {{ return $this->extra + $this->n; }}\n}}\n"));
     let mut g = Gen { rng: &mut *rng, ints: vec!["$this->a".into(), "$k".into()], floats: vec!["$this->b".into()], int_div: false };
     let (fa, fb) = (g.int(2), g.float(2));
     src.push_str(&format!(
-        "final class F {{\n  public function __construct(public int $a, public float $b, public bool $c) {{}}\n  public function bump(int $k): F {{ return new F({fa}, {fb}, !$this->c); }}\n  public function wide(): F {{ return new F($this->a, $this->a, $this->c); }}\n  public function val(): float {{ return $this->b + (float) $this->a; }}\n}}\n"
+        "final class F {{\n  public function __construct(public int $a, public float $b, public bool $c) {{}}\n  public function bump(int $k): F {{ return new F({fa}, {fb}, !$this->c); }}\n  public function wide(): F {{ return new F($this->a, $this->a, $this->c); }}\n  public function val(): float {{ return $this->b + (float) $this->a; }}\n  private int $seen = 0;\n  public function seen(): int {{ return $this->seen + $this->a; }}\n}}\n"
     ));
     src.push_str("final class RO {\n  public function __construct(public readonly int $v) {}\n  public function next(): RO { return new RO($this->v + 1); }\n}\n");
     let lim = rng.pick(&["5", "50", "500"]);
@@ -430,7 +430,7 @@ fn object_program(rng: &mut Rng) -> String {
         "$ps = [new P({x0}, {y0}, {n0}), new Q({x1}, 0.25, {n1}), new P({x2}, -2.5, {n2})];\n$f = new F({a0}, {b0}, true);\n$r = new RO({r0});\n$m = $ps[0];\n"
     ));
     src.push_str(&format!(
-        "for ($i = 0; $i < {iters}; $i++) {{\n  try {{\n    $p = $ps[$i % 3];\n    if ($i % 5 === {zk}) {{ $p->z = 0.5 * $i; }}\n    $s = $p->sum();\n    $k = $p->ni();\n    $m = $p->make($ps[($i + 1) % 3]);\n    $f = $f->bump($i % 4);\n    if ($i % 3 === 0) {{ $f = $f->wide(); }}\n    $r = $r->next();\n    echo $i, ' ', $s, ' ', $k, ' ', $m->x, ' ', $m->n, ' ', var_export($p->near($m), true), ' ', var_export($p->flagged(), true), ' ', $f->val(), ' ', $r->v, \"\\n\";\n    echo $p->withZ(), \"\\n\";\n  }} catch (Throwable $e) {{ echo $i, ' ', get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n}}\n"
+        "for ($i = 0; $i < {iters}; $i++) {{\n  try {{\n    $p = $ps[$i % 3];\n    if ($i % 5 === {zk}) {{ $p->z = 0.5 * $i; }}\n    $s = $p->sum();\n    $k = $p->ni();\n    $m = $p->make($ps[($i + 1) % 3]);\n    $f = $f->bump($i % 4);\n    if ($i % 3 === 0) {{ $f = $f->wide(); }}\n    $r = $r->next();\n    echo $i, ' ', $s, ' ', $k, ' ', $m->x, ' ', $m->n, ' ', var_export($p->near($m), true), ' ', var_export($p->flagged(), true), ' ', $f->val(), ' ', $r->v, \"\\n\";\n    echo $p->withZ(), \"\\n\";\n    if ($i % 4 === 1) {{ echo $p->setFlag($i % 8 === 1)->shift(0.5)->x, ' ', $p->bumpN(3), ' ', $f->seen(), \"\\n\"; }}\n    if ($i % 6 === 2) {{ echo $p->t(), \"\\n\"; }}\n  }} catch (Throwable $e) {{ echo $i, ' ', get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\n}}\n"
     ));
     let t = rng.pick(&["3", "40", "400"]);
     src.push_str(&format!("try {{ echo $ps[1]->more(), ' ', mk({t})->v, \"\\n\"; }} catch (Throwable $e) {{ echo get_class($e), ': ', $e->getMessage(), \"\\n\"; }}\nvar_dump($m, $f);\necho spl_object_id($r), \"\\n\";\n"));
@@ -468,4 +468,6 @@ fn interpreter_and_jit_agree_on_object_programs() {
     }
     eprintln!("object differential test: {exceptions} programs with exceptions, {compiled_total} compiled functions/loops");
     assert!(exceptions > cases / 5, "only {exceptions} of {cases} programs raised an exception");
+    // JITO1: the methods must actually run as compiled code
+    assert!(compiled_total >= cases as usize * 5, "only {compiled_total} compiled units in {cases} programs");
 }

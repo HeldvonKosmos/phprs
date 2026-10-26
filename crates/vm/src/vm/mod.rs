@@ -222,6 +222,10 @@ pub struct Vm {
     pub(crate) jit_loops: FastMap<(usize, usize), jit::JitSlotState>,
     /// Reused state buffer for JIT calls.
     pub(crate) jit_buf: Vec<u64>,
+    /// JITO1: class of `$this` for the next compile request (methods).
+    pub(crate) jit_this: Option<u32>,
+    /// JITO1: class table for the JIT and the class count it was built for.
+    pub(crate) jit_class_table: Option<(usize, std::sync::Arc<jit::JitClasses>)>,
     /// (calls, back-edges) before compiling.
     pub(crate) jit_hot: (u32, u32),
     pub(crate) enum_cases: FastMap<(ClassId, Vec<u8>), ObjHandle>,
@@ -289,6 +293,8 @@ impl Vm {
             jit_funcs: Vec::new(),
             jit_loops: Default::default(),
             jit_buf: Vec::new(),
+            jit_this: None,
+            jit_class_table: None,
             jit_hot: (jit::JIT_HOT_CALLS, jit::JIT_HOT_BACKEDGES),
             enum_cases: Default::default(),
             static_values: Vec::new(),

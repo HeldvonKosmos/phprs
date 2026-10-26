@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 
-use grd_vm::bytecode::{BinOp, CodeUnit, Const, Init, Module, Op, TypeHint, UnOp, WriteMode};
-use grd_vm::vm::jit::{Callee, KIND_ARRAY, KIND_BOOL, KIND_FLOAT, KIND_INT, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_OTHER, TAG_UNSET};
+use grd_vm::bytecode::{BinOp, ClassRef, CodeUnit, Const, Init, Module, Op, PathBase, PathSeg, TypeHint, UnOp, WriteMode};
+use grd_vm::vm::jit::{Callee, JitClasses, JitTy, KIND_ARRAY, KIND_BOOL, KIND_FLOAT, KIND_INT, TAG_ARRAY, TAG_BOOL, TAG_FLOAT, TAG_INT, TAG_OBJECT, TAG_OTHER, TAG_UNSET};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Ty {
@@ -19,14 +19,17 @@ pub enum Ty {
     /// JIT2b: an array, read only in compiled code (the address of its
     /// `PhpArray`, borrowed from a slot, a parameter or an outer array).
     Arr,
+    /// JITO1: an object of this class or a subclass (its handle), never null;
+    /// only in whole functions.
+    Obj(u32),
 }
 
 impl Ty {
     pub fn numeric(self) -> bool {
-        !matches!(self, Ty::Bool | Ty::Arr)
+        !matches!(self, Ty::Bool | Ty::Arr | Ty::Obj(_))
     }
     pub fn scalar(self) -> bool {
-        !matches!(self, Ty::Arr)
+        !matches!(self, Ty::Arr | Ty::Obj(_))
     }
     pub fn join(self, o: Ty) -> Option<Ty> {
         if self == o {
@@ -44,6 +47,22 @@ impl Ty {
             Ty::Bool => TAG_BOOL,
             Ty::Num => TAG_OTHER,
             Ty::Arr => TAG_ARRAY,
+            Ty::Obj(_) => TAG_OBJECT,
+        }
+    }
+    pub fn from_jit(t: JitTy) -> Ty {
+        match t {
+            JitTy::Int => Ty::Int,
+            JitTy::Float => Ty::Float,
+            JitTy::Bool => Ty::Bool,
+            JitTy::Obj(c) => Ty::Obj(c),
+        }
+    }
+    /// A declared type, classes included (JITO1).
+    pub fn from_decl(h: &TypeHint, module: &Module, classes: &JitClasses) -> Option<Ty> {
+        match h {
+            TypeHint::Class(name) => classes.lookup(module.str(*name)).map(Ty::Obj),
+            h => Ty::from_hint(h),
         }
     }
     pub fn from_tag(t: u64) -> Option<Ty> {
@@ -94,6 +113,11 @@ impl Def {
 pub struct State {
     pub def: Vec<Def>,
     pub stack: Vec<Ty>,
+    /// JITO1: an effect the interpreter could see (an object allocated, a
+    /// property written) may have happened before this op. A whole function
+    /// is rerun by the interpreter when it leaves, so after an effect no op
+    /// may leave (JITD2 §8a V3).
+    pub effect: bool,
 }
 
 /// Signature of a function that can be called natively.
@@ -142,6 +166,11 @@ pub struct Analysis {
     pub dim_ty: HashMap<usize, Ty>,
     /// For whole functions: parameter and return types.
     pub sig: Option<Sig>,
+    /// JITO1: property reads (slot, type), writes (slot) and `new` (class,
+    /// (type, slot) per promoted parameter), by ip.
+    pub props: HashMap<usize, (u32, Ty)>,
+    pub stores: HashMap<usize, u32>,
+    pub news: HashMap<usize, (u32, Vec<(Ty, u32)>)>,
 }
 
 pub struct Ctx<'a> {
@@ -153,19 +182,24 @@ pub struct Ctx<'a> {
     /// Profile of the unit: element kinds seen at dim fetches (JIT2b);
     /// empty for callees compiled along (their reads then stay uncompiled).
     pub types: &'a [u8],
+    /// JITO1: class of `$this` (methods), the class table, and whether a
+    /// user function has effects (allocates or writes properties).
+    pub this_class: Option<u32>,
+    pub classes: &'a JitClasses,
+    pub effects_of: &'a dyn Fn(u32, u32) -> bool,
 }
 
 /// Signature from declared types: all parameters int/float/bool, a declared
 /// int/float/bool return type, no variadics/generators. Parameters with a
 /// default are allowed (JIT2a): compiled code is only called with all
 /// arguments, other calls stay in the interpreter.
-pub fn declared_sig(module: &Module, unit: &CodeUnit) -> Option<Sig> {
+pub fn declared_sig(module: &Module, unit: &CodeUnit, classes: &JitClasses) -> Option<Sig> {
     if unit.is_generator || unit.params.iter().any(|p| p.variadic || p.promote.is_some()) {
         return None;
     }
-    let params = unit.params.iter().map(|p| p.ty.as_ref().and_then(Ty::from_hint)).collect::<Option<Vec<_>>>()?;
-    // arrays only as parameters: compiled code returns scalars
-    let ret = unit.return_type.as_ref().and_then(Ty::from_hint).filter(|t| t.scalar())?;
+    let params = unit.params.iter().map(|p| p.ty.as_ref().and_then(|h| Ty::from_decl(h, module, classes))).collect::<Option<Vec<_>>>()?;
+    // arrays only as parameters: compiled code returns scalars and objects
+    let ret = unit.return_type.as_ref().and_then(|h| Ty::from_decl(h, module, classes)).filter(|t| *t != Ty::Arr)?;
     let defaults = unit
         .params
         .iter()
@@ -185,6 +219,33 @@ pub fn declared_sig(module: &Module, unit: &CodeUnit) -> Option<Sig> {
 }
 
 type Fail = ();
+
+/// Whether a binary op leaves compiled code on some input (a guard).
+fn bin_exits(op: BinOp, a: Ty, b: Ty) -> bool {
+    match op {
+        BinOp::Add | BinOp::Sub | BinOp::Mul => a != Ty::Float && b != Ty::Float,
+        BinOp::Div | BinOp::Mod => true,
+        _ => false,
+    }
+}
+
+/// A value of type `v` may be stored where `want` is declared without a
+/// conversion (JITO1: property writes, which leave the value on the stack).
+fn same_or_sub(classes: &JitClasses, want: Ty, v: Ty) -> bool {
+    match (want, v) {
+        (Ty::Obj(k), Ty::Obj(d)) => classes.is_sub(d, k),
+        _ => want == v && v != Ty::Num,
+    }
+}
+
+/// A value of type `v` may be passed for a parameter of type `want`
+/// (int is widened to float).
+fn fits_param(classes: &JitClasses, want: Ty, v: Ty) -> bool {
+    match (want, v) {
+        (Ty::Float, Ty::Int | Ty::Num) => true,
+        _ => same_or_sub(classes, want, v),
+    }
+}
 
 fn num_result(op: BinOp, a: Ty, b: Ty) -> Result<Ty, Fail> {
     use BinOp::*;
@@ -234,7 +295,7 @@ fn const_ty(c: &Const) -> Option<Ty> {
 /// Analyse `lo..=hi` entered at `entry` with the given entry slot tags.
 pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64], whole: bool) -> Option<Analysis> {
     let n_slots = cx.unit.num_slots as usize;
-    let sig = if whole { Some(declared_sig(cx.module, cx.unit)?) } else { None };
+    let sig = if whole { Some(declared_sig(cx.module, cx.unit, cx.classes)?) } else { None };
     // flow-insensitive slot types, iterated to a fixpoint together with the flow analysis
     let mut slot_ty: Vec<Option<Ty>> = vec![None; n_slots];
     let mut entry_def = vec![Def::No; n_slots];
@@ -256,10 +317,11 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
     for _round in 0..8 {
         let before = slot_ty.clone();
         let mut states: Vec<Option<State>> = vec![None; hi + 1];
-        states[entry] = Some(State { def: entry_def.clone(), stack: Vec::new() });
+        states[entry] = Some(State { def: entry_def.clone(), stack: Vec::new(), effect: false });
         let mut work = vec![entry];
         let mut calls = HashMap::new();
         let mut dim_ty = HashMap::new();
+        let (mut props, mut stores, mut news) = (HashMap::new(), HashMap::new(), HashMap::new());
         let mut max_stack = 0usize;
         // slots the region touches: they must not be "other" at entry
         while let Some(ip) = work.pop() {
@@ -269,6 +331,8 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
             let mut s = st.clone();
             let mut succ: Vec<usize> = Vec::new();
             let mut falls = true;
+            // this op may leave compiled code / has a visible effect (JITO1)
+            let (mut exits, mut effect) = (false, false);
             macro_rules! pop {
                 () => {
                     s.stack.pop()?
@@ -290,8 +354,9 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                         return None;
                     }
                     let t: Ty = $t;
-                    // arrays are read only: a slot keeps the array it had at entry
-                    if !t.scalar() {
+                    // arrays are read only: a slot keeps the array it had at entry;
+                    // objects only in whole functions (loop exits carry no handles)
+                    if t == Ty::Arr || (!whole && matches!(t, Ty::Obj(_))) {
                         return None;
                     }
                     // GRD021 (D10): a local keeps its type; a store of another
@@ -328,33 +393,40 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let y = pop!();
                     let x = pop!();
                     s.stack.push(num_result(*b, x, y).ok()?);
+                    exits = bin_exits(*b, x, y);
                 }
                 Op::BinSS { a, b, op: bop } => {
                     let (x, y) = (load!(*a), load!(*b));
                     s.stack.push(num_result(*bop, x, y).ok()?);
+                    exits = bin_exits(*bop, x, y);
                 }
                 Op::BinSI { a, op: bop, .. } => {
                     let x = load!(*a);
                     s.stack.push(num_result(*bop, x, Ty::Int).ok()?);
+                    exits = bin_exits(*bop, x, Ty::Int);
                 }
                 Op::BinSC { a, c, op: bop } => {
                     let x = load!(*a);
                     let y = const_ty(cx.module.consts.get(*c as usize)?)?;
                     s.stack.push(num_result(*bop, x, y).ok()?);
+                    exits = bin_exits(*bop, x, y);
                 }
                 Op::BinTS { s: sl, op: bop } => {
                     let y = load!(*sl);
                     let x = pop!();
                     s.stack.push(num_result(*bop, x, y).ok()?);
+                    exits = bin_exits(*bop, x, y);
                 }
                 Op::BinTI { op: bop, .. } => {
                     let x = pop!();
                     s.stack.push(num_result(*bop, x, Ty::Int).ok()?);
+                    exits = bin_exits(*bop, x, Ty::Int);
                 }
                 Op::BinTC { c, op: bop } => {
                     let x = pop!();
                     let y = const_ty(cx.module.consts.get(*c as usize)?)?;
                     s.stack.push(num_result(*bop, x, y).ok()?);
+                    exits = bin_exits(*bop, x, y);
                 }
                 Op::JumpUnlessSS { a, b, op: bop, target } => {
                     let (x, y) = (load!(*a), load!(*b));
@@ -398,6 +470,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     if !x.scalar() {
                         return None;
                     }
+                    exits = matches!(u, UnOp::Neg) && matches!(x, Ty::Int | Ty::Num);
                     s.stack.push(match u {
                         UnOp::Neg | UnOp::Plus if x.numeric() => x,
                         UnOp::Not => Ty::Bool,
@@ -413,6 +486,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                         return None;
                     }
                     store!(*slot, t);
+                    exits = t != Ty::Float;
                     if matches!(op, Op::IncSlot { .. }) {
                         s.stack.push(t);
                     }
@@ -424,6 +498,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     if r == Ty::Bool {
                         return None;
                     }
+                    exits = bin_exits(*bop, x, y);
                     store!(*slot, r);
                     if !*discard {
                         s.stack.push(slot_ty[*slot as usize]?);
@@ -432,10 +507,12 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                 Op::Return => {
                     let t = pop!();
                     if let Some(sig) = &sig {
+                        exits = sig.ret == Ty::Int && t == Ty::Num;
                         let ok = match (sig.ret, t) {
                             (Ty::Int, Ty::Int | Ty::Num) => true,
                             (Ty::Float, Ty::Int | Ty::Float | Ty::Num) => true,
                             (Ty::Bool, Ty::Bool) => true,
+                            (Ty::Obj(c), Ty::Obj(d)) => cx.classes.is_sub(d, c),
                             _ => false,
                         };
                         if !ok {
@@ -457,6 +534,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let t = Ty::from_kinds(*cx.types.get(ip)?)?;
                     dim_ty.insert(ip, t);
                     s.stack.push(t);
+                    exits = true;
                 }
                 Op::FetchDimS(k) => {
                     let key = load!(*k);
@@ -466,6 +544,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let t = Ty::from_kinds(*cx.types.get(ip)?)?;
                     dim_ty.insert(ip, t);
                     s.stack.push(t);
+                    exits = true;
                 }
                 Op::FetchDim => {
                     let key = pop!();
@@ -475,6 +554,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let t = Ty::from_kinds(*cx.types.get(ip)?)?;
                     dim_ty.insert(ip, t);
                     s.stack.push(t);
+                    exits = true;
                 }
                 Op::CallFuncId { id, spec } => {
                     let aspec = cx.unit.arg_specs.get(*spec as usize)?;
@@ -488,12 +568,18 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     let args: Vec<Ty> = s.stack.split_off(s.stack.len() - n);
                     let (kind, ret) = match cx.functions.get(id.0 as usize)? {
                         Callee::Native(name) => match (name.as_str(), args.as_slice()) {
-                            ("intdiv", [Ty::Int, Ty::Int]) => (CallKind::IntDiv, Ty::Int),
+                            ("intdiv", [Ty::Int, Ty::Int]) => {
+                                exits = true;
+                                (CallKind::IntDiv, Ty::Int)
+                            }
                             ("max", [Ty::Int, Ty::Int]) => (CallKind::Max, Ty::Int),
                             ("max", [Ty::Float, Ty::Float]) => (CallKind::Max, Ty::Float),
                             ("min", [Ty::Int, Ty::Int]) => (CallKind::Min, Ty::Int),
                             ("min", [Ty::Float, Ty::Float]) => (CallKind::Min, Ty::Float),
-                            ("abs", [Ty::Int]) => (CallKind::Abs, Ty::Int),
+                            ("abs", [Ty::Int]) => {
+                                exits = true;
+                                (CallKind::Abs, Ty::Int)
+                            }
                             ("abs", [Ty::Float]) => (CallKind::Abs, Ty::Float),
                             ("count", [Ty::Arr]) => (CallKind::Count, Ty::Int),
                             _ => return None,
@@ -507,6 +593,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                             for (p, a) in sig.params.iter().zip(&args) {
                                 let ok = match (p, a) {
                                     (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Float, Ty::Float | Ty::Int) | (Ty::Arr, Ty::Arr) => true,
+                                    (Ty::Obj(c), Ty::Obj(d)) => cx.classes.is_sub(*d, *c),
                                     _ => false,
                                 };
                                 if !ok {
@@ -514,14 +601,76 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                                 }
                             }
                             let ret = sig.ret;
+                            if !whole && matches!(ret, Ty::Obj(_)) {
+                                return None;
+                            }
+                            // the callee may leave (the caller then leaves too) and
+                            // may have effects of its own
+                            exits = true;
+                            effect = (cx.effects_of)(*module, *unit);
                             (CallKind::User { module: *module, unit: *unit, sig }, ret)
                         }
                     };
                     calls.insert(ip, kind);
                     s.stack.push(ret);
                 }
+                // JITO1: `$this` in a method
+                Op::LoadThis if whole => s.stack.push(Ty::Obj(cx.this_class?)),
+                // JITO1: a typed property of an object of known class; an unset
+                // slot leaves compiled code before the op
+                Op::FetchPropSel(sel) if whole => {
+                    let Ty::Obj(c) = pop!() else { return None };
+                    let p = cx.classes.prop(c, sel.0)?;
+                    if !p.public && !(cx.this_class == Some(c) && cx.classes.get(c)?.is_final) {
+                        return None;
+                    }
+                    let t = Ty::from_jit(p.ty);
+                    props.insert(ip, (p.slot, t));
+                    s.stack.push(t);
+                    exits = true;
+                }
+                // JITO1: `$this->p = v` with a value of exactly the declared type
+                Op::StorePath(path) if whole && path.base == PathBase::This && path.mode == WriteMode::Assign => {
+                    let [PathSeg::PropSel(sel)] = path.segs.as_slice() else { return None };
+                    let c = cx.this_class?;
+                    let p = cx.classes.prop(c, sel.0)?;
+                    if p.readonly || (!p.public && !cx.classes.get(c)?.is_final) {
+                        return None;
+                    }
+                    let v = *s.stack.last()?;
+                    if !same_or_sub(cx.classes, Ty::from_jit(p.ty), v) {
+                        return None;
+                    }
+                    stores.insert(ip, p.slot);
+                    effect = true;
+                }
+                // JITO1: `new C(...)` when C's constructor only promotes its
+                // parameters; the object limit leaves compiled code before the op
+                Op::New { class: ClassRef::Id(cid), spec } if whole => {
+                    let aspec = cx.unit.arg_specs.get(*spec as usize)?;
+                    if !aspec.is_simple() {
+                        return None;
+                    }
+                    let n = aspec.count();
+                    if s.stack.len() < n {
+                        return None;
+                    }
+                    let args: Vec<Ty> = s.stack.split_off(s.stack.len() - n);
+                    let params: Vec<(Ty, u32)> = cx.classes.get(cid.0)?.new.as_ref()?.iter().map(|(t, slot)| (Ty::from_jit(*t), *slot)).collect();
+                    if params.len() != n || params.iter().zip(&args).any(|((t, _), a)| !fits_param(cx.classes, *t, *a)) {
+                        return None;
+                    }
+                    news.insert(ip, (cid.0, params));
+                    s.stack.push(Ty::Obj(cid.0));
+                    exits = true;
+                    effect = true;
+                }
                 _ => return None,
             }
+            if whole && st.effect && exits {
+                return None;
+            }
+            s.effect |= effect;
             max_stack = max_stack.max(s.stack.len());
             if falls {
                 succ.push(ip + 1);
@@ -543,6 +692,10 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                             return None;
                         }
                         let mut changed = false;
+                        if s.effect && !old.effect {
+                            old.effect = true;
+                            changed = true;
+                        }
                         for (a, b) in old.stack.iter_mut().zip(&s.stack) {
                             let j = a.join(*b)?;
                             if j != *a {
@@ -578,7 +731,7 @@ pub fn analyse(cx: &Ctx, lo: usize, hi: usize, entry: usize, entry_tags: &[u64],
                     needs_flag[i] = true;
                 }
             }
-            return Some(Analysis { lo, hi, entry, states, slot_ty, needs_flag, max_stack, calls, dim_ty, sig });
+            return Some(Analysis { lo, hi, entry, states, slot_ty, needs_flag, max_stack, calls, dim_ty, sig, props, stores, news });
         }
     }
     None

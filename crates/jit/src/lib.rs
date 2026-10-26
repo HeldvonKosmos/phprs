@@ -29,7 +29,8 @@ use cranelift_module::{FuncId, Module as _};
 
 use grd_vm::bytecode::{Module, Op};
 use grd_vm::value::{PhpArray, Val};
-use grd_vm::vm::jit::{Callee, CompileRequest, JitBackend, JitCode, JitStatus, TAG_ARRAY};
+use grd_vm::vm::Vm;
+use grd_vm::vm::jit::{Callee, CompileRequest, JitBackend, JitClasses, JitCode, JitStatus, TAG_ARRAY, TAG_OBJECT};
 
 // ---- runtime functions (JIT2b) ----------------------------------------------
 //
@@ -56,23 +57,92 @@ extern "C" fn grd_rt_count(arr: u64) -> i64 {
     a.len() as i64
 }
 
+// ---- runtime functions for objects (JITO1) -----------------------------------
+//
+// Compiled code holds objects as their handle (`TAG_OBJECT`) and passes the
+// VM it runs for through to these functions: `CraneliftJit::run` gets
+// `&mut Vm` from the VM (which has taken the backend out of itself, so
+// nothing else refers to the VM while compiled code runs) and hands it to
+// the code as a raw pointer, unchanged down every native call. Each function
+// below makes one short-lived reference from it; none is alive when it
+// returns, so the references never overlap. The logic lives in safe code in
+// grd-vm (`Vm::jit_prop_get`, `jit_prop_set`, `jit_new`), which checks
+// handles and slots itself.
+
+/// `$obj->prop`: kind (`KIND_*`), bits written to `out`.
+pub extern "C" fn grd_rt_prop_get(vm: *mut Vm, h: u64, slot: u64, out: *mut u64) -> u64 {
+    // SAFETY: `vm` is the VM of the running code (see above), only read
+    // here; `out` points at an 8-byte stack slot of the calling code.
+    let (kind, bits) = unsafe { &*vm }.jit_prop_get(h, slot);
+    unsafe { *out = bits };
+    kind
+}
+
+/// `$this->prop = value` (type, visibility, readonly checked by the analysis).
+pub extern "C" fn grd_rt_prop_set(vm: *mut Vm, h: u64, slot: u64, tag: u64, bits: u64) {
+    // SAFETY: `vm` is the VM of the running code (see above); this is the
+    // only reference to it while the call lasts.
+    unsafe { &mut *vm }.jit_prop_set(h, slot, tag, bits);
+}
+
+/// `new C(...)`: `args` holds `n` (slot, tag, bits) triples; returns the
+/// handle, or 0 if nothing was done (compiled code then leaves).
+pub extern "C" fn grd_rt_new(vm: *mut Vm, class: u64, args: *const u64, n: u64) -> u64 {
+    // SAFETY: `args` points at a stack slot of the calling code with 3 * n
+    // initialized words (codegen `Op::New`); `vm` as above, the only
+    // reference to the VM while the call lasts.
+    let args = unsafe { std::slice::from_raw_parts(args, 3 * n as usize) };
+    unsafe { &mut *vm }.jit_new(class as u32, args)
+}
+
 /// The runtime functions, imported into the function being built.
 fn runtime(module: &mut JITModule, b: &mut FunctionBuilder) -> Option<codegen::Runtime> {
     use cranelift_codegen::ir::{types, AbiParam};
-    let mut dim = module.make_signature();
-    dim.params.extend([AbiParam::new(types::I64), AbiParam::new(types::I64), AbiParam::new(types::I64)]);
-    dim.returns.push(AbiParam::new(types::I64));
-    let mut count = module.make_signature();
-    count.params.push(AbiParam::new(types::I64));
-    count.returns.push(AbiParam::new(types::I64));
-    let fd = module.declare_function("grd_rt_dim", cranelift_module::Linkage::Import, &dim).ok()?;
-    let fc = module.declare_function("grd_rt_count", cranelift_module::Linkage::Import, &count).ok()?;
-    Some(codegen::Runtime { dim: module.declare_func_in_func(fd, b.func), count: module.declare_func_in_func(fc, b.func) })
+    let sig = |module: &mut JITModule, params: usize, ret: bool| {
+        let mut s = module.make_signature();
+        s.params.extend((0..params).map(|_| AbiParam::new(types::I64)));
+        if ret {
+            s.returns.push(AbiParam::new(types::I64));
+        }
+        s
+    };
+    let mut import = |module: &mut JITModule, name: &str, params: usize, ret: bool| -> Option<cranelift_codegen::ir::FuncRef> {
+        let s = sig(module, params, ret);
+        let f = module.declare_function(name, cranelift_module::Linkage::Import, &s).ok()?;
+        Some(module.declare_func_in_func(f, b.func))
+    };
+    Some(codegen::Runtime {
+        dim: import(module, "grd_rt_dim", 3, true)?,
+        count: import(module, "grd_rt_count", 1, true)?,
+        prop_get: import(module, "grd_rt_prop_get", 4, true)?,
+        prop_set: import(module, "grd_rt_prop_set", 5, false)?,
+        new: import(module, "grd_rt_new", 4, true)?,
+    })
 }
 
 fn runtime_symbols(b: &mut JITBuilder) {
     b.symbol("grd_rt_dim", grd_rt_dim as *const u8);
     b.symbol("grd_rt_count", grd_rt_count as *const u8);
+    b.symbol("grd_rt_prop_get", grd_rt_prop_get as *const u8);
+    b.symbol("grd_rt_prop_set", grd_rt_prop_set as *const u8);
+    b.symbol("grd_rt_new", grd_rt_new as *const u8);
+}
+
+/// Whether a user function allocates or writes properties, directly or in
+/// a function it calls (JITO1, V3 rule); unknown depth counts as yes.
+fn unit_effects(modules: &[&Module], functions: &[Callee], m: u32, u: u32, depth: u32) -> bool {
+    if depth > 8 {
+        return true;
+    }
+    let Some(unit) = modules.get(m as usize).and_then(|x| x.units.get(u as usize)) else { return true };
+    unit.ops.iter().any(|op| match op {
+        Op::New { .. } | Op::StorePath(_) => true,
+        Op::CallFuncId { id, .. } => match functions.get(id.0 as usize) {
+            Some(Callee::User { module, unit: cu }) => (*module, *cu) != (m, u) && unit_effects(modules, functions, *module, *cu, depth + 1),
+            _ => false,
+        },
+        _ => false,
+    })
 }
 
 use analysis::{analyse, declared_sig, Analysis, CallKind, Ctx, Sig};
@@ -117,6 +187,12 @@ struct NativeFn {
     param_slots: Vec<u32>,
 }
 
+/// Class each `TAG_OBJECT` parameter must be an instance of (`u32::MAX` for
+/// the others).
+fn param_classes(sig: &Sig) -> Vec<u32> {
+    sig.params.iter().map(|t| if let analysis::Ty::Obj(c) = t { *c } else { u32::MAX }).collect()
+}
+
 /// Layout facts of compiled code; both tiers must agree on them, because the
 /// VM fills the state buffer once and either tier's code may read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +200,7 @@ pub(crate) struct Meta {
     buf_words: usize,
     guards: Vec<(u32, u64)>,
     params: Vec<u64>,
+    param_classes: Vec<u32>,
 }
 
 /// A compile request with plain module references, so that the same
@@ -140,6 +217,8 @@ pub(crate) struct Req<'a> {
     /// Element kinds at the dim fetches, `[module][unit][ip]`.
     types: &'a [Vec<Vec<u8>>],
     force: ForceExit,
+    this_class: Option<u32>,
+    classes: &'a JitClasses,
 }
 
 /// One Cranelift module at one optimisation level. `prog` identifies the
@@ -197,9 +276,12 @@ impl Compiler {
         let unit = &m.units[unit_id as usize];
         let whole = end.is_none();
         let prog = self.prog;
-        let sig_of = |mi: u32, ui: u32| -> Option<Sig> { declared_sig(&req.modules[mi as usize], &req.modules[mi as usize].units[ui as usize]) };
+        let sig_of = |mi: u32, ui: u32| -> Option<Sig> { declared_sig(req.modules[mi as usize], &req.modules[mi as usize].units[ui as usize], req.classes) };
+        let effects_of = |mi: u32, ui: u32| unit_effects(&req.modules, req.functions, mi, ui, 0);
+        // only the requested unit is a method; callees compiled along are functions
+        let this_class = if (module, unit_id) == (req.module, req.unit) { req.this_class } else { None };
         let types: &[u8] = req.types.get(module as usize).and_then(|m| m.get(unit_id as usize)).map(Vec::as_slice).unwrap_or(&[]);
-        let cx = Ctx { module: m, unit, functions: req.functions, sig_of: &sig_of, types };
+        let cx = Ctx { module: m, unit, functions: req.functions, sig_of: &sig_of, types, this_class, classes: req.classes, effects_of: &effects_of };
         let (lo, hi) = match end {
             None => (0, unit.ops.len().saturating_sub(1)),
             Some(h) => (entry, h),
@@ -282,6 +364,9 @@ impl Compiler {
         let r = self.compile_inner(req, prog);
         if self.log && r.is_some() {
             eprintln!("grd-jit: tier {} took {} µs", self.tier, t0.elapsed().as_micros());
+        } else if self.log {
+            let unit = &req.modules[req.module as usize].units[req.unit as usize];
+            eprintln!("grd-jit: tier {} rejected {} {} at {}", self.tier, if req.end_ip.is_none() { "function" } else { "loop" }, unit.name, req.entry_ip);
         }
         r
     }
@@ -303,10 +388,10 @@ impl Compiler {
         if req.end_ip.is_none()
             && let Some(f) = self.natives.get(&key).cloned()
         {
-            let sig = declared_sig(&req.modules[req.module as usize], unit)?;
+            let sig = declared_sig(req.modules[req.module as usize], unit, req.classes)?;
             self.module.finalize_definitions().ok()?;
             let ptr = self.module.get_finalized_function(f.func) as usize;
-            return Some((ptr, Meta { buf_words: f.buf_words, guards: Vec::new(), params: sig.params.iter().map(|t| t.tag()).collect() }));
+            return Some((ptr, Meta { buf_words: f.buf_words, guards: Vec::new(), params: sig.params.iter().map(|t| t.tag()).collect(), param_classes: param_classes(&sig) }));
         }
         let mut in_progress = Vec::new();
         let (func, an) = self.build(req, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, &mut in_progress)?;
@@ -315,17 +400,17 @@ impl Compiler {
         }
         let ptr = self.module.get_finalized_function(func) as usize;
         let words = buf_words(unit, &an);
-        let (guards, params) = match &an.sig {
-            Some(sig) => (Vec::new(), sig.params.iter().map(|t| t.tag()).collect()),
+        let (guards, params, pclasses) = match &an.sig {
+            Some(sig) => (Vec::new(), sig.params.iter().map(|t| t.tag()).collect(), param_classes(sig)),
             None => {
                 let g = (0..unit.num_slots)
                     .filter(|i| an.slot_ty[*i as usize].is_some())
                     .map(|i| (i, req.entry_tags.get(i as usize).copied().unwrap_or(0)))
                     .collect();
-                (g, Vec::new())
+                (g, Vec::new(), Vec::new())
             }
         };
-        Some((ptr, Meta { buf_words: words, guards, params }))
+        Some((ptr, Meta { buf_words: words, guards, params, param_classes: pclasses }))
     }
 }
 
@@ -451,13 +536,13 @@ impl CraneliftJit {
             hashes.push(*h);
         }
         let names: Vec<String> = req.functions.iter().map(|c| format!("{c:?}")).collect();
-        (arcs, hash_of((&hashes, &names)))
+        (arcs, hash_of((&hashes, &names, &**req.classes)))
     }
 
     fn push_code(&mut self, slot: Arc<CodeSlot>, meta: Meta) -> JitCode {
         let id = self.codes.len() as u32;
         self.codes.push(slot);
-        JitCode { id, buf_words: meta.buf_words, guards: meta.guards, params: meta.params }
+        JitCode { id, buf_words: meta.buf_words, guards: meta.guards, params: meta.params, param_classes: meta.param_classes }
     }
 }
 
@@ -467,14 +552,14 @@ impl JitBackend for CraneliftJit {
         // element kinds of the profile are not part of the key: compiled reads
         // check them at run time, so shared code stays correct for any profile
         // (with them in the key, workers missed each other's tier-2 code)
-        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, self.force));
+        let key = hash_of((prog, req.module, req.unit, req.entry_ip, req.end_ip, req.entry_tags, self.force, req.this_class));
         // another worker (or an earlier VM) already has tier-2 code for it
         if self.tiers.background
             && let Some((ptr, meta)) = service::lookup(key)
         {
             return Some(self.push_code(CodeSlot::new(ptr, 2), meta));
         }
-        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions, types: req.unit_types, force: self.force };
+        let r = Req { modules: req.modules.iter().map(|m| &**m).collect(), module: req.module, unit: req.unit, entry_ip: req.entry_ip, end_ip: req.end_ip, entry_tags: req.entry_tags, functions: req.functions, types: req.unit_types, force: self.force, this_class: req.this_class, classes: req.classes };
         let (ptr, meta) = self.tier1.compile(&r, prog)?;
         let slot = CodeSlot::new(ptr, 1);
         // JIT5: past the process budget, hot code stays at tier 1
@@ -491,6 +576,8 @@ impl JitBackend for CraneliftJit {
                 functions: req.functions.to_vec(),
                 types: req.unit_types.to_vec(),
                 force: self.force,
+                this_class: req.this_class,
+                classes: req.classes.clone(),
                 meta: meta.clone(),
                 slot: slot.clone(),
             };
@@ -507,6 +594,9 @@ impl JitBackend for CraneliftJit {
     }
 
     fn ref_val(&self, tag: u64, bits: u64) -> Option<Val> {
+        if tag == TAG_OBJECT {
+            return Some(Val::Object(grd_vm::value::ObjHandle(bits as u32)));
+        }
         if tag != TAG_ARRAY || bits == 0 {
             return None;
         }
@@ -523,10 +613,10 @@ impl JitBackend for CraneliftJit {
         Some(Val::Array(rc))
     }
 
-    fn run(&mut self, id: u32, buf: &mut [u64]) -> JitStatus {
+    fn run(&mut self, id: u32, buf: &mut [u64], vm: &mut Vm) -> JitStatus {
         let ptr = self.codes[id as usize].ptr.load(Ordering::Acquire);
         // SAFETY: `ptr` is a function finalized by a `Compiler`'s JITModule
-        // with the signature `extern "C" fn(*mut u64) -> i64`
+        // with the signature `extern "C" fn(*mut u64, *mut Vm) -> i64`
         // (codegen::signature, the ISA's default C calling convention): the
         // tier-1 module lives as long as `self`, the tier-2 module as long as
         // the process (background thread, never dropped), and a slot only
@@ -535,8 +625,10 @@ impl JitBackend for CraneliftJit {
         // code reads and writes only words below `JitCode::buf_words`, the
         // length the VM gave `buf` (the background compiler checks the layout
         // before swapping).
-        let f: extern "C" fn(*mut u64) -> i64 = unsafe { std::mem::transmute(ptr) };
-        let status = f(buf.as_mut_ptr());
+        // `vm` goes to the runtime functions only (see "runtime functions for
+        // objects").
+        let f: extern "C" fn(*mut u64, *mut Vm) -> i64 = unsafe { std::mem::transmute(ptr) };
+        let status = f(buf.as_mut_ptr(), vm as *mut Vm);
         if self.log {
             if self.stats.len() <= id as usize {
                 self.stats.resize_with(id as usize + 1, HashMap::new);
@@ -571,5 +663,74 @@ pub fn describe(enabled: bool) -> &'static str {
         (false, _) => "aus (nur Interpreter)",
         (true, false) => "an (Stufe 1, synchron)",
         (true, true) => "an (erweitert: Stufen, Hintergrund-Compiler)",
+    }
+}
+
+/// The runtime functions called directly, without compiled code, so that
+/// Miri can check their `unsafe` blocks (`cargo +nightly miri test -p grd-jit
+/// --lib runtime`); the same tests run in the normal suite.
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+    use grd_vm::value::{ClassId, ObjHandle};
+    use grd_vm::vm::jit::{KIND_FLOAT, KIND_INT, KIND_NONE, KIND_OBJECT, TAG_FLOAT, TAG_INT};
+
+    /// A VM without prelude holding `$v = new V(1.5, 2)` and `$w = new W($v)`.
+    fn vm() -> (Vm, ClassId, ObjHandle, ObjHandle) {
+        let mut vm = Vm::new();
+        let src = "<?grd final class V { public function __construct(public float $x, public int $n) {} }\nfinal class W { public function __construct(public V $v) {} }\n$v = new V(1.5, 2);\n$w = new W($v);\n";
+        vm.run_file("t.grd", src.as_bytes()).expect("program runs");
+        let class = vm.lookup_class(b"V").expect("class V");
+        (vm, class, ObjHandle(1), ObjHandle(2))
+    }
+
+    fn slot(vm: &Vm, class: ClassId, name: &[u8]) -> u64 {
+        *vm.class(class).prop_index.get(name).expect("property") as u64
+    }
+
+    #[test]
+    fn runtime_reads_writes_and_allocates_through_the_vm_pointer() {
+        let (mut vm, v, h, w) = vm();
+        let (sx, sn) = (slot(&vm, v, b"x"), slot(&vm, v, b"n"));
+        let wv = slot(&vm, vm.lookup_class(b"W").unwrap(), b"v");
+        let p: *mut Vm = &mut vm;
+        let mut out = 0u64;
+        assert_eq!(grd_rt_prop_get(p, h.0 as u64, sx, &mut out), KIND_FLOAT);
+        assert_eq!(f64::from_bits(out), 1.5);
+        assert_eq!(grd_rt_prop_get(p, h.0 as u64, sn, &mut out), KIND_INT);
+        assert_eq!(out, 2);
+        assert_eq!(grd_rt_prop_get(p, w.0 as u64, wv, &mut out), KIND_OBJECT);
+        assert_eq!(out, h.0 as u64);
+        // invalid handle, slot past the end: nothing to read, compiled code leaves
+        assert_eq!(grd_rt_prop_get(p, 999, sx, &mut out), KIND_NONE);
+        assert_eq!(grd_rt_prop_get(p, h.0 as u64, 99, &mut out), KIND_NONE);
+        grd_rt_prop_set(p, h.0 as u64, sx, TAG_FLOAT, 4.25f64.to_bits());
+        grd_rt_prop_set(p, 999, sx, TAG_FLOAT, 0);
+        grd_rt_prop_set(p, h.0 as u64, 99, TAG_INT, 0);
+        assert_eq!(grd_rt_prop_get(p, h.0 as u64, sx, &mut out), KIND_FLOAT);
+        assert_eq!(f64::from_bits(out), 4.25);
+        let args = [sx, TAG_FLOAT, 0.5f64.to_bits(), sn, TAG_INT, 7];
+        let made = grd_rt_new(p, v.0 as u64, args.as_ptr(), 2);
+        assert_eq!(made, 3, "the next handle");
+        assert_eq!(grd_rt_prop_get(p, made, sn, &mut out), KIND_INT);
+        assert_eq!(out, 7);
+        // unknown class: nothing allocated
+        assert_eq!(grd_rt_new(p, 9999, args.as_ptr(), 0), 0);
+        // object limit reached: nothing allocated, the interpreter raises
+        vm.object_limit = vm.objects.len();
+        let p: *mut Vm = &mut vm;
+        assert_eq!(grd_rt_new(p, v.0 as u64, args.as_ptr(), 2), 0);
+        assert_eq!(vm.objects.len(), 3);
+    }
+
+    #[test]
+    fn runtime_reads_arrays() {
+        let a = PhpArray::from_values([Val::Int(4), Val::Float(0.5)]);
+        let mut out = 0u64;
+        let p = &a as *const PhpArray as u64;
+        assert_eq!(grd_rt_dim(p, 1, &mut out), grd_vm::vm::jit::KIND_FLOAT);
+        assert_eq!(f64::from_bits(out), 0.5);
+        assert_eq!(grd_rt_dim(p, 5, &mut out), KIND_NONE);
+        assert_eq!(grd_rt_count(p), 2);
     }
 }

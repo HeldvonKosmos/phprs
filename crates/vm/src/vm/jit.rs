@@ -30,6 +30,10 @@ pub const TAG_BOOL: u64 = 3;
 /// An array (JIT2b): the bits are `Rc::as_ptr` of its `Rc<PhpArray>`. The VM
 /// only hands out the address; reading through it is the backend's job.
 pub const TAG_ARRAY: u64 = 4;
+/// An object (JITO1): the bits are its `ObjHandle`. Handles carry no
+/// reference count and stay valid for the whole request; compiled code
+/// never runs a collection, so a handle it holds cannot go stale.
+pub const TAG_OBJECT: u64 = 5;
 /// Any other value (object, string, null) — only in entry tags.
 pub const TAG_OTHER: u64 = u64::MAX;
 
@@ -41,6 +45,8 @@ pub const KIND_FLOAT: u64 = 2;
 pub const KIND_BOOL: u64 = 4;
 pub const KIND_ARRAY: u64 = 8;
 pub const KIND_OTHER: u64 = 16;
+/// A property read by compiled code that holds an object (JITO1).
+pub const KIND_OBJECT: u64 = 32;
 
 #[inline]
 pub fn elem_kind(v: &crate::value::Val) -> u8 {
@@ -68,9 +74,11 @@ pub fn dim_int(a: &crate::value::PhpArray, key: i64) -> (u64, u64) {
 }
 
 /// Buffer layout in `u64` words: `[0]` exit ip, `[1]` operand-stack depth,
-/// `[2]` return tag, `[3]` return bits, then two words (tag, bits) per slot
-/// of the unit, then two words per operand-stack entry.
-pub const HDR: usize = 4;
+/// `[2]` return tag, `[3]` return bits, `[4]` the handle of `$this` (methods,
+/// JITO1), then two words (tag, bits) per slot of the unit, then two words
+/// per operand-stack entry.
+pub const HDR: usize = 5;
+pub const THIS_WORD: usize = 4;
 
 #[inline]
 pub fn slot_word(slot: usize) -> usize {
@@ -82,6 +90,76 @@ pub fn slot_word(slot: usize) -> usize {
 pub enum Callee {
     User { module: u32, unit: UnitId },
     Native(String),
+}
+
+// ---- classes as compiled code sees them (JITO1) -----------------------------
+
+/// Type of a property or parameter that compiled code can hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum JitTy {
+    Int,
+    Float,
+    Bool,
+    /// An object of this class or a subclass (never null).
+    Obj(u32),
+}
+
+/// A declared property with a type compiled code can hold.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct JitProp {
+    pub slot: u32,
+    pub ty: JitTy,
+    pub public: bool,
+    pub readonly: bool,
+}
+
+/// What compiled code may assume about a linked class. A subclass keeps the
+/// properties of its parent at the same slots and with the same types
+/// (prefix layout, JIT_OBJECTS P0), so a slot found for a class is right for
+/// every object of a subclass too.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct JitClass {
+    pub parent: Option<u32>,
+    pub is_final: bool,
+    /// Property selector → property, sorted by selector.
+    pub props: Vec<(u32, JitProp)>,
+    /// `new` without the interpreter: the class is concrete, not native,
+    /// not throwable, and has no constructor or one that only promotes its
+    /// parameters; one (type, slot) per parameter.
+    pub new: Option<Vec<(JitTy, u32)>>,
+}
+
+/// The classes of a VM for the JIT, indexed by `ClassId`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct JitClasses {
+    pub classes: Vec<JitClass>,
+    /// Lowercase name → id, sorted; classes only (no interfaces, traits, enums).
+    pub by_name: Vec<(Vec<u8>, u32)>,
+}
+
+impl JitClasses {
+    pub fn lookup(&self, name: &[u8]) -> Option<u32> {
+        let n = name.strip_prefix(b"\\").unwrap_or(name).to_ascii_lowercase();
+        self.by_name.binary_search_by(|(k, _)| k.as_slice().cmp(&n)).ok().map(|i| self.by_name[i].1)
+    }
+    /// `d` is `c` or extends it.
+    pub fn is_sub(&self, d: u32, c: u32) -> bool {
+        let mut cur = Some(d);
+        while let Some(k) = cur {
+            if k == c {
+                return true;
+            }
+            cur = self.classes.get(k as usize).and_then(|x| x.parent);
+        }
+        false
+    }
+    pub fn prop(&self, class: u32, sel: u32) -> Option<&JitProp> {
+        let c = self.classes.get(class as usize)?;
+        c.props.binary_search_by_key(&sel, |(s, _)| *s).ok().map(|i| &c.props[i].1)
+    }
+    pub fn get(&self, class: u32) -> Option<&JitClass> {
+        self.classes.get(class as usize)
+    }
 }
 
 pub struct CompileRequest<'a> {
@@ -101,6 +179,9 @@ pub struct CompileRequest<'a> {
     /// JIT2b: element kinds at the dim fetches of every unit,
     /// `[module][unit][ip]`, so that callees compiled along are typed too.
     pub unit_types: &'a [Vec<Vec<u8>>],
+    /// JITO1: the class of `$this` for a method (its declaring class).
+    pub this_class: Option<u32>,
+    pub classes: &'a std::sync::Arc<JitClasses>,
 }
 
 /// A compiled unit or region.
@@ -114,6 +195,9 @@ pub struct JitCode {
     pub guards: Vec<(Slot, u64)>,
     /// Parameter tags of a whole function, in order.
     pub params: Vec<u64>,
+    /// For `TAG_OBJECT` parameters the class the argument must be an
+    /// instance of (`u32::MAX` for the others).
+    pub param_classes: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,7 +212,9 @@ pub enum JitStatus {
 
 pub trait JitBackend {
     fn compile(&mut self, req: &CompileRequest) -> Option<JitCode>;
-    fn run(&mut self, id: u32, buf: &mut [u64]) -> JitStatus;
+    /// Run compiled code; `vm` is handed to the runtime functions the code
+    /// calls (properties, `new`), the backend itself is taken out of it.
+    fn run(&mut self, id: u32, buf: &mut [u64], vm: &mut Vm) -> JitStatus;
     /// Current tier of every compiled code id (diagnostics, tests).
     fn tiers(&self) -> Vec<u8> {
         Vec::new()
@@ -155,7 +241,8 @@ pub const JIT_HOT_BACKEDGES: u32 = 2_000;
 
 // ---- VM side ---------------------------------------------------------------
 
-use crate::value::Val;
+use crate::bytecode::{ClassKind, Op, TypeHint, Visibility};
+use crate::value::{ClassId, ObjHandle, PhpObject, Val};
 
 use super::{FuncRef, Vm};
 
@@ -193,8 +280,26 @@ fn val_of(tag: u64, bits: u64) -> Option<Val> {
         TAG_INT => Some(Val::Int(bits as i64)),
         TAG_FLOAT => Some(Val::Float(f64::from_bits(bits))),
         TAG_BOOL => Some(Val::Bool(bits != 0)),
+        TAG_OBJECT => Some(Val::Object(ObjHandle(bits as u32))),
         _ => None,
     }
+}
+
+/// A parameter or property type as compiled code sees it.
+fn jit_ty(vm: &Vm, hint: Option<&TypeHint>, module: u32) -> Option<JitTy> {
+    Some(match hint? {
+        TypeHint::Int => JitTy::Int,
+        TypeHint::Float => JitTy::Float,
+        TypeHint::Bool => JitTy::Bool,
+        TypeHint::Class(name) => {
+            let c = vm.lookup_class(vm.str_of(module, *name))?;
+            if vm.class(c).kind != ClassKind::Class {
+                return None;
+            }
+            JitTy::Obj(c.0)
+        }
+        _ => return None,
+    })
 }
 
 impl Vm {
@@ -238,24 +343,169 @@ impl Vm {
         let modules = self.modules.clone();
         let profile = self.profiles[ic].clone();
         let unit_types: Vec<Vec<Vec<u8>>> = self.modules.iter().enumerate().map(|(mi, m)| (0..m.units.len()).map(|u| self.profiles[self.ic_base[mi] + u].types.clone()).collect()).collect();
-        let req = CompileRequest { modules: &modules, module, unit, entry_ip, end_ip, entry_tags, functions: &functions, profile: &profile, unit_types: &unit_types };
+        let classes = self.jit_classes();
+        let this_class = self.jit_this.take();
+        let req = CompileRequest { modules: &modules, module, unit, entry_ip, end_ip, entry_tags, functions: &functions, profile: &profile, unit_types: &unit_types, this_class, classes: &classes };
         self.jit.as_mut()?.compile(&req)
+    }
+
+    /// The class table for the JIT, rebuilt when classes were added.
+    fn jit_classes(&mut self) -> std::sync::Arc<JitClasses> {
+        if let Some((n, t)) = &self.jit_class_table
+            && *n == self.classes.len()
+        {
+            return t.clone();
+        }
+        let mut t = JitClasses::default();
+        for (i, c) in self.classes.iter().enumerate() {
+            let id = ClassId(i as u32);
+            let mut props: Vec<(u32, JitProp)> = c
+                .props_by_sel
+                .iter()
+                .filter_map(|(sel, slot)| {
+                    let p = c.props.get(*slot as usize)?;
+                    let ty = jit_ty(self, p.ty.as_ref(), p.module)?;
+                    Some((sel.0, JitProp { slot: *slot, ty, public: p.visibility == Visibility::Public, readonly: p.readonly }))
+                })
+                .collect();
+            props.sort_by_key(|(s, _)| *s);
+            let new = (c.kind == ClassKind::Class && !c.is_abstract && self.native_info(id).is_none() && !self.is_throwable(id)).then(|| self.promoting_ctor(id)).flatten();
+            t.classes.push(JitClass { parent: c.parent.map(|p| p.0), is_final: c.is_final, props, new });
+            if c.kind == ClassKind::Class {
+                t.by_name.push((c.name.to_ascii_lowercase(), i as u32));
+            }
+        }
+        t.by_name.sort();
+        let t = std::sync::Arc::new(t);
+        self.jit_class_table = Some((self.classes.len(), t.clone()));
+        t
+    }
+
+    /// (type, slot) per constructor parameter when the constructor only
+    /// promotes its parameters (or there is none); `None` otherwise.
+    fn promoting_ctor(&self, class: ClassId) -> Option<Vec<(JitTy, u32)>> {
+        let Some(m) = self.class(class).find_method(b"__construct") else { return Some(Vec::new()) };
+        let (Some(u), None, Visibility::Public) = (m.unit, m.native, m.visibility) else { return None };
+        let unit = &self.modules[m.module as usize].units[u as usize];
+        if unit.params.iter().any(|p| p.variadic || p.has_default || p.promote.is_none()) {
+            return None;
+        }
+        let mut out = Vec::new();
+        let mut params = unit.params.iter();
+        for op in &unit.ops {
+            match op {
+                Op::Nop | Op::Line(_) => {}
+                Op::PromoteParam { slot, prop } => {
+                    let p = params.next()?;
+                    if p.slot != *slot {
+                        return None;
+                    }
+                    let idx = *self.class(class).prop_index.get(self.str_of(m.module, *prop))?;
+                    out.push((jit_ty(self, p.ty.as_ref(), m.module)?, idx as u32));
+                }
+                Op::PushNull => {}
+                Op::Return => break,
+                _ => return None,
+            }
+        }
+        (out.len() == unit.params.len()).then_some(out)
+    }
+
+    /// JITO1 runtime read of property `slot` of the object with handle `h`
+    /// for compiled code: (kind, bits) as in the state buffer; `KIND_NONE`
+    /// for an unset slot (compiled code then leaves and the interpreter
+    /// raises the error).
+    pub fn jit_prop_get(&self, h: u64, slot: u64) -> (u64, u64) {
+        let h = ObjHandle(h as u32);
+        if !self.objects.is_valid(h) {
+            return (KIND_NONE, 0);
+        }
+        match self.objects.get(h).slots.get(slot as usize) {
+            Some(Some(Val::Int(i))) => (KIND_INT, *i as u64),
+            Some(Some(Val::Float(f))) => (KIND_FLOAT, f.to_bits()),
+            Some(Some(Val::Bool(b))) => (KIND_BOOL, *b as u64),
+            Some(Some(Val::Object(o))) => (KIND_OBJECT, o.0 as u64),
+            _ => (KIND_NONE, 0),
+        }
+    }
+
+    /// JITO1 property write by compiled code. The analysis has proved type,
+    /// visibility and that the property is not readonly, so there is nothing
+    /// to fail; an invalid handle or slot (a JIT bug) writes nothing.
+    pub fn jit_prop_set(&mut self, h: u64, slot: u64, tag: u64, bits: u64) {
+        let (h, Some(v)) = (ObjHandle(h as u32), val_of(tag, bits)) else { return };
+        if self.objects.is_valid(h)
+            && let Some(s) = self.objects.get_mut(h).slots.get_mut(slot as usize)
+        {
+            *s = Some(v);
+        }
+    }
+
+    /// JITO1 `new C(...)` by compiled code for a class whose constructor
+    /// only promotes its parameters: `args` holds (slot, tag, bits) per
+    /// parameter. Checks first, then allocates: 0 means nothing happened
+    /// (object limit reached, property defaults not evaluated yet) and the
+    /// interpreter runs `new` itself, raising what it raises.
+    pub fn jit_new(&mut self, class: u32, args: &[u64]) -> u64 {
+        let cid = ClassId(class);
+        let Some(c) = self.classes.get(class as usize) else { return 0 };
+        let mut slots = match &c.default_slots {
+            Some(d) => d.clone(),
+            None if c.props.iter().all(|p| p.default.is_none()) => vec![None; c.props.len()],
+            None => return 0,
+        };
+        if self.check_object_limit().is_err() {
+            return 0;
+        }
+        for a in args.chunks_exact(3) {
+            if let (Some(s), Some(v)) = (slots.get_mut(a[0] as usize), val_of(a[1], a[2])) {
+                *s = Some(v);
+            }
+        }
+        let mut obj = PhpObject::new(cid, 0);
+        obj.slots = slots;
+        self.objects.alloc(obj).0 as u64
     }
 
     /// Whole-function call through the JIT: the arguments are the top `n`
     /// values of the operand stack. `Some(value)` if compiled code ran and
     /// returned (the arguments are popped); `None` to call it normally.
     pub(crate) fn jit_call(&mut self, module: u32, unit: UnitId, ic: usize, n: usize) -> Option<Val> {
+        let at = self.stack.len() - n;
+        let out = self.jit_enter(module, unit, ic, None, None, at, n);
+        if out.is_some() {
+            self.stack.truncate(at);
+        }
+        out
+    }
+
+    /// JITO1: a method call through the JIT with `$this` = `this` (method
+    /// declared in `class`); the object and the `n` arguments are on top of
+    /// the operand stack. `Some(value)` if compiled code ran and returned
+    /// (object and arguments are popped); `None` to call it normally.
+    pub(crate) fn jit_call_method(&mut self, module: u32, unit: UnitId, ic: usize, this: ObjHandle, class: ClassId, n: usize) -> Option<Val> {
+        let at = self.stack.len() - n;
+        let out = self.jit_enter(module, unit, ic, Some(this), Some(class.0), at, n);
+        if out.is_some() {
+            self.stack.truncate(at - 1);
+        }
+        out
+    }
+
+    /// Compile when hot, then fill the state buffer from `stack[at..at+n]`
+    /// and run; the stack is left as it is.
+    #[allow(clippy::too_many_arguments)]
+    fn jit_enter(&mut self, module: u32, unit: UnitId, ic: usize, this: Option<ObjHandle>, this_class: Option<u32>, at: usize, n: usize) -> Option<Val> {
         if matches!(self.jit_funcs[ic], JitSlotState::Untried) {
             if self.profiles[ic].calls < self.jit_hot.0 {
                 return None;
             }
             let num_slots = self.modules[module as usize].units[unit as usize].num_slots as usize;
-            let at = self.stack.len() - n;
             let mut tags = vec![TAG_UNSET; num_slots];
             for (i, p) in self.modules[module as usize].units[unit as usize].params.iter().enumerate().take(n) {
                 tags[p.slot as usize] = tag_of(Some(&self.stack[at + i]));
             }
+            self.jit_this = this_class;
             self.jit_funcs[ic] = match self.jit_compile(module, unit, 0, None, &tags, ic) {
                 Some(code) => JitSlotState::Ready(code),
                 None => JitSlotState::Failed,
@@ -266,17 +516,20 @@ impl Vm {
             return None;
         }
         let (id, words) = (code.id, code.buf_words);
-        let at = self.stack.len() - n;
         let mut buf = std::mem::take(&mut self.jit_buf);
         buf.clear();
         buf.resize(words, 0);
+        buf[THIS_WORD] = this.map_or(0, |h| h.0 as u64);
         let unit_ref = &self.modules[module as usize].units[unit as usize];
         for (i, p) in unit_ref.params.iter().enumerate().take(n) {
             let v = &self.stack[at + i];
             let want = code.params[i];
             let (tag, bits) = match (want, v) {
                 (TAG_FLOAT, Val::Int(x)) => (TAG_FLOAT, (*x as f64).to_bits()),
-                _ if tag_of(Some(v)) == want => (want, bits_of(v)),
+                // the compiled code relies on the class: anything else goes
+                // to the interpreter, which raises the TypeError
+                (TAG_OBJECT, Val::Object(h)) if self.instance_of(self.objects.get(*h).class, ClassId(code.param_classes[i])) => (TAG_OBJECT, h.0 as u64),
+                _ if want != TAG_OBJECT && tag_of(Some(v)) == want => (want, bits_of(v)),
                 _ => {
                     self.jit_buf = buf;
                     return None;
@@ -286,12 +539,12 @@ impl Vm {
             buf[w] = tag;
             buf[w + 1] = bits;
         }
-        let status = self.jit.as_mut().map(|j| j.run(id, &mut buf));
+        // the backend is taken out so that its runtime functions can use the VM
+        let mut jit = self.jit.take();
+        let status = jit.as_mut().map(|j| j.run(id, &mut buf, self));
+        self.jit = jit;
         let out = if status == Some(JitStatus::Return) { val_of(buf[2], buf[3]) } else { None };
         self.jit_buf = buf;
-        if out.is_some() {
-            self.stack.truncate(at);
-        }
         out
     }
 
@@ -331,7 +584,9 @@ impl Vm {
                 }
             }
         }
-        let status = self.jit.as_mut().map(|j| j.run(id, &mut buf));
+        let mut jit = self.jit.take();
+        let status = jit.as_mut().map(|j| j.run(id, &mut buf, self));
+        self.jit = jit;
         let outcome = match status {
             Some(JitStatus::Exit) => {
                 for i in 0..num_slots {

@@ -1207,6 +1207,16 @@ impl Vm {
                     if let Val::Object(h) = self.stack[self.stack.len() - n - 1] {
                         let class = self.objects.get(h).class;
                         let e = self.ics[self.frames[fidx].ic][ip];
+                        // compiled method (JITO1)
+                        if e.class == Some(class) && e.b != super::IC_NATIVE && !e.flag && self.jit.is_some() {
+                            let jic = self.ic_base[e.a as usize] + e.b as usize;
+                            if !matches!(self.jit_funcs[jic], super::jit::JitSlotState::Failed)
+                                && let Some(v) = self.jit_call_method(e.a, e.b, jic, h, ClassId(e.c), n)
+                            {
+                                self.push(v);
+                                return Ok(Flow::Next);
+                            }
+                        }
                         if e.class == Some(class) && e.b != super::IC_NATIVE && self.push_frame_from_stack(e.a, e.b, n, 1, if e.flag { None } else { Some(h) }, Some(ClassId(e.c)), Some(class), None)? {
                             return Ok(Flow::Switch);
                         }
