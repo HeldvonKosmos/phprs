@@ -299,14 +299,6 @@ impl Vm {
                     }
                     // OPT1: stack top with a slot, an immediate or a numeric constant
                     Op::BinTS { s, op: bop } => {
-                        // PERF3: `$tmp . $x` appends to the (usually unshared) temporary
-                        if *bop == BinOp::Concat
-                            && let Some(y) = &self.slot_stack[slot_base + *s as usize]
-                            && concat_fast(self.stack.last_mut().expect("lhs"), y)
-                        {
-                            ip += 1;
-                            continue;
-                        }
                         if let Some(y) = &self.slot_stack[slot_base + *s as usize]
                             && let Some(r) = num_fast(*bop, self.stack.last().expect("lhs"), y)
                         {
@@ -323,14 +315,6 @@ impl Vm {
                         }
                     }
                     Op::BinTC { c, op: bop } => {
-                        if *bop == BinOp::Concat
-                            && let Const::Str(y) = &module.consts[*c as usize]
-                            && let Some(Val::Str(x)) = self.stack.last_mut()
-                        {
-                            x.push_bytes(y);
-                            ip += 1;
-                            continue;
-                        }
                         let y = match &module.consts[*c as usize] {
                             Const::Int(i) => Some(Val::Int(*i)),
                             Const::Float(f) => Some(Val::Float(*f)),
@@ -345,16 +329,6 @@ impl Vm {
                         }
                     }
                     Op::BinSS { a, b, op: bop } => {
-                        if *bop == BinOp::Concat
-                            && let (Some(x @ Val::Str(_)), Some(y)) = (&self.slot_stack[slot_base + *a as usize], &self.slot_stack[slot_base + *b as usize])
-                        {
-                            let mut r = x.clone();
-                            if concat_fast(&mut r, y) {
-                                self.stack.push(r);
-                                ip += 1;
-                                continue;
-                            }
-                        }
                         if let (Some(x), Some(y)) = (&self.slot_stack[slot_base + *a as usize], &self.slot_stack[slot_base + *b as usize])
                             && let Some(r) = num_fast(*bop, x, y)
                         {
@@ -1871,18 +1845,6 @@ pub(crate) fn grd021_error(module: &Module, unit: &CodeUnit, slot: Slot, old: Op
 /// overflow goes to the generic path (ArithmeticError), `===` between int and float is false. `None` means: take the
 /// generic path (overflow, division by zero, other types or operators).
 #[inline(always)]
-/// `lhs . rhs` in place when `lhs` is a string and `rhs` a string or an int
-/// (the common cases); false leaves both untouched for the general path.
-fn concat_fast(lhs: &mut Val, rhs: &Val) -> bool {
-    let Val::Str(x) = lhs else { return false };
-    match rhs {
-        Val::Str(y) => x.push_bytes(y.as_bytes()),
-        Val::Int(i) => x.push_bytes(i.to_string().as_bytes()),
-        _ => return false,
-    }
-    true
-}
-
 pub(crate) fn num_fast(bop: BinOp, a: &Val, b: &Val) -> Option<Val> {
     match (a, b) {
         (Val::Int(x), Val::Int(y)) => {
