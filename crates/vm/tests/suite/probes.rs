@@ -120,7 +120,12 @@ fn probes_are_php_output() {
     for (probe, php) in outputs {
         let name = probe.file_stem().unwrap().to_string_lossy().into_owned();
         let out_file = probe.with_extension("out");
-        let expected = std::fs::read_to_string(&out_file).expect("expected output");
+        // a new probe gets its .out from PHP in write mode
+        let expected = match std::fs::read_to_string(&out_file) {
+            Ok(e) => e,
+            Err(_) if write => String::new(),
+            Err(e) => panic!("{}: {e}", out_file.display()),
+        };
         let same = normalized(&php) == normalized(&expected);
         match deviations.iter().find(|(n, _)| *n == name) {
             Some((_, section)) if same => failures.push(format!("{name}: listed as deviating (DIALECT {section}), but PHP prints the .out")),
