@@ -5,6 +5,7 @@ use OpenGrid\Database\Model;
 use OpenGrid\Http\Middleware;
 use OpenGrid\Http\Request;
 use OpenGrid\Support\Config;
+use OpenGrid\Support\Log;
 use OpenGrid\Support\RateLimiter;
 
 /**
@@ -136,9 +137,28 @@ final class Auth
         $every = (int) Config::get('auth.token_touch_seconds', 60);
         $last = $token->last_used_at ?? null;
         if ($every <= 0 || $last === null || $now->getTimestamp() - $last->getTimestamp() >= $every) {
-            $token->update(['last_used_at' => $now]);
+            self::noteUse($token, $now);
         }
         return $user;
+    }
+
+    /**
+     * TOK2: noting the use must never fail the request. A failed write
+     * (concurrent requests with one token) is tried once more, then only
+     * logged; the token stays valid.
+     */
+    private static function noteUse(Model $token, \DateTimeImmutable $now): void
+    {
+        for ($try = 1; $try <= 2; $try++) {
+            try {
+                $token->update(['last_used_at' => $now]);
+                return;
+            } catch (\RuntimeException $e) {
+                if ($try === 2) {
+                    Log::warning('token use not noted', ['error' => $e->getMessage()]);
+                }
+            }
+        }
     }
 
     /** Delete the token of the current request (logout). */

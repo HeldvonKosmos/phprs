@@ -285,3 +285,31 @@ fn tokens_expire() {
     drop(pool);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// TOK2: noting the token's use never fails the request: many concurrent
+/// requests with one token (each writes `last_used_at` with touch 0) all
+/// answer 200, and even when the write is refused every time the request
+/// is answered normally.
+#[test]
+fn noting_the_token_use_never_fails_a_request() {
+    let (root, pool) = auth_pool("auth-tok2", serde_json::json!({ "token_touch_seconds": 0 }));
+    let token = login_token(&pool);
+    let threads: Vec<_> = (0..8)
+        .map(|_| {
+            let (pool, token) = (pool.clone(), token.clone());
+            std::thread::spawn(move || (0..25).map(|_| send(&pool, HttpRequest::get("/api/me"), Some(&token)).status).filter(|s| *s != 200).count())
+        })
+        .collect();
+    let failed: usize = threads.into_iter().map(|t| t.join().unwrap()).sum();
+    assert_eq!(failed, 0, "requests failed while noting the token use");
+    // the database refuses every write of last_used_at: still 200
+    let refused = script(&pool, "<?grd OpenGrid\\Database\\DB::statement('DEFINE FIELD OVERWRITE last_used_at ON personal_access_tokens TYPE option<datetime> ASSERT $value = NONE');".into());
+    assert!(!refused.contains("ERR"), "{refused}");
+    for _ in 0..3 {
+        let r = send(&pool, HttpRequest::get("/api/me"), Some(&token));
+        assert_eq!(r.status, 200, "{}", r.body_str());
+        assert_eq!(json(&r)["email"], "ada@example.com");
+    }
+    drop(pool);
+    let _ = std::fs::remove_dir_all(&root);
+}
