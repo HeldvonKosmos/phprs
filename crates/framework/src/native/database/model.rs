@@ -252,7 +252,46 @@ fn builder_call(vm: &mut Vm, c: Call, method: &[u8]) -> Result<Val, Throw> {
     vm.call_method_sync(b, method, c.args)
 }
 
+/// DBP1 (M1): an API token and its user in one query (`FETCH user`) instead
+/// of two. `[token, user]` or null; a soft-deleted token or user counts as
+/// missing, as with `find()`. The token keeps the user's record id, so it
+/// behaves as if loaded alone.
+fn token_with_user(vm: &mut Vm, a: &[Val]) -> Result<Val, Throw> {
+    let text = |i: usize| match a.get(i) {
+        Some(Val::Str(s)) => Ok(s.to_string_lossy()),
+        _ => Err(Throw::type_error("opengrid_token_with_user(): hash, token class and user class expected")),
+    };
+    let (hash, token_class, user_class) = (text(0)?, text(1)?, text(2)?);
+    let tc = vm.lookup_class(token_class.as_bytes()).ok_or_else(|| Throw::error(format!("class {token_class} not found")))?;
+    let uc = vm.lookup_class(user_class.as_bytes()).ok_or_else(|| Throw::error(format!("class {user_class} not found")))?;
+    let (tm, um) = (meta(vm, tc)?, meta(vm, uc)?);
+    let mut sql = format!("SELECT * FROM {} WHERE token_hash = $h", tm.table);
+    if tm.soft_deletes {
+        sql.push_str(" AND deleted_at IS NONE");
+    }
+    sql.push_str(" LIMIT 1 FETCH user");
+    let mut vars = BTreeMap::new();
+    vars.insert("h".to_string(), Value::String(hash));
+    let rows = query_one(vm, &sql, vars)?;
+    let row = match rows {
+        Value::Array(a) => a.into_inner().into_iter().next(),
+        _ => None,
+    };
+    let Some(Value::Object(mut token)) = row else { return Ok(Val::Null) };
+    let Some(Value::Object(user)) = token.get("user").cloned() else { return Ok(Val::Null) };
+    if um.soft_deletes && user.get("deleted_at").is_some_and(|d| !matches!(d, Value::None | Value::Null)) {
+        return Ok(Val::Null);
+    }
+    if let Some(id) = user.get("id").cloned() {
+        token.insert("user", id);
+    }
+    let t = from_record(vm, tc, token)?;
+    let u = from_record(vm, uc, user)?;
+    Ok(Val::array(PhpArray::from_values([t, u])))
+}
+
 pub fn register(vm: &mut Vm) -> Result<(), Throw> {
+    vm.register_native("opengrid_token_with_user", token_with_user);
     let def = NativeClassDef::new(CLASS)
         .abstract_class()
         .implements(&["JsonSerializable"])

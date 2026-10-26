@@ -102,15 +102,16 @@ final class Auth
     /** The user a plain token belongs to, or null; notes the use. */
     public static function userFromToken(string $plain): ?Model
     {
-        $token = self::findToken($plain);
-        if ($token === null) {
+        if ($plain === '') {
             return null;
         }
-        $class = self::model();
-        $user = $class::find($token->user);
-        if ($user !== null) {
-            $token->update(['last_used_at' => new \DateTimeImmutable()]);
+        // DBP1: token and user in one query
+        $found = \opengrid_token_with_user(hash('sha256', $plain), PersonalAccessToken::class, self::model());
+        if ($found === null) {
+            return null;
         }
+        [$token, $user] = $found;
+        $token->update(['last_used_at' => new \DateTimeImmutable()]);
         return $user;
     }
 
