@@ -131,3 +131,41 @@ fn due_entries_run_in_process() {
     drop(pool);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Every frequency method gives the cron expression of Laravel's
+/// `Scheduling\Event` (the Laravel comparison application's own Schedule,
+/// TEST2.6).
+#[test]
+fn frequencies_are_laravels_cron_expressions() {
+    use std::process::Command;
+    let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../bench/laravel-app");
+    let php = Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success());
+    if !php || !app.join("artisan").exists() {
+        crate::oracle::missing(crate::oracle::Oracle::LaravelVendor, "php or bench/laravel-app not available: cron expressions not compared with Laravel");
+        return;
+    }
+    const CALLS: &[&str] = &[
+        "everyMinute()", "everyFiveMinutes()", "everyTenMinutes()", "everyFifteenMinutes()", "everyThirtyMinutes()", "hourly()", "hourlyAt(17)",
+        "daily()", "dailyAt('03:00')", "dailyAt('8:30')", "dailyAt('23')", "weekly()", "weeklyOn(1, '8:30')", "weeklyOn(5)", "monthly()", "cron('5 4 * * 2')",
+    ];
+    let calls = CALLS.iter().map(|c| format!("$s->command('x')->{c}->getExpression()")).collect::<Vec<_>>().join(", ");
+    let out = Command::new("php")
+        .current_dir(&app)
+        .arg("-r")
+        .arg(format!("require 'vendor/autoload.php'; $app = require 'bootstrap/app.php'; $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); $s = $app->make(Illuminate\\Console\\Scheduling\\Schedule::class); echo json_encode([{calls}]);"))
+        .output()
+        .expect("run php");
+    let laravel: Vec<String> = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("Laravel's answer ({e}): {}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)));
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/app");
+    let pool = Arc::new(Pool::start(PoolOptions::new(root).workers(1)).expect("pool"));
+    let before = scheduler::entries(&pool).len();
+    let src = format!("<?grd\nuse OpenGrid\\Scheduling\\Schedule;\n{}", CALLS.iter().map(|c| format!("Schedule::task('x:y')->{c};\n")).collect::<String>());
+    pool.run_sync(move |vm| {
+        vm.run_file("frequencies.grd", src.as_bytes()).expect("schedule script");
+    })
+    .unwrap();
+    let ours: Vec<String> = scheduler::entries(&pool).into_iter().skip(before).map(|e| e.cron).collect();
+    let pairs: Vec<String> = CALLS.iter().zip(ours.iter().zip(&laravel)).filter(|(_, (o, l))| o != l).map(|(c, (o, l))| format!("{c}: ours {o:?}, Laravel {l:?}")).collect();
+    assert_eq!(ours.len(), CALLS.len());
+    assert!(pairs.is_empty(), "cron expressions differ from Laravel's:\n{}", pairs.join("\n"));
+}

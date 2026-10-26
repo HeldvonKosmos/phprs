@@ -23,7 +23,7 @@ final class Event
     public function everyFiveMinutes(): static { return $this->cron('*/5 * * * *'); }
     public function everyTenMinutes(): static { return $this->cron('*/10 * * * *'); }
     public function everyFifteenMinutes(): static { return $this->cron('*/15 * * * *'); }
-    public function everyThirtyMinutes(): static { return $this->cron('0,30 * * * *'); }
+    public function everyThirtyMinutes(): static { return $this->cron('*/30 * * * *'); }
     public function hourly(): static { return $this->cron('0 * * * *'); }
     public function hourlyAt(int $minute): static { return $this->cron($minute . ' * * * *'); }
     public function daily(): static { return $this->cron('0 0 * * *'); }
