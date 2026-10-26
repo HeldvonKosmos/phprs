@@ -174,8 +174,11 @@ impl Db {
     /// holds it, retry until `config.lock_wait` has passed — that is the
     /// hand-over during a deployment — then fail with a clear message.
     pub fn connect(config: DbConfig) -> Result<Db, String> {
+        // DBP1: threads of the database runtime (the embedded engine runs its
+        // work here); OPENGRID_DB_THREADS for measurements, default 2
+        let threads = std::env::var("OPENGRID_DB_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|n| *n > 0).unwrap_or(2);
         let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+            .worker_threads(threads)
             .thread_name("grd-db")
             .enable_all()
             .build()
