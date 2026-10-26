@@ -1,0 +1,16 @@
+<?grd
+// PERF3: json_encode escapes runs of plain bytes at once, json_decode builds
+// dialect values without a serde_json tree; edge cases against PHP.
+$strings = ["plain", "quote\" back\\ slash/", "tab\tnl\ncr\r bs\x08 ff\x0c nul\x00 esc\x1b del\x7f", "café ünï 日本 😀", "a/b</script>", "", "\u{2028}\u{2029}"];
+foreach ([0, JSON_UNESCAPED_SLASHES, JSON_UNESCAPED_UNICODE, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE] as $f) {
+    echo json_encode($strings, $f), "\n";
+}
+var_dump(json_encode("bad \xff utf8"), json_last_error_msg());
+foreach (['{"a":1,"b":2,"a":3}', '[1,2.0,-0.0,1e3,9223372036854775807,9223372036854775808,-9223372036854775809,0.1]', '{"x":{"y":[true,false,null,"s"]},"0":"zero","":"empty"}', '"é😀"', ' [ ] ', '{}', '[1,]', '{"a" 1}', 'tru', '[1] x', ''] as $j) {
+    echo $j, ' => ', var_export(json_decode($j, true), true), ' | ', json_last_error(), "\n";
+}
+$o = json_decode('{"a":{"b":[{"c":1}]},"k":"v"}');
+echo json_encode($o), " ", $o->a->b[0]->c, " ", $o->k, "\n";
+var_dump(json_validate('{"a":[1,2]}'), json_validate('{"a":'));
+try { json_decode('{', false, 512, JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo get_class($e), ': ', $e->getMessage(), ' ', $e->getCode(), "\n"; }
+echo json_encode("\u{2028}x\u{2029}", JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS), "\n";

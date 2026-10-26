@@ -9,6 +9,7 @@ const UNESCAPED_SLASHES: i64 = 64;
 const PRETTY_PRINT: i64 = 128;
 const UNESCAPED_UNICODE: i64 = 256;
 const PRESERVE_ZERO_FRACTION: i64 = 1024;
+const UNESCAPED_LINE_TERMINATORS: i64 = 2048;
 const FORCE_OBJECT: i64 = 16;
 const THROW_ON_ERROR: i64 = 4194304;
 const OBJECT_AS_ARRAY: i64 = 1;
@@ -49,10 +50,17 @@ pub fn register(vm: &mut Vm) {
                 return Ok(Val::Null);
             }
         };
-        match serde_json::from_str::<serde_json::Value>(text) {
+        // PERF3: straight into dialect values, without a serde_json::Value tree
+        let mut fail = None;
+        let mut de = serde_json::Deserializer::from_str(text);
+        let parsed = serde::de::DeserializeSeed::deserialize(ValSeed { vm: &mut *vm, assoc, fail: &mut fail }, &mut de).and_then(|v| de.end().map(|()| v));
+        if let Some(t) = fail {
+            return Err(t);
+        }
+        match parsed {
             Ok(v) => {
                 vm.json_error = None;
-                decode(vm, v, assoc)
+                Ok(v)
             }
             Err(_) => {
                 let (code, msg) = (4, "Syntax error".to_string());
@@ -66,7 +74,7 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("json_last_error", |vm, _| Ok(Val::Int(vm.json_error.as_ref().map(|e| e.0).unwrap_or(0))));
     vm.register_native("json_last_error_msg", |vm, _| Ok(Val::from(vm.json_error.as_ref().map(|e| e.1.clone()).unwrap_or_else(|| "No error".into()))));
-    vm.register_native("json_validate", |_, a| Ok(Val::Bool(args::string(a, 0, "json_validate")?.as_str().is_some_and(|t| serde_json::from_str::<serde_json::Value>(t).is_ok()))));
+    vm.register_native("json_validate", |_, a| Ok(Val::Bool(args::string(a, 0, "json_validate")?.as_str().is_some_and(|t| serde_json::from_str::<serde::de::IgnoredAny>(t).is_ok()))));
 }
 
 enum JsonErr {
@@ -82,32 +90,66 @@ impl From<Throw> for JsonErr {
 
 fn encode_string(s: &[u8], flags: i64, out: &mut Vec<u8>) -> Result<(), JsonErr> {
     let text = std::str::from_utf8(s).map_err(|_| JsonErr::Json(5, "Malformed UTF-8 characters, possibly incorrectly encoded".into()))?;
+    let bytes = text.as_bytes();
+    let (keep_slash, keep_unicode) = (flags & UNESCAPED_SLASHES != 0, flags & UNESCAPED_UNICODE != 0);
+    // PHP escapes U+2028/U+2029 even with UNESCAPED_UNICODE (JavaScript line ends)
+    let keep_line_ends = flags & UNESCAPED_LINE_TERMINATORS != 0;
+    out.reserve(bytes.len() + 2);
     out.push(b'"');
-    for c in text.chars() {
-        match c {
-            '"' => out.extend_from_slice(b"\\\""),
-            '\\' => out.extend_from_slice(b"\\\\"),
-            '/' if flags & UNESCAPED_SLASHES == 0 => out.extend_from_slice(b"\\/"),
-            '\n' => out.extend_from_slice(b"\\n"),
-            '\r' => out.extend_from_slice(b"\\r"),
-            '\t' => out.extend_from_slice(b"\\t"),
-            '\x08' => out.extend_from_slice(b"\\b"),
-            '\x0c' => out.extend_from_slice(b"\\f"),
-            c if (c as u32) < 0x20 => out.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes()),
-            c if (c as u32) > 0x7f && flags & UNESCAPED_UNICODE == 0 => {
+    // PERF3: copy runs of bytes that need no escape in one go
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let plain = match b {
+            b'"' | b'\\' => false,
+            b'/' => keep_slash,
+            0x20..=0x7f => true,
+            0xe2 if keep_unicode && !keep_line_ends && bytes.get(i + 1) == Some(&0x80) && matches!(bytes.get(i + 2), Some(0xa8 | 0xa9)) => false,
+            0x80.. => keep_unicode,
+            _ => false,
+        };
+        if plain {
+            i += 1;
+            continue;
+        }
+        out.extend_from_slice(&bytes[start..i]);
+        match b {
+            b'"' => out.extend_from_slice(b"\\\""),
+            b'\\' => out.extend_from_slice(b"\\\\"),
+            b'/' => out.extend_from_slice(b"\\/"),
+            b'\n' => out.extend_from_slice(b"\\n"),
+            b'\r' => out.extend_from_slice(b"\\r"),
+            b'\t' => out.extend_from_slice(b"\\t"),
+            0x08 => out.extend_from_slice(b"\\b"),
+            0x0c => out.extend_from_slice(b"\\f"),
+            0x00..=0x1f => push_u_escape(b as u16, out),
+            _ => {
+                // a multi-byte character, escaped as \uXXXX (pairs past the BMP)
+                let c = text[i..].chars().next().expect("char boundary");
                 let mut buf = [0u16; 2];
                 for u in c.encode_utf16(&mut buf) {
-                    out.extend_from_slice(format!("\\u{:04x}", u).as_bytes());
+                    push_u_escape(*u, out);
                 }
-            }
-            c => {
-                let mut buf = [0u8; 4];
-                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+                i += c.len_utf8();
+                start = i;
+                continue;
             }
         }
+        i += 1;
+        start = i;
     }
+    out.extend_from_slice(&bytes[start..]);
     out.push(b'"');
     Ok(())
+}
+
+fn push_u_escape(u: u16, out: &mut Vec<u8>) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    out.extend_from_slice(b"\\u");
+    for shift in [12, 8, 4, 0] {
+        out.push(HEX[((u >> shift) & 0xf) as usize]);
+    }
 }
 
 fn newline(flags: i64, depth: usize, out: &mut Vec<u8>) {
@@ -234,6 +276,78 @@ fn encode_map(vm: &mut Vm, entries: Vec<(Vec<u8>, Val)>, flags: i64, depth: usiz
     }
     out.push(b'}');
     Ok(())
+}
+
+/// json_decode's target: JSON straight into dialect values (arrays, or
+/// stdClass objects without `assoc`). A VM error (object allocation) goes
+/// into `fail`, so a syntax error stays "Syntax error".
+struct ValSeed<'a> {
+    vm: &'a mut Vm,
+    assoc: bool,
+    fail: &'a mut Option<Throw>,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for ValSeed<'_> {
+    type Value = Val;
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<Val, D::Error> {
+        d.deserialize_any(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for ValSeed<'_> {
+    type Value = Val;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+    fn visit_unit<E>(self) -> Result<Val, E> {
+        Ok(Val::Null)
+    }
+    fn visit_bool<E>(self, b: bool) -> Result<Val, E> {
+        Ok(Val::Bool(b))
+    }
+    fn visit_i64<E>(self, i: i64) -> Result<Val, E> {
+        Ok(Val::Int(i))
+    }
+    fn visit_u64<E>(self, u: u64) -> Result<Val, E> {
+        // past PHP_INT_MAX PHP gives a float, as before with serde_json::Value
+        Ok(i64::try_from(u).map(Val::Int).unwrap_or(Val::Float(u as f64)))
+    }
+    fn visit_f64<E>(self, f: f64) -> Result<Val, E> {
+        Ok(Val::Float(f))
+    }
+    fn visit_str<E>(self, s: &str) -> Result<Val, E> {
+        Ok(Val::from(s))
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Val, A::Error> {
+        let mut arr = PhpArray::with_capacity(seq.size_hint().unwrap_or(0));
+        while let Some(v) = seq.next_element_seed(ValSeed { vm: &mut *self.vm, assoc: self.assoc, fail: &mut *self.fail })? {
+            arr.push(v);
+        }
+        Ok(Val::array(arr))
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Val, A::Error> {
+        if self.assoc {
+            let mut arr = PhpArray::new();
+            while let Some(k) = map.next_key::<std::borrow::Cow<'de, str>>()? {
+                let v = map.next_value_seed(ValSeed { vm: &mut *self.vm, assoc: true, fail: &mut *self.fail })?;
+                arr.insert(ArrayKey::from_str(&k), v);
+            }
+            return Ok(Val::array(arr));
+        }
+        let class = self.vm.wk().stdclass;
+        let h = match self.vm.alloc_object(class) {
+            Ok(h) => h,
+            Err(t) => {
+                *self.fail = Some(t);
+                return Err(serde::de::Error::custom("allocation failed"));
+            }
+        };
+        while let Some(k) = map.next_key::<std::borrow::Cow<'de, str>>()? {
+            let v = map.next_value_seed(ValSeed { vm: &mut *self.vm, assoc: false, fail: &mut *self.fail })?;
+            self.vm.objects.get_mut(h).dynamic.insert(PhpString::from(&*k), v);
+        }
+        Ok(Val::Object(h))
+    }
 }
 
 fn decode(vm: &mut Vm, v: serde_json::Value, assoc: bool) -> Result<Val, Throw> {

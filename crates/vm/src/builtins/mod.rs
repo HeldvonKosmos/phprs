@@ -76,6 +76,7 @@ pub fn register(vm: &mut Vm) {
     vm.define_constant("JSON_UNESCAPED_SLASHES", Val::Int(64));
     vm.define_constant("JSON_PRETTY_PRINT", Val::Int(128));
     vm.define_constant("JSON_UNESCAPED_UNICODE", Val::Int(256));
+    vm.define_constant("JSON_UNESCAPED_LINE_TERMINATORS", Val::Int(2048));
     vm.define_constant("JSON_PARTIAL_OUTPUT_ON_ERROR", Val::Int(512));
     vm.define_constant("JSON_PRESERVE_ZERO_FRACTION", Val::Int(1024));
     vm.define_constant("JSON_OBJECT_AS_ARRAY", Val::Int(1));
