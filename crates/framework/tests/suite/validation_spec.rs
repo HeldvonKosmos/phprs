@@ -57,3 +57,73 @@ fn validation_matches_laravel() {
     }
     assert!(failures.is_empty(), "{} of {} cases differ from Laravel:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+
+/// `cases.out` is what Laravel's Validator answers today: run `driver.php`
+/// against the vendor directory of the Laravel comparison application and
+/// compare (TEST2.6). `GRD_SPEC_WRITE=1` rewrites `cases.out` instead.
+#[test]
+fn cases_out_is_laravel_output() {
+    use std::process::Command;
+    let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../bench/laravel-app/vendor");
+    let php = Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success());
+    if !php || !vendor.join("autoload.php").exists() {
+        crate::oracle::missing(crate::oracle::Oracle::LaravelVendor, "php or bench/laravel-app/vendor not available: cases.out not rechecked against Laravel");
+        return;
+    }
+    let mut child = Command::new("php")
+        .arg(dir().join("driver.php"))
+        .arg(&vendor)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("run driver.php");
+    let cases = std::fs::read(dir().join("cases.txt")).expect("cases");
+    {
+        use std::io::Write;
+        child.stdin.take().expect("stdin").write_all(&cases).expect("feed cases");
+    }
+    let out = child.wait_with_output().expect("driver.php output");
+    assert!(out.status.success(), "driver.php failed");
+    let laravel = String::from_utf8(out.stdout).expect("utf-8");
+    if std::env::var("GRD_SPEC_WRITE").as_deref() == Ok("1") {
+        std::fs::write(dir().join("cases.out"), &laravel).expect("write cases.out");
+        return;
+    }
+    let frozen = std::fs::read_to_string(dir().join("cases.out")).expect("cases.out");
+    let diff: Vec<String> = frozen.lines().zip(laravel.lines()).enumerate().filter(|(_, (a, b))| a != b).map(|(i, (a, b))| format!("case {}: frozen {a} / laravel {b}", i + 1)).collect();
+    assert!(diff.is_empty() && frozen.lines().count() == laravel.lines().count(), "cases.out is not Laravel's answer (regenerate with GRD_SPEC_WRITE=1):\n{}", diff.join("\n"));
+}
+
+/// The messages of the database rules (Laravel needs a database for them,
+/// so `cases.txt` cannot have them) and of the rules OpenGrid writes in its
+/// own code are Laravel's texts: compare with `lang/en/validation.php` of the
+/// Laravel comparison application (TEST2.6).
+#[test]
+fn database_rule_messages_are_laravels() {
+    use std::process::Command;
+    let lang = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../bench/laravel-app/vendor/laravel/framework/src/Illuminate/Translation/lang/en/validation.php");
+    let php = Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success());
+    if !php || !lang.exists() {
+        crate::oracle::missing(crate::oracle::Oracle::LaravelVendor, "php or Laravel's lang/en/validation.php not available");
+        return;
+    }
+    let out = Command::new("php").arg("-r").arg(format!("echo json_encode(require '{}');", lang.display())).output().expect("run php");
+    let texts: serde_json::Value = serde_json::from_slice(&out.stdout).expect("lang json");
+    let laravel = |rule: &str| texts[rule].as_str().expect("message").replace(":attribute", "email");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/app");
+    let pool = Arc::new(Pool::start(PoolOptions::new(root).workers(1).database(DbConfig::mem("test", "validation_db_rules"))).expect("pool starts"));
+    let d = pool.db().expect("database");
+    d.block_on(opengrid_framework::native::database::schema::ops::push(d.client(), &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/app"), Default::default())).expect("schema");
+    let got = pool
+        .run_sync(|vm| {
+            let src = "<?grd\nuse OpenGrid\\Database\\DB;\nuse OpenGrid\\Validation\\Validator;\nDB::statement(\"CREATE tasks:1 SET title = 'taken'\");\n$e = Validator::errors(['email' => 'taken'], ['email' => 'unique:tasks,title']);\n$f = Validator::errors(['email' => 'nope'], ['email' => 'exists:tasks,title']);\necho json_encode([$e['email'][0] ?? '', $f['email'][0] ?? '']);";
+            let r = vm.run_file("t.grd", src.as_bytes());
+            let out = String::from_utf8_lossy(&vm.output).into_owned();
+            vm.reset_request();
+            r.map(|_| out).map_err(|e| e.to_string())
+        })
+        .expect("worker answers")
+        .expect("script runs");
+    let got: Vec<String> = serde_json::from_str(&got).expect("json");
+    assert_eq!(got, vec![laravel("unique"), laravel("exists")]);
+}

@@ -5,40 +5,7 @@
 
 #[test]
 fn inheritance_checks_match_php() {
-    let cases: &[(&str, &str)] = &[
-        (r#"class A { public function f(int $a) {} } class B extends A { public function f(string $a) {} }"#, r#"Declaration of B::f(string $a) must be compatible with A::f(int $a)"#),
-        (r#"class A { public function f(int $a) {} } class B extends A { public function f(int $a, $b) {} }"#, r#"Declaration of B::f(int $a, $b) must be compatible with A::f(int $a)"#),
-        (r#"class A { public function f(int $a, $b = 1) {} } class B extends A { public function f(int $a) {} }"#, r#"Declaration of B::f(int $a) must be compatible with A::f(int $a, $b = 1)"#),
-        (r#"class A { public function f(): int { return 1; } } class B extends A { public function f(): string { return ''; } }"#, r#"Declaration of B::f(): string must be compatible with A::f(): int"#),
-        (r#"class A { public function f(): int { return 1; } } class B extends A { public function f() { return 1; } }"#, r#"Declaration of B::f() must be compatible with A::f(): int"#),
-        (r#"class A { public function f() {} } class B extends A { protected function f() {} }"#, r#"Access level to B::f() must be public (as in class A)"#),
-        (r#"class A { protected function f() {} } class B extends A { private function f() {} }"#, r#"Access level to B::f() must be protected (as in class A) or weaker"#),
-        (r#"class A { public function f() {} } class B extends A { public static function f() {} }"#, r#"Cannot make non static method A::f() static in class B"#),
-        (r#"class A { public static function f() {} } class B extends A { public function f() {} }"#, r#"Cannot make static method A::f() non static in class B"#),
-        (r#"interface I { public function f(int $a): ?string; } class C implements I { public function f(int $a): string { return ''; } }"#, r#"ok"#),
-        (r#"interface I { public function f(int $a): string; } class C implements I { public function f(int $a): ?string { return ''; } }"#, r#"Declaration of C::f(int $a): ?string must be compatible with I::f(int $a): string"#),
-        (r#"interface I { public function f(int $a); } class C implements I {}"#, r#"Class C contains 1 abstract method and must therefore be declared abstract or implement the remaining methods (I::f)"#),
-        (r#"abstract class A { abstract public function f(); abstract protected function g(); } class B extends A {}"#, r#"Class B contains 2 abstract methods and must therefore be declared abstract or implement the remaining methods (A::f, A::g)"#),
-        (r#"interface I { public function f(); public function g(); public function h(); public function i(); } class C implements I {}"#, r#"Class C contains 4 abstract methods and must therefore be declared abstract or implement the remaining methods (I::f, I::g, I::h, ...)"#),
-        (r#"class A { public function __construct(int $a) {} } class B extends A { public function __construct(string $a, $b) {} }"#, r#"ok"#),
-        (r#"abstract class A { abstract public function __construct(int $a); } class B extends A { public function __construct(string $a) {} }"#, r#"Declaration of B::__construct(string $a) must be compatible with A::__construct(int $a)"#),
-        (r#"class A { public int $x = 0; } class B extends A { public string $x = ''; }"#, r#"Type of B::$x must be int (as in class A)"#),
-        (r#"class A { public int $x = 0; } class B extends A { protected int $x = 0; }"#, r#"Access level to B::$x must be public (as in class A)"#),
-        (r#"class A { public $x; } class B extends A { public int $x = 0; }"#, r#"Type of B::$x must not be defined (as in class A)"#),
-        (r#"class A { public readonly int $x; } class B extends A { public int $x; }"#, r#"Cannot redeclare readonly property A::$x as non-readonly B::$x"#),
-        (r#"class A { final public const X = 1; } class B extends A { public const X = 2; }"#, r#"B::X cannot override final constant A::X"#),
-        (r#"class A {} class B extends A { #[\Override] public function f() {} }"#, r#"B::f() has #[\Override] attribute, but no matching parent method exists"#),
-        (r#"class A { public function f() {} } class B extends A { #[\Override] public function f() {} }"#, r#"ok"#),
-        (r#"class A { public function f(A $a): A { return $a; } } class B extends A { public function f(object $a): B { return $this; } }"#, r#"ok"#),
-        (r#"class A { public function f(int ...$a) {} } class B extends A { public function f(int $x) {} }"#, r#"Declaration of B::f(int $x) must be compatible with A::f(int ...$a)"#),
-        (r#"class A { public function f(int $x) {} } class B extends A { public function f(int ...$x) {} }"#, r#"ok"#),
-        (r#"class A { public function f(): static { return $this; } } class B extends A { public function f(): self { return $this; } }"#, r#"Declaration of B::f(): B must be compatible with A::f(): static"#),
-        (r#"class A { public function f(): self { return $this; } } class B extends A { public function f(): static { return $this; } }"#, r#"ok"#),
-        (r#"class A { public function f(int|string $a): iterable { return []; } } class B extends A { public function f(mixed $a): array { return []; } }"#, r#"ok"#),
-        (r#"class A { public function f(): void {} } class B extends A { public function f(): int { return 1; } }"#, r#"Declaration of B::f(): int must be compatible with A::f(): void"#),
-        (r#"class A { private function f(int $a) {} } class B extends A { public function f(string $a) {} }"#, r#"ok"#),
-        (r#"class A { public function f($a = 'a long default value') {} } class B extends A { public function f() {} }"#, r#"Declaration of B::f() must be compatible with A::f($a = 'a long def...')"#),
-    ];
+    let cases = INHERITANCE_CHECKS_MATCH_PHP;
     let mut failures = Vec::new();
     for (src, expected) in cases {
         let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
@@ -71,7 +38,87 @@ fn run(vm: &mut grd_vm::vm::Vm, code: &str) -> String {
 /// signatures. Expected messages are PHP 8.4's.
 #[test]
 fn declaration_checks_match_php() {
-    let cases: &[(&str, &str)] = &[
+    let cases = DECLARATION_CHECKS_MATCH_PHP;
+    let mut failures = Vec::new();
+    for (src, expected) in cases {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
+        if got != *expected {
+            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+/// PHP's compile-time checks of types (?T, unions) and of `return` against the
+/// declared return type. Expected messages are PHP 8.4's.
+#[test]
+fn type_and_return_checks_match_php() {
+    let cases = TYPE_AND_RETURN_CHECKS_MATCH_PHP;
+    let mut failures = Vec::new();
+    for (src, expected) in cases {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
+        if got != *expected {
+            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+/// PHP's checks of where namespaces, class names and self/static may appear,
+/// of the kinds of parents, interfaces and traits, and of trait members that
+/// clash with the class or another trait. Expected output is PHP 8.4's.
+#[test]
+fn placement_kind_and_trait_checks_match_php() {
+    let cases = PLACEMENT_KIND_AND_TRAIT_CHECKS_MATCH_PHP;
+    let mut failures = Vec::new();
+    for (src, expected) in cases {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
+        if got != *expected {
+            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+}
+
+const INHERITANCE_CHECKS_MATCH_PHP: &[(&str, &str)] = &[
+        (r#"class A { public function f(int $a) {} } class B extends A { public function f(string $a) {} }"#, r#"Declaration of B::f(string $a) must be compatible with A::f(int $a)"#),
+        (r#"class A { public function f(int $a) {} } class B extends A { public function f(int $a, $b) {} }"#, r#"Declaration of B::f(int $a, $b) must be compatible with A::f(int $a)"#),
+        (r#"class A { public function f(int $a, $b = 1) {} } class B extends A { public function f(int $a) {} }"#, r#"Declaration of B::f(int $a) must be compatible with A::f(int $a, $b = 1)"#),
+        (r#"class A { public function f(): int { return 1; } } class B extends A { public function f(): string { return ''; } }"#, r#"Declaration of B::f(): string must be compatible with A::f(): int"#),
+        (r#"class A { public function f(): int { return 1; } } class B extends A { public function f() { return 1; } }"#, r#"Declaration of B::f() must be compatible with A::f(): int"#),
+        (r#"class A { public function f() {} } class B extends A { protected function f() {} }"#, r#"Access level to B::f() must be public (as in class A)"#),
+        (r#"class A { protected function f() {} } class B extends A { private function f() {} }"#, r#"Access level to B::f() must be protected (as in class A) or weaker"#),
+        (r#"class A { public function f() {} } class B extends A { public static function f() {} }"#, r#"Cannot make non static method A::f() static in class B"#),
+        (r#"class A { public static function f() {} } class B extends A { public function f() {} }"#, r#"Cannot make static method A::f() non static in class B"#),
+        (r#"interface I { public function f(int $a): ?string; } class C implements I { public function f(int $a): string { return ''; } }"#, r#"ok"#),
+        (r#"interface I { public function f(int $a): string; } class C implements I { public function f(int $a): ?string { return ''; } }"#, r#"Declaration of C::f(int $a): ?string must be compatible with I::f(int $a): string"#),
+        (r#"interface I { public function f(int $a); } class C implements I {}"#, r#"Class C contains 1 abstract method and must therefore be declared abstract or implement the remaining methods (I::f)"#),
+        (r#"abstract class A { abstract public function f(); abstract protected function g(); } class B extends A {}"#, r#"Class B contains 2 abstract methods and must therefore be declared abstract or implement the remaining methods (A::f, A::g)"#),
+        (r#"interface I { public function f(); public function g(); public function h(); public function i(); } class C implements I {}"#, r#"Class C contains 4 abstract methods and must therefore be declared abstract or implement the remaining methods (I::f, I::g, I::h, ...)"#),
+        (r#"class A { public function __construct(int $a) {} } class B extends A { public function __construct(string $a, $b) {} }"#, r#"ok"#),
+        (r#"abstract class A { abstract public function __construct(int $a); } class B extends A { public function __construct(string $a) {} }"#, r#"Declaration of B::__construct(string $a) must be compatible with A::__construct(int $a)"#),
+        (r#"class A { public int $x = 0; } class B extends A { public string $x = ''; }"#, r#"Type of B::$x must be int (as in class A)"#),
+        (r#"class A { public int $x = 0; } class B extends A { protected int $x = 0; }"#, r#"Access level to B::$x must be public (as in class A)"#),
+        (r#"class A { public $x; } class B extends A { public int $x = 0; }"#, r#"Type of B::$x must not be defined (as in class A)"#),
+        (r#"class A { public readonly int $x; } class B extends A { public int $x; }"#, r#"Cannot redeclare readonly property A::$x as non-readonly B::$x"#),
+        (r#"class A { final public const X = 1; } class B extends A { public const X = 2; }"#, r#"B::X cannot override final constant A::X"#),
+        (r#"class A {} class B extends A { #[\Override] public function f() {} }"#, r#"B::f() has #[\Override] attribute, but no matching parent method exists"#),
+        (r#"class A { public function f() {} } class B extends A { #[\Override] public function f() {} }"#, r#"ok"#),
+        (r#"class A { public function f(A $a): A { return $a; } } class B extends A { public function f(object $a): B { return $this; } }"#, r#"ok"#),
+        (r#"class A { public function f(int ...$a) {} } class B extends A { public function f(int $x) {} }"#, r#"Declaration of B::f(int $x) must be compatible with A::f(int ...$a)"#),
+        (r#"class A { public function f(int $x) {} } class B extends A { public function f(int ...$x) {} }"#, r#"ok"#),
+        (r#"class A { public function f(): static { return $this; } } class B extends A { public function f(): self { return $this; } }"#, r#"Declaration of B::f(): B must be compatible with A::f(): static"#),
+        (r#"class A { public function f(): self { return $this; } } class B extends A { public function f(): static { return $this; } }"#, r#"ok"#),
+        (r#"class A { public function f(int|string $a): iterable { return []; } } class B extends A { public function f(mixed $a): array { return []; } }"#, r#"ok"#),
+        (r#"class A { public function f(): void {} } class B extends A { public function f(): int { return 1; } }"#, r#"Declaration of B::f(): int must be compatible with A::f(): void"#),
+        (r#"class A { private function f(int $a) {} } class B extends A { public function f(string $a) {} }"#, r#"ok"#),
+        (r#"class A { public function f($a = 'a long default value') {} } class B extends A { public function f() {} }"#, r#"Declaration of B::f() must be compatible with A::f($a = 'a long def...')"#),
+];
+
+const DECLARATION_CHECKS_MATCH_PHP: &[(&str, &str)] = &[
         (r#"class A { public public $x; }"#, r#"Multiple access type modifiers are not allowed"#),
         (r#"class A { final final public function f() {} }"#, r#"Multiple final modifiers are not allowed"#),
         (r#"class A { public static static function f() {} }"#, r#"Multiple static modifiers are not allowed"#),
@@ -102,23 +149,9 @@ fn declaration_checks_match_php() {
         (r#"class A { public function __get($n): never { throw new Exception(); } public function __set(mixed $n, $v) {} }"#, r#"ok"#),
         (r#"enum E: string { case A = 'a'; const X = self::A; }"#, r#"ok"#),
         (r#"class A { public function __set_state(array $a) {} }"#, r#"Method A::__set_state() must be static"#),
-    ];
-    let mut failures = Vec::new();
-    for (src, expected) in cases {
-        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
-        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
-        if got != *expected {
-            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
-}
+];
 
-/// PHP's compile-time checks of types (?T, unions) and of `return` against the
-/// declared return type. Expected messages are PHP 8.4's.
-#[test]
-fn type_and_return_checks_match_php() {
-    let cases: &[(&str, &str)] = &[
+const TYPE_AND_RETURN_CHECKS_MATCH_PHP: &[(&str, &str)] = &[
         (r#"function f(?mixed $x) {}"#, r#"Type mixed cannot be marked as nullable since mixed already includes null"#),
         (r#"function f(mixed|int $x) {}"#, r#"Type mixed can only be used as a standalone type"#),
         (r#"function f(?void $x) {}"#, r#"Void can only be used as a standalone type"#),
@@ -152,24 +185,9 @@ fn type_and_return_checks_match_php() {
         (r#"class A { function __construct() { return 1; } }"#, r#"ok"#),
         (r#"function f(): mixed { return; }"#, r#"A function with return type must return a value (did you mean "return null;" instead of "return;"?)"#),
         (r#"function f(): Generator { yield 1; return 5; }"#, r#"ok"#),
-    ];
-    let mut failures = Vec::new();
-    for (src, expected) in cases {
-        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
-        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
-        if got != *expected {
-            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
-}
+];
 
-/// PHP's checks of where namespaces, class names and self/static may appear,
-/// of the kinds of parents, interfaces and traits, and of trait members that
-/// clash with the class or another trait. Expected output is PHP 8.4's.
-#[test]
-fn placement_kind_and_trait_checks_match_php() {
-    let cases: &[(&str, &str)] = &[
+const PLACEMENT_KIND_AND_TRAIT_CHECKS_MATCH_PHP: &[(&str, &str)] = &[
         (r#"final final class A {}"#, r#"Multiple final modifiers are not allowed"#),
         (r#"abstract abstract class A {}"#, r#"Multiple abstract modifiers are not allowed"#),
         (r#"readonly readonly class A {}"#, r#"Multiple readonly modifiers are not allowed"#),
@@ -211,14 +229,53 @@ fn placement_kind_and_trait_checks_match_php() {
         (r#"interface I {} class A extends I {}"#, r#"Class A cannot extend interface I"#),
         (r#"class A {} class B implements A {}"#, r#"B cannot implement A - it is not an interface"#),
         (r#"trait T {} class A extends T {}"#, r#"Class A cannot extend trait T"#),
-    ];
-    let mut failures = Vec::new();
-    for (src, expected) in cases {
-        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
-        let got = run(&mut vm, &format!("<?grd\n{src}\necho 'ok';"));
-        if got != *expected {
-            failures.push(format!("{src}\n  expected: {expected}\n  got:      {got}"));
-        }
+];
+
+/// The expectations above are PHP 8.4's output: run every case through `php`
+/// (a `<?php` file each) and compare the message, so a wrong literal shows up
+/// (TEST2.6).
+#[test]
+fn expectations_are_php_output() {
+    use std::process::Command;
+    if !Command::new("php").arg("-v").output().is_ok_and(|o| o.status.success()) {
+        crate::oracle::missing(crate::oracle::Oracle::Php, "php not available: inheritance messages not rechecked against PHP");
+        return;
     }
-    assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
+    let all: Vec<(&str, &str)> = [INHERITANCE_CHECKS_MATCH_PHP, DECLARATION_CHECKS_MATCH_PHP, TYPE_AND_RETURN_CHECKS_MATCH_PHP, PLACEMENT_KIND_AND_TRAIT_CHECKS_MATCH_PHP].iter().flat_map(|c| c.iter().copied()).collect();
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("inheritance-php");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let failures: Vec<String> = std::thread::scope(|s| {
+        let handles: Vec<_> = all
+            .chunks(all.len().div_ceil(8))
+            .enumerate()
+            .map(|(t, chunk)| {
+                let dir = &dir;
+                s.spawn(move || {
+                    let mut bad = Vec::new();
+                    for (i, (src, expected)) in chunk.iter().enumerate() {
+                        let file = dir.join(format!("c{t}_{i}.php"));
+                        std::fs::write(&file, format!("<?php\n{src}\necho 'ok';")).expect("write case");
+                        let out = Command::new("php").args(["-d", "display_errors=1", "-d", "log_errors=0", "-d", "html_errors=0"]).arg(&file).output().expect("run php");
+                        let got = php_message(&String::from_utf8_lossy(&out.stdout));
+                        if got != *expected {
+                            bad.push(format!("{src}\n  literal: {expected}\n  php:     {got}"));
+                        }
+                    }
+                    bad
+                })
+            })
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().expect("php thread")).collect()
+    });
+    assert!(failures.is_empty(), "{} of {} literals are not PHP's message:\n{}", failures.len(), all.len(), failures.join("\n"));
+}
+
+/// PHP's message from its output: "ok", or the text of "Fatal error: <msg> in
+/// <file> on line N" (an uncaught Error without its class prefix).
+fn php_message(out: &str) -> String {
+    let out = out.trim();
+    let Some((_, rest)) = out.split_once("Fatal error: ") else { return out.to_string() };
+    let rest = rest.strip_prefix("Uncaught Error: ").unwrap_or(rest);
+    let rest = rest.split(" in /").next().unwrap_or(rest);
+    rest.trim().to_string()
 }

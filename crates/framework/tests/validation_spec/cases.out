@@ -134,3 +134,7 @@
 {"errors":{"a":["The a field is required."]}}
 {"errors":{"a":["The a field must have a value."]}}
 {"errors":{"a":["The a field must be present."]}}
+{"errors":{"a":["The a field must only contain letters, numbers, dashes, and underscores."]}}
+{"valid":{"a":"a-b_c9"}}
+{"errors":{"a":["The a field must be true or false."]}}
+{"errors":{"a":["The a field must be an integer."]}}

@@ -15,7 +15,12 @@ fn root() -> PathBuf {
 
 fn pool(db: &str) -> Arc<Pool> {
     let opts = PoolOptions::new(root()).workers(2).database(DbConfig::mem("test", db));
-    Arc::new(Pool::start(opts).expect("pool starts"))
+    let pool = Arc::new(Pool::start(opts).expect("pool starts"));
+    // TEST2.6: with the fixture's schema applied (field types, defaults,
+    // indexes), as an application runs, not on tables that appear on insert
+    let d = pool.db().expect("database");
+    d.block_on(opengrid_framework::native::database::schema::ops::push(d.client(), &root(), Default::default())).expect("schema push");
+    pool
 }
 
 fn run(pool: &Pool, src: &'static str) -> String {
@@ -114,9 +119,12 @@ fn database_over_http() {
     assert_eq!(body["count"], 1);
     assert_eq!(body["first"], "from http");
     assert!(body["id"].as_str().unwrap().starts_with("tasks:"), "{}", body);
+    // the fixture schema has a UNIQUE index on tasks.title: the same title
+    // again is refused by the database (before TEST2.6 the test ran without
+    // the schema and counted 2)
     let r = pool.run_sync(|vm| handle(vm, HttpRequest::get("/db"))).expect("worker answers");
-    let body: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
-    assert_eq!(body["count"], 2);
+    assert_eq!(r.status, 500, "{}", r.body_str());
+    assert!(r.body_str().contains("Database index `tasks_title_unique` already contains 'from http'"), "{}", r.body_str());
 }
 
 #[test]

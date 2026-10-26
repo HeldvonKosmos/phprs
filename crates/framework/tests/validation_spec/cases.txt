@@ -135,3 +135,7 @@
 {"a": "required|integer|min:1"}	{"a": ""}
 {"a": "filled|string"}	{"a": null}
 {"a": "present|string"}	{}
+{"a": "alpha_dash"}	{"a": "a b!"}
+{"a": "alpha_dash"}	{"a": "a-b_c9"}
+{"a": "bool"}	{"a": "x"}
+{"a": "int"}	{"a": "1.5"}
