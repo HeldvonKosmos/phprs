@@ -217,6 +217,13 @@ impl BuilderData {
     /// direction `asc` or `desc`; anything else is an error and the builder
     /// stays unchanged (the spec often comes from the request).
     pub fn try_sort(&mut self, spec: &str) -> Result<&mut Self, String> {
+        self.try_sort_with(spec, |_| true)
+    }
+
+    /// `try_sort`, with `COLLATE` only where `collate(field)` says the
+    /// order depends on it (DBP1: on a number, bool or date it changes
+    /// nothing, but keeps SurrealDB from reading the order from an index).
+    pub fn try_sort_with(&mut self, spec: &str, collate: impl Fn(&str) -> bool) -> Result<&mut Self, String> {
         let mut parsed = Vec::new();
         for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let (field, dir) = part.split_once(':').unwrap_or((part, "asc"));
@@ -224,7 +231,11 @@ impl BuilderData {
         }
         for (field, dir) in parsed {
             let f = self.order_field(&field);
-            self.orders.push(format!("{f} COLLATE {dir}"));
+            if collate(&field) {
+                self.orders.push(format!("{f} COLLATE {dir}"));
+            } else {
+                self.orders.push(format!("{f} {dir}"));
+            }
         }
         Ok(self)
     }
@@ -662,6 +673,28 @@ fn filter_allowed(vm: &mut Vm, b: &BuilderData, field: &str) -> Result<(), Throw
     if ok { Ok(()) } else { Err(Throw::value_error(format!("filter on `{field}` is not allowed for {} (declare $filterable)", vm.class_name(class)))) }
 }
 
+/// Whether ordering by a field of this declared type depends on `COLLATE`:
+/// false only when every part of the type is a non-string scalar.
+pub fn needs_collate(ty: &str) -> bool {
+    let t = ty.trim();
+    let t = t.strip_prefix("option<").and_then(|r| r.strip_suffix('>')).unwrap_or(t);
+    // split at top-level `|` only (`record<a | b>` is one part)
+    let (mut parts, mut depth, mut start) = (Vec::new(), 0i32, 0usize);
+    for (i, ch) in t.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            '|' if depth == 0 => {
+                parts.push(&t[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&t[start..]);
+    !parts.iter().map(|p| p.trim()).all(|p| matches!(p, "none" | "null" | "int" | "float" | "number" | "decimal" | "bool" | "datetime" | "duration" | "uuid") || p.starts_with("record"))
+}
+
 /// Field types of a table from `INFO FOR TABLE` (`DEFINE FIELD x ON t TYPE bool …`),
 /// cached per worker. Empty when the table has no schema.
 pub fn schema_types(vm: &mut Vm, table: &str) -> Result<std::collections::HashMap<String, String>, Throw> {
@@ -973,7 +1006,11 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             } else {
                 string_arg(&c, 0, "Builder::sort")?
             };
-            if let Err(e) = this_data(vm, &c)?.try_sort(&spec) {
+            // DBP1: no COLLATE on fields the schema declares as numbers, bools,
+            // dates or records; unknown fields and paths keep it
+            let table = this_data(vm, &c)?.table.clone();
+            let types = schema_types(vm, &table)?;
+            if let Err(e) = this_data(vm, &c)?.try_sort_with(&spec, |field| types.get(field).is_none_or(|t| needs_collate(t))) {
                 // a bad `?sort=` is the client's error: 400
                 if from_request {
                     vm.call_value(&Val::str("abort"), vec![Val::Int(400), Val::str(&e)])?;
@@ -1207,6 +1244,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn collate_only_where_the_order_depends_on_it() {
+        for t in ["int", "none | int", "option<float>", "bool", "datetime", "record<users>", "none | record<users | teams>", "decimal"] {
+            assert!(!needs_collate(t), "{t}");
+        }
+        for t in ["string", "option<string>", "none | string", "int | string", "any", "array<string>", "object"] {
+            assert!(needs_collate(t), "{t}");
+        }
+        let mut b = BuilderData::new("notes", false);
+        b.try_sort_with("priority:desc,title", |f| f != "priority").unwrap();
+        assert_eq!(b.orders, vec!["priority DESC".to_string(), "title COLLATE ASC".to_string()]);
+    }
+
     #[test]
     fn sort_specs_are_checked() {
         // the spec comes from `?sort=`: nothing but identifier paths and asc/desc reach the query
