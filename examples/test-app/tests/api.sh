@@ -70,7 +70,7 @@ start_server() {
     "$SERVE" "$RUNTIME" "$PORT" "$WORK/run" 2 >>"$WORK/server.log" 2>&1 &
   fi
   PID=$!
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 300); do  # 60 s: Laravel runs artisan optimize first; slow under load
     if curl -s -o /dev/null "$BASE/health"; then return 0; fi
     kill -0 "$PID" 2>/dev/null || break
     sleep 0.2
