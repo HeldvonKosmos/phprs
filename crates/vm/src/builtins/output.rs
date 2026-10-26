@@ -89,7 +89,9 @@ pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) ->
                 return Ok(());
             }
             let props = object_props(vm, *h);
-            out.extend_from_slice(format!("object({cname})#{} ({}) {{\n", h.0, props.len()).as_bytes());
+            // PHP counts the initialized properties only
+            let count = props.iter().filter(|(_, v)| v.is_ok()).count();
+            out.extend_from_slice(format!("object({cname})#{} ({count}) {{\n", h.0).as_bytes());
             vm.dump_visiting.push(*h);
             let r = (|| -> Result<(), Throw> {
             for (label, val) in props {
@@ -97,8 +99,8 @@ pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) ->
                 out.extend_from_slice(format!("[{label}]=>\n").as_bytes());
                 indent(out, depth + 2);
                 match val {
-                    Some(v) => var_dump(vm, &v, depth + 2, out)?,
-                    None => out.extend_from_slice(b"uninitialized(mixed)\n"),
+                    Ok(v) => var_dump(vm, &v, depth + 2, out)?,
+                    Err(ty) => out.extend_from_slice(format!("uninitialized({ty})\n").as_bytes()),
                 }
             }
             Ok(())
@@ -113,7 +115,9 @@ pub(crate) fn var_dump(vm: &mut Vm, v: &Val, depth: usize, out: &mut Vec<u8>) ->
 }
 
 /// Property list with var_dump-style labels: `"name"`, `"name":protected`, `"name":"Class":private`.
-fn object_props(vm: &Vm, h: ObjHandle) -> Vec<(String, Option<Val>)> {
+/// Label and value of every property; an uninitialized typed property gives
+/// its declared type instead.
+fn object_props(vm: &Vm, h: ObjHandle) -> Vec<(String, Result<Val, String>)> {
     let obj = vm.objects.get(h);
     let class = vm.class(obj.class);
     let mut out = Vec::new();
@@ -124,10 +128,14 @@ fn object_props(vm: &Vm, h: ObjHandle) -> Vec<(String, Option<Val>)> {
             crate::bytecode::Visibility::Protected => format!("\"{name}\":protected"),
             crate::bytecode::Visibility::Private => format!("\"{name}\":\"{}\":private", String::from_utf8_lossy(&vm.class(p.declaring).name)),
         };
-        out.push((label, obj.slots[i].clone()));
+        let val = match &obj.slots[i] {
+            Some(v) => Ok(v.clone()),
+            None => Err(p.ty.as_ref().map(|t| vm.type_name_of(t, &vm.modules[p.module as usize])).unwrap_or_else(|| "mixed".into())),
+        };
+        out.push((label, val));
     }
     for (k, v) in &obj.dynamic {
-        out.push((format!("\"{k}\""), Some(v.clone())));
+        out.push((format!("\"{k}\""), Ok(v.clone())));
     }
     out
 }

@@ -1,0 +1,13 @@
+<?grd
+// Typed properties without a value (found by the JITO1 differential test):
+// the error names the declaring class, var_dump shows the declared type and
+// counts only initialized properties. Output is PHP's.
+class P { public float $z; public ?int $n; public bool $b = true; public function __construct(public float $x) {} public function w(): float { return $this->z + $this->x; } }
+class Q extends P { public P $other; }
+$q = new Q(1.0);
+try { echo $q->w(), "\n"; } catch (Error $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+try { echo $q->other->x, "\n"; } catch (Error $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
+var_dump($q);
+$q->z = 2.5;
+$q->n = null;
+var_dump($q, $q->w());

@@ -379,7 +379,7 @@ impl Vm {
                     if info.ty.is_some() {
                         Err(Throw::error(format!(
                             "Typed property {}::${} must not be accessed before initialization",
-                            String::from_utf8_lossy(&self.class(class).name),
+                            String::from_utf8_lossy(&self.class(info.declaring).name),
                             String::from_utf8_lossy(name)
                         )))
                     } else {

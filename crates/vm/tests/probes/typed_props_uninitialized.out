@@ -1,0 +1,27 @@
+Error: Typed property P::$z must not be accessed before initialization
+Error: Typed property Q::$other must not be accessed before initialization
+object(Q)#1 (2) {
+  ["z"]=>
+  uninitialized(float)
+  ["n"]=>
+  uninitialized(?int)
+  ["b"]=>
+  bool(true)
+  ["x"]=>
+  float(1)
+  ["other"]=>
+  uninitialized(P)
+}
+object(Q)#1 (4) {
+  ["z"]=>
+  float(2.5)
+  ["n"]=>
+  NULL
+  ["b"]=>
+  bool(true)
+  ["x"]=>
+  float(1)
+  ["other"]=>
+  uninitialized(P)
+}
+float(3.5)
