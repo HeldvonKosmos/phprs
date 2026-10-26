@@ -432,6 +432,26 @@ impl Vm {
     /// Call any callable value and wait for the result.
     pub fn call_value(&mut self, callable: &Val, args: Vec<Val>) -> Result<Val, Throw> {
         let depth = self.frames.len();
+        // PERF3: a closure without captures (callbacks of array_map, usort, …)
+        // takes the path of a direct call: arguments on the stack, no Vec
+        // of named arguments, no copy of the closure's data
+        if let Val::Object(h) = callable
+            && let Some(ClosureData::User { module, unit, captures, this, scope, static_class }) = self.objects.get(*h).native_ref::<ClosureData>()
+            && captures.is_empty()
+        {
+            let (module, unit, this, scope, static_class) = (*module, *unit, *this, *scope, *static_class);
+            let n = args.len();
+            self.stack.extend(args);
+            if self.push_frame_from_stack(module, unit, n, 0, this, scope, static_class, None)? {
+                return self.run(depth);
+            }
+            let at = self.stack.len() - n;
+            let args = self.stack.split_off(at);
+            return match self.invoke_callable(callable.clone(), args, Vec::new())? {
+                CallOutcome::Value(v) => Ok(v),
+                CallOutcome::Pushed => self.run(depth),
+            };
+        }
         match self.invoke_callable(callable.clone(), args, Vec::new())? {
             CallOutcome::Value(v) => Ok(v),
             CallOutcome::Pushed => self.run(depth),
