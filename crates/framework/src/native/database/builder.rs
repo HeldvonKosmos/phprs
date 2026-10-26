@@ -621,6 +621,61 @@ fn first_of(v: Val) -> Val {
     }
 }
 
+/// DBP1: the count query with safe scalar bindings written as literals.
+/// SurrealDB 3.3 counts from an index only when the condition values are
+/// literals (with `$f0` it reads every matching row: 54 ms against 7 ms for
+/// 10 000 rows). Only bools, ints and record ids whose table and key are
+/// plain identifiers are inlined (keys escaped as `⟨…⟩`); strings and every
+/// other value stay parameters, so nothing from a request enters the text.
+fn count_query(b: &BuilderData) -> (String, BTreeMap<String, Value>) {
+    inline_literals(&b.count_sql(), &b.bindings)
+}
+
+fn inline_literals(sql: &str, bindings: &BTreeMap<String, Value>) -> (String, BTreeMap<String, Value>) {
+    let ident = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let literal = |v: &Value| -> Option<String> {
+        match v {
+            Value::Bool(x) => Some(x.to_string()),
+            Value::Number(surrealdb::types::Number::Int(i)) => Some(i.to_string()),
+            Value::RecordId(r) if ident(&r.table.to_string()) => match &r.key {
+                surrealdb::types::RecordIdKey::String(k) if ident(k) => Some(format!("{}:⟨{}⟩", r.table, k)),
+                surrealdb::types::RecordIdKey::Number(n) => Some(format!("{}:{}", r.table, n)),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    let mut out = sql.to_string();
+    let mut rest = BTreeMap::new();
+    // longer names first, so `$f1` never matches inside `$f10`
+    let mut names: Vec<&String> = bindings.keys().collect();
+    names.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    for name in names {
+        let v = &bindings[name];
+        match literal(v) {
+            Some(text) => {
+                let pat = format!("${name}");
+                let mut done = String::with_capacity(out.len());
+                let mut i = 0;
+                while let Some(pos) = out[i..].find(&pat) {
+                    let at = i + pos;
+                    let end = at + pat.len();
+                    let boundary = out[end..].chars().next().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+                    done.push_str(&out[i..at]);
+                    done.push_str(if boundary { &text } else { &pat });
+                    i = end;
+                }
+                done.push_str(&out[i..]);
+                out = done;
+            }
+            None => {
+                rest.insert(name.clone(), v.clone());
+            }
+        }
+    }
+    (out, rest)
+}
+
 fn count_from(v: &Value) -> i64 {
     // `SELECT count() AS total … GROUP ALL` → [{ total: n }] or []
     if let Value::Array(a) = v
@@ -907,7 +962,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         .method("decrement", |vm, c| increment_call(vm, &c, "-", "Builder::decrement"))
         .method("doesntExist", |vm, c| {
             let b = this_data(vm, &c)?.clone();
-            let v = query_one(vm, &b.count_sql(), b.bindings.clone())?;
+            let v = { let (sql, vars) = count_query(&b); query_one(vm, &sql, vars) }?;
             Ok(Val::Bool(count_from(&v) == 0))
         })
         // chunk($size, fn ($rows, $page)): pages until a short page or the callback returns false
@@ -1150,19 +1205,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
         })
         .method("count", |vm, c| {
             let b = this_data(vm, &c)?.clone();
-            let v = query_one(vm, &b.count_sql(), b.bindings.clone())?;
+            let v = { let (sql, vars) = count_query(&b); query_one(vm, &sql, vars) }?;
             Ok(Val::Int(count_from(&v)))
         })
         .method("exists", |vm, c| {
             let b = this_data(vm, &c)?.clone();
-            let v = query_one(vm, &b.count_sql(), b.bindings.clone())?;
+            let v = { let (sql, vars) = count_query(&b); query_one(vm, &sql, vars) }?;
             Ok(Val::Bool(count_from(&v) > 0))
         })
         .method("paginate", |vm, c| {
             let per_page = int_arg_opt(&c, 0, 15)?.max(1);
             let page = int_arg_opt(&c, 1, 1)?.max(1);
             let b = this_data(vm, &c)?.clone();
-            let total = count_from(&query_one(vm, &b.count_sql(), b.bindings.clone())?);
+            let total = count_from(&{ let (sql, vars) = count_query(&b); query_one(vm, &sql, vars) }?);
             let offset = (page - 1) * per_page;
             let rows = query_one(vm, &b.to_sql(per_page as usize, offset as usize), b.bindings.clone())?;
             let data = hydrate(vm, b.model, rows)?;
@@ -1245,6 +1300,19 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn count_queries_inline_only_safe_literals() {
+        let mut vars = BTreeMap::new();
+        vars.insert("f0".to_string(), Value::RecordId(RecordId::new("users", RecordIdKey::String("u1x".into()))));
+        vars.insert("f1".to_string(), Value::Bool(false));
+        vars.insert("f10".to_string(), Value::Number(surrealdb::types::Number::Int(7)));
+        vars.insert("f2".to_string(), Value::String("x' OR 1=1".into()));
+        vars.insert("f3".to_string(), Value::RecordId(RecordId::new("users", RecordIdKey::String("a b".into()))));
+        let (sql, rest) = inline_literals("WHERE user = $f0 AND done = $f1 AND n = $f10 AND t = $f2 AND u = $f3", &vars);
+        assert_eq!(sql, "WHERE user = users:⟨u1x⟩ AND done = false AND n = 7 AND t = $f2 AND u = $f3");
+        assert_eq!(rest.keys().cloned().collect::<Vec<_>>(), vec!["f2".to_string(), "f3".to_string()], "strings and unusual keys stay parameters");
+    }
+
+    #[test]
     fn collate_only_where_the_order_depends_on_it() {
         for t in ["int", "none | int", "option<float>", "bool", "datetime", "record<users>", "none | record<users | teams>", "decimal"] {
             assert!(!needs_collate(t), "{t}");
@@ -1271,6 +1339,7 @@ mod tests {
     }
 
     use super::*;
+    use surrealdb::types::{RecordId, RecordIdKey};
 
     #[test]
     fn renders_like_the_php_builder() {
