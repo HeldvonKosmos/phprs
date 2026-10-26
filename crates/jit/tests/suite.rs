@@ -29,6 +29,7 @@ fn vm_with(background: bool, sync: bool, threshold: u32) -> Vm {
 /// units, units on tier 2.
 struct Compiled {
     probes: usize,
+    names: Vec<String>,
     units: usize,
     tier2: usize,
 }
@@ -38,7 +39,7 @@ fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Comp
     let mut probes: Vec<_> = std::fs::read_dir(&dir).expect("probes dir").filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "grd")).collect();
     probes.sort();
     let mut failures = Vec::new();
-    let mut compiled = Compiled { probes: 0, units: 0, tier2: 0 };
+    let mut compiled = Compiled { probes: 0, names: Vec::new(), units: 0, tier2: 0 };
     for probe in &probes {
         let source = std::fs::read(probe).expect("read probe");
         let mut vm = vm_with(background, sync, 1);
@@ -56,6 +57,9 @@ fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Comp
         }
         let tiers = vm.jit_tiers();
         compiled.probes += !tiers.is_empty() as usize;
+        if !tiers.is_empty() {
+            compiled.names.push(probe.file_stem().unwrap().to_string_lossy().into_owned());
+        }
         compiled.units += tiers.len();
         compiled.tier2 += tiers.iter().filter(|t| **t == 2).count();
     }
@@ -67,14 +71,14 @@ fn run_probes(background: bool, sync: bool, gc_threshold: Option<usize>) -> Comp
 #[test]
 fn probes_match_php_with_tier1_only() {
     let c = run_probes(false, false, None);
-    assert!(c.probes >= MIN_PROBES && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+    assert_floor(&c);
     assert_eq!(c.tier2, 0, "tier 1 only");
 }
 
 #[test]
 fn probes_match_php_with_tier2() {
     let c = run_probes(true, true, None);
-    assert!(c.probes >= MIN_PROBES && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+    assert_floor(&c);
     assert!(c.tier2 >= c.units * 9 / 10, "tier 2 was swapped in for only {} of {} units", c.tier2, c.units);
 }
 
@@ -83,14 +87,22 @@ fn probes_match_php_with_tier2() {
 #[test]
 fn probes_match_php_with_jit_and_constant_collection() {
     let c = run_probes(true, true, Some(1));
-    assert!(c.probes >= MIN_PROBES && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+    assert_floor(&c);
 }
 
-/// Floors for the probe runs (26.10.: 3 probes, 15 units). The JIT takes
-/// only int/float functions and loops, so most probes run interpreted;
-/// `jit_int_float_kernels` exists to give these runs compiled code.
-const MIN_PROBES: usize = 3;
-const MIN_UNITS: usize = 13;
+/// Floors for the probe runs (JITC1, 26.10.: 3 of 270 probes, 15 units).
+/// The JIT takes only int/float functions and loops, so most probes run
+/// interpreted; `jit_int_float_kernels` exists to give these runs compiled
+/// code. The probes are named so that losing one fails even if another
+/// starts compiling.
+const COMPILED_PROBES: &[&str] = &["a79_return_widening", "jit_int_float_kernels", "perf2_int_builtins"];
+const MIN_UNITS: usize = 15;
+
+fn assert_floor(c: &Compiled) {
+    let missing: Vec<_> = COMPILED_PROBES.iter().filter(|p| !c.names.iter().any(|n| n == *p)).collect();
+    assert!(missing.is_empty(), "no compiled code in {missing:?} (compiled: {:?})", c.names);
+    assert!(c.probes >= COMPILED_PROBES.len() && c.units >= MIN_UNITS, "the JIT compiled too little: {} probes, {} units", c.probes, c.units);
+}
 
 const HOT: &[u8] = b"<?php
 function sq(int $n): int { return $n * $n; }
