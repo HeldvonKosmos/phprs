@@ -40,6 +40,15 @@ pub fn from_info(db_tables: &[(String, String)], tables: &IndexMap<String, Table
         let mut t = TableDef { define: Some(st(Kind::Table, name, name, define)), ..Default::default() };
         if let Some(info) = tables.get(name) {
             for (f, d) in &info.fields {
+                // SurrealDB defines the element field of `array<T>`/`set<T>`
+                // itself; written out, the schema would not apply again
+                // ("field 'l.*' already exists")
+                if let Some(parent) = f.strip_suffix(".*").or_else(|| f.strip_suffix("[*]"))
+                    && let Some((_, pd)) = info.fields.iter().find(|(p, _)| p == parent)
+                    && element_type(pd).is_some_and(|ty| *d == format!("DEFINE FIELD {f} ON {name} TYPE {ty} PERMISSIONS FULL"))
+                {
+                    continue;
+                }
                 t.fields.insert(f.clone(), st(Kind::Field, f, name, d));
             }
             for (i, d) in &info.indexes {
@@ -52,6 +61,25 @@ pub fn from_info(db_tables: &[(String, String)], tables: &IndexMap<String, Table
         schema.tables.insert(name.clone(), t);
     }
     schema
+}
+
+/// `T` of a field defined as `TYPE array<T>`, `array<T, n>` or `set<T>`
+/// (optionally inside `option<…>` or `none | …`).
+fn element_type(define: &str) -> Option<String> {
+    let ty = &define[define.find(" TYPE ")? + 6..];
+    let ty = ty.strip_prefix("option<").or_else(|| ty.strip_prefix("none | ")).unwrap_or(ty);
+    let inner = ty.strip_prefix("array<").or_else(|| ty.strip_prefix("set<"))?;
+    let mut depth = 0;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' if depth == 0 => return Some(inner[..i].to_string()),
+            ',' if depth == 0 => return Some(inner[..i].to_string()),
+            '>' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
 }
 
 #[cfg(test)]

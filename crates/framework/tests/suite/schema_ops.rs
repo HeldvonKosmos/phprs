@@ -169,3 +169,56 @@ fn plan_from_sources_and_refuse_empty_plans() {
     });
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// TEST2.6: real `INFO FOR` answers of an embedded SurrealDB instead of
+/// invented ones: every way of writing a field type comes back in
+/// SurrealDB's own form, the model reads the type the definition meant, and
+/// the pulled schema is a fixed point (applied to an empty database and
+/// pulled again, it stays the same).
+#[test]
+fn real_info_answers_become_the_model() {
+    use indexmap::IndexMap;
+    use opengrid_framework::native::database::schema::dbinfo::{TableInfo, from_info};
+    use opengrid_framework::native::database::value::base_type;
+    const SCHEMA: &str = "DEFINE TABLE a SCHEMAFULL PERMISSIONS NONE;\nDEFINE TABLE b SCHEMALESS PERMISSIONS NONE;\nDEFINE TABLE t SCHEMAFULL PERMISSIONS NONE;\n\
+        DEFINE FIELD n ON t TYPE int;\nDEFINE FIELD o ON t TYPE option<int>;\nDEFINE FIELD u ON t TYPE none | int;\nDEFINE FIELD nl ON t TYPE null | datetime;\n\
+        DEFINE FIELD r ON t TYPE option<record<a | b>>;\nDEFINE FIELD l ON t TYPE array<string>;\nDEFINE FIELD f ON t TYPE object FLEXIBLE;\n\
+        DEFINE FIELD d ON t TYPE decimal DEFAULT 0dec;\nDEFINE FIELD s ON t TYPE string ASSERT string::len($value) > 0;\nDEFINE FIELD m ON t TYPE int | string;\n\
+        DEFINE FIELD g ON t TYPE option<set<record<a>>>;\nDEFINE FIELD k ON t TYPE array<int, 3>;\n\
+        DEFINE INDEX t_s ON t FIELDS s UNIQUE;\nDEFINE INDEX t_nr ON t FIELDS n, r;\n";
+    // field → the base type its definition means
+    const MEANT: &[(&str, &str)] = &[("n", "int"), ("o", "int"), ("u", "int"), ("nl", "datetime"), ("r", "record<a | b>"), ("l", "array<string>"), ("f", "object"), ("d", "decimal"), ("s", "string"), ("m", "int | string")];
+    rt().block_on(async {
+        let db = open("real_info").await;
+        db.query(SCHEMA).await.unwrap().check().expect("schema applies");
+        let mut r = db.query("INFO FOR DB").await.unwrap();
+        let info: Option<serde_json::Value> = r.take(0).unwrap();
+        let db_tables: Vec<(String, String)> = info.unwrap()["tables"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
+        let mut tables = IndexMap::new();
+        for (name, _) in &db_tables {
+            let mut r = db.query(format!("INFO FOR TABLE {name}")).await.unwrap();
+            let ti: Option<serde_json::Value> = r.take(0).unwrap();
+            let ti = ti.unwrap();
+            let list = |key: &str| ti[key].as_object().map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect()).unwrap_or_default();
+            tables.insert(name.clone(), TableInfo { fields: list("fields"), indexes: list("indexes"), events: list("events") });
+        }
+        let model = from_info(&db_tables, &tables);
+        let wrong: Vec<String> = MEANT
+            .iter()
+            .filter_map(|(f, meant)| {
+                let ty = model.field_type("t", f);
+                let base = ty.as_deref().map(base_type);
+                (base.as_deref() != Some(*meant)).then(|| format!("{f}: INFO type {ty:?} → base {base:?}, meant {meant}"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "types read from real INFO answers:\n{}\n(INFO: {:?})", wrong.join("\n"), tables["t"].fields);
+        // pull → apply to an empty database → pull again: the same text
+        let first = ops::pull(&db).await.expect("pull");
+        let fresh = open("real_info_again").await;
+        fresh.query(&first).await.unwrap().check().expect("pulled schema applies");
+        let second = ops::pull(&fresh).await.expect("pull again");
+        assert_eq!(first, second, "pull is not a fixed point");
+        // the element fields SurrealDB defines itself are left out
+        assert!(!first.contains("l.*") && !first.contains("g.*") && !first.contains("k.*") && first.contains("DEFINE FIELD k ON t TYPE array<int, 3>"), "{first}");
+    });
+}
