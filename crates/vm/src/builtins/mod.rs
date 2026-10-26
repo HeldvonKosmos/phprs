@@ -90,6 +90,7 @@ pub fn register(vm: &mut Vm) {
     vm.define_constant("JSON_ERROR_UTF8", Val::Int(5));
     vm.define_constant("PREG_SPLIT_NO_EMPTY", Val::Int(1));
     vm.define_constant("PREG_SPLIT_DELIM_CAPTURE", Val::Int(2));
+    vm.define_constant("PREG_SPLIT_OFFSET_CAPTURE", Val::Int(4));
     vm.define_constant("PREG_PATTERN_ORDER", Val::Int(1));
     vm.define_constant("PREG_SET_ORDER", Val::Int(2));
     vm.define_constant("ENT_QUOTES", Val::Int(3));

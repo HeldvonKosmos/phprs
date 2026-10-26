@@ -85,26 +85,18 @@ pub fn register(vm: &mut Vm) {
                 out.push(Val::from(piece));
             }
         };
-        for c in re.captures_iter(text.as_str()) {
-            let c = c.map_err(rt_err)?;
-            let m = c.get(0).expect("group 0");
+        // PERF3: the groups are needed only with PREG_SPLIT_DELIM_CAPTURE
+        let matches = split_matches(&re, text.as_str(), flags & SPLIT_DELIM_CAPTURE != 0)?;
+        for (start, end, groups) in matches {
             if limit > 0 && pieces + 1 >= limit {
                 break;
             }
-            if m.start() == m.end() && m.start() == last && m.start() < text.len() {
-                // empty match at current position: split off one char
-                continue;
-            }
-            push(&mut out, &text[last..m.start()], last);
+            push(&mut out, &text[last..start], last);
             pieces += 1;
-            if flags & SPLIT_DELIM_CAPTURE != 0 {
-                for gi in 1..c.len() {
-                    if let Some(g) = c.get(gi) {
-                        push(&mut out, g.as_str(), g.start());
-                    }
-                }
+            for (gs, ge) in groups {
+                push(&mut out, &text[gs..ge], gs);
             }
-            last = m.end();
+            last = end;
         }
         push(&mut out, &text[last..], last);
         Ok(Val::array(out))
@@ -341,6 +333,39 @@ fn expand_replacement(rep: &str, c: &fancy_regex::Captures<'_, str>) -> String {
         i += 1;
     }
     out
+}
+
+/// The matches preg_split cuts at, as PCRE walks them (Perl's /g): an empty
+/// match right after a non-empty one counts too, and after an empty match
+/// the next try is one character further. With `groups`, the spans of the
+/// capture groups as well.
+fn split_matches(re: &fancy_regex::Regex, text: &str, groups: bool) -> Result<Vec<(usize, usize, Vec<(usize, usize)>)>, Throw> {
+    let mut out = Vec::new();
+    let mut pos = 0;
+    let mut empty_at = None;
+    while pos <= text.len() {
+        let found = if groups {
+            re.captures_from_pos(text, pos).map_err(rt_err)?.map(|c| {
+                let m = c.get(0).expect("group 0");
+                (m.start(), m.end(), (1..c.len()).filter_map(|gi| c.get(gi).map(|g| (g.start(), g.end()))).collect())
+            })
+        } else {
+            re.find_from_pos(text, pos).map_err(rt_err)?.map(|m| (m.start(), m.end(), Vec::new()))
+        };
+        let Some((start, end, g)) = found else { break };
+        if start == end && empty_at == Some(start) {
+            // the empty match again: one character on
+            match text[start..].chars().next() {
+                Some(c) => pos = start + c.len_utf8(),
+                None => break,
+            }
+            continue;
+        }
+        empty_at = (start == end).then_some(end);
+        pos = end;
+        out.push((start, end, g));
+    }
+    Ok(out)
 }
 
 fn preg_replace(vm: &mut Vm, a: &[Val], callback: Option<Val>) -> Result<Val, Throw> {

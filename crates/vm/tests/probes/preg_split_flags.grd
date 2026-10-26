@@ -1,0 +1,10 @@
+<?grd
+// PERF3: preg_split finds only the matches unless PREG_SPLIT_DELIM_CAPTURE
+// asks for the groups, and walks empty matches as PCRE does (an empty match
+// right after a non-empty one counts); every flag and the limit against PHP.
+$s = 'a1b22c,,d;e';
+foreach ([0, PREG_SPLIT_NO_EMPTY, PREG_SPLIT_DELIM_CAPTURE, PREG_SPLIT_OFFSET_CAPTURE, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY | PREG_SPLIT_OFFSET_CAPTURE] as $f) {
+    echo json_encode(preg_split('/(\d+)|[,;]/', $s, -1, $f)), "\n";
+}
+echo json_encode(preg_split('//', 'abc', -1, PREG_SPLIT_NO_EMPTY)), ' ', json_encode(preg_split('//', 'abc')), ' ', json_encode(preg_split('/x/', 'axbxc', 2)), ' ', json_encode(preg_split('/\s*/', 'h i')), ' ', json_encode(preg_split('/[|;\s]+/', "a| b ;c\n")), "\n";
+foreach (["//", "/\\s*/", "/x*/", "/(?=b)/", "/$/", "/^/m", "/\\b/"] as $p) { foreach (["abc", "h i", "axb", "", "a\nb"] as $t) { echo json_encode(preg_split($p, $t)), json_encode(preg_split($p, $t, -1, PREG_SPLIT_NO_EMPTY)), json_encode(preg_split($p, $t, 2)), " "; } echo "\n"; }
