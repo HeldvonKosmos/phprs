@@ -39,9 +39,16 @@ fn middleware_groups_and_abort() {
     assert_eq!(r.status, 404);
     assert_eq!(r.body_str(), r#"{"error":"HttpException","message":"no such task"}"#);
 
-    // the group's prefix is required
-    let r = send(&pool, HttpRequest::post("/tasks/validated", "application/json", b"{}"));
-    assert_eq!(r.status, 404);
+    // the group's routes exist only under its prefix: without it, POST /tasks
+    // reaches the ungrouped `store` (its own message), not `validated`
+    let r = send(&pool, with_token(HttpRequest::post("/tasks", "application/json", b"{}")));
+    assert_eq!((r.status, r.body_str()), (422, r#"{"error":"title required"}"#.to_string()));
+    let r = send(&pool, with_token(HttpRequest::post("/admin/tasks", "application/json", b"{}")));
+    assert_eq!(r.status, 422);
+    assert!(r.body_str().contains(r#""errors":{"title""#), "{}", r.body_str());
+    // the prefix and the middleware stay inside the group
+    assert_eq!(send(&pool, with_token(HttpRequest::get("/admin/hello"))).status, 404);
+    assert_eq!(send(&pool, HttpRequest::get("/tasks")).status, 200, "no token needed outside the group");
 }
 
 #[test]

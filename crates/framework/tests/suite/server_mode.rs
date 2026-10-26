@@ -90,4 +90,10 @@ fn concurrent_writes_to_one_record_over_ws() {
         .collect();
     let failed: Vec<String> = threads.into_iter().flat_map(|t| t.join().unwrap()).collect();
     assert!(failed.is_empty(), "{} writes failed, first: {:?}", failed.len(), failed.first());
+    // the record holds the last write of one of the threads
+    let n = run(&pool, "<?grd\nuse OpenGrid\\Database\\DB;\necho DB::select('SELECT n FROM counter:1')[0]['n'];".into());
+    assert!((0..8).any(|t| n == (t * 100 + 24).to_string()), "final value {n} is not a thread's last write");
+    // conflicts are counted where they are retried; over the server the
+    // writes may also simply queue, so only report the number
+    eprintln!("concurrent_writes_to_one_record_over_ws: {} conflicts retried", pool.db().expect("database").conflict_retries());
 }

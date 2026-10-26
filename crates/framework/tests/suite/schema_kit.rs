@@ -110,6 +110,13 @@ fn surrealkv_child() {
     });
 }
 
+/// A preflight message with its rollout id (`<timestamp>__<name>`) as `<id>`.
+fn masked(msg: &str, name: &str) -> String {
+    let id = msg.strip_prefix("preflight ").and_then(|r| r.split(':').next()).unwrap_or_else(|| panic!("not a preflight message: {msg}"));
+    assert!(id.ends_with(&format!("__{name}")), "rollout id {id}");
+    msg.replace(id, "<id>")
+}
+
 fn with_table(extra: &str) -> String {
     format!("{V1}{extra}")
 }
@@ -181,19 +188,29 @@ fn preflight_allows_only_additions() {
         // removing a table
         kit::write_temporary(&root, "DEFINE TABLE tasks SCHEMAFULL PERMISSIONS NONE;\nDEFINE FIELD title ON tasks TYPE string;\n").unwrap();
         let e = kit::rollout_plan(&db, &root, "drop-notes").await.unwrap_err();
-        assert!(e.0.contains("table notes exists and would be removed") || e.0.contains("drop_") || e.0.contains("remove"), "{e}");
+        assert_eq!(
+            masked(&e.0, "drop_notes"),
+            "preflight <id>: FAILED\n  ✗ step `remove_legacy_entities` (remove_entities, phase complete) changes existing objects or data; only additions are allowed\n  ✗ table notes exists and would be removed\nrollout <id> was discarded; rollouts may only add tables, fields, indexes and events"
+        );
         assert_eq!(planned(&root), 0, "rejected plan is discarded");
 
         // changing an existing field
         kit::write_temporary(&root, &V1.replace("TYPE string", "TYPE int")).unwrap();
         let e = kit::rollout_plan(&db, &root, "retype").await.unwrap_err();
-        assert!(!e.0.is_empty());
+        // SurrealKit's own refusal (its text, first lines)
+        assert!(
+            e.0.starts_with("rollout plan: rollout plan found 1 modified entity and will not plan it automatically without --allow-modified:\n  - field:tasks.title (schema/temporary.surql)\n"),
+            "{e}"
+        );
         assert_eq!(planned(&root), 0);
 
         // a new required field on an existing table
         kit::write_temporary(&root, &with_table("DEFINE FIELD owner ON tasks TYPE string;\n")).unwrap();
         let e = kit::rollout_plan(&db, &root, "owner").await.unwrap_err();
-        assert!(e.0.contains("new required field"), "{e}");
+        assert_eq!(
+            masked(&e.0, "owner"),
+            "preflight <id>: FAILED\n  ✗ field tasks.owner is a new required field on an existing table (existing rows lack it); make it option<…> or give it a DEFAULT: DEFINE FIELD owner ON tasks TYPE string PERMISSIONS FULL\n  + field tasks.owner\nrollout <id> was discarded; rollouts may only add tables, fields, indexes and events"
+        );
         assert_eq!(planned(&root), 0);
 
         // an optional field and a new table pass

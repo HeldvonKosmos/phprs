@@ -79,29 +79,48 @@ fn routes_controllers_and_natives() {
 #[test]
 fn requests_leave_no_objects_behind() {
     let pool = pool();
-    for i in 0..50 {
-        let r = send(&pool, HttpRequest::get(&format!("/tasks/{i}")));
-        assert_eq!(r.status, 200);
+    assert_eq!(pool.workers(), 2);
+    // both workers at once: two jobs that wait for each other cannot run on
+    // the same worker, so each round has both workers handle a request
+    let on_both = |f: Arc<dyn Fn(&mut grd_vm::vm::Vm) -> (usize, usize) + Send + Sync>| {
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let jobs: Vec<_> = (0..2)
+            .map(|_| {
+                let (pool, barrier, f) = (pool.clone(), barrier.clone(), f.clone());
+                std::thread::spawn(move || {
+                    pool.run_sync(move |vm| {
+                        barrier.wait();
+                        f(vm)
+                    })
+                    .expect("worker answers")
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap()).collect::<Vec<_>>()
+    };
+    for i in 0..25 {
+        let results = on_both(Arc::new(move |vm| {
+            let r = handle(vm, HttpRequest::get(&format!("/tasks/{i}")));
+            (r.status as usize, vm as *const _ as usize)
+        }));
+        assert!(results.iter().all(|r| r.0 == 200), "{results:?}");
+        assert_ne!(results[0].1, results[1].1, "both workers handled round {i}");
     }
-    let (objects, logs) = pool
-        .run_sync(|vm| {
-            let objects = vm.objects.len();
-            let logs = vm.host::<WorkerCtx>().map(|c| c.logs.len()).unwrap_or(0);
-            (objects, logs)
-        })
-        .expect("worker answers");
-    // nothing survives a request: no live objects on the worker
-    assert_eq!(objects, 0);
+    // nothing survives a request: no live objects on either worker
+    let left = on_both(Arc::new(|vm| (vm.objects.len(), vm as *const _ as usize)));
+    assert_ne!(left[0].1, left[1].1, "both workers checked");
+    assert_eq!((left[0].0, left[1].0), (0, 0), "live objects after the requests");
     // the log ring is worker state and keeps what Log::info wrote
-    assert!(logs <= 200);
+    let logs = on_both(Arc::new(|vm| (vm.host::<WorkerCtx>().map(|c| c.logs.len()).unwrap_or(0), 0)));
+    assert!(logs.iter().all(|l| l.0 <= 200), "{logs:?}");
     let r = send(&pool, HttpRequest::get("/tasks"));
     assert_eq!(r.status, 200);
-    let last = pool.run_sync(|vm| vm.host::<WorkerCtx>().and_then(|c| c.logs.last().cloned())).expect("worker answers");
-    // one of the two workers handled the last request; the log line is there on that one
-    if let Some((level, line)) = last {
-        assert_eq!(level, "info");
-        assert_eq!(line, r#"listing tasks {"count":2}"#);
-    }
+    // the worker that answered has the log line; look at both
+    let last = on_both(Arc::new(|vm| {
+        let hit = vm.host::<WorkerCtx>().and_then(|c| c.logs.last().cloned()).is_some_and(|(level, line)| level == "info" && line == r#"listing tasks {"count":2}"#);
+        (hit as usize, 0)
+    }));
+    assert!(last.iter().any(|l| l.0 == 1), "the log line of the last request is on one worker");
 }
 
 #[tokio::test]

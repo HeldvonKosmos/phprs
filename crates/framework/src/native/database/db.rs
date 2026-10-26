@@ -111,6 +111,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
                     }
                 };
                 tracing::debug!(target: "opengrid", attempt, error = %conflict, "transaction conflict, running the closure again");
+                db.note_retry();
                 attempt += 1;
             }
         });

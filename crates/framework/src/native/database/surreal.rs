@@ -164,6 +164,9 @@ pub struct Db {
     rt: tokio::runtime::Runtime,
     client: Surreal<Any>,
     pub config: DbConfig,
+    /// Write conflicts retried so far (queries and `DB::transaction`);
+    /// lets tests show that conflicts happened at all.
+    retries: std::sync::atomic::AtomicU64,
 }
 
 impl Db {
@@ -219,7 +222,7 @@ impl Db {
                 Err(e) => return Err(format!("database connect {}: {e}", config.url)),
             }
         };
-        let db = Db { rt, client, config };
+        let db = Db { rt, client, config, retries: Default::default() };
         db.log_startup();
         Ok(db)
     }
@@ -267,6 +270,16 @@ impl Db {
         self.rt.block_on(f)
     }
 
+    /// Count one retried write conflict.
+    pub fn note_retry(&self) {
+        self.retries.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Write conflicts retried on this connection so far.
+    pub fn conflict_retries(&self) -> u64 {
+        self.retries.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Run a query; one `Value` per statement, the first failing statement
     /// is the error. Outside an explicit transaction a write conflict that
     /// SurrealDB reports as retriable (optimistic transactions, e.g. two
@@ -279,6 +292,7 @@ impl Db {
             match self.query_once(txn, sql, vars.clone()) {
                 Err((0, e)) if txn.is_none() && attempt < MAX_CONFLICT_RETRIES && is_retriable(&e) => {
                     attempt += 1;
+                    self.note_retry();
                     std::thread::sleep(std::time::Duration::from_micros(200 * u64::from(attempt)));
                 }
                 other => break other.map_err(|(_, e)| e),
@@ -359,7 +373,13 @@ mod conflict_tests {
             })
             .collect();
         let failed: usize = threads.into_iter().map(|t| t.join().unwrap()).sum();
+        let last = db.query(None, "SELECT VALUE n FROM ONLY t:1", BTreeMap::new()).expect("read").remove(0);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(failed, 0, "write conflicts reached the caller");
+        // the conflicts happened and were retried, not avoided
+        assert!(db.conflict_retries() > 0, "no write conflict occurred, the retry path did not run");
+        // the record holds the last write of one of the threads
+        let n: i64 = last.into_t().expect("int");
+        assert!((0..8).any(|w| n == w * 100 + 39), "final value {n} is not a thread's last write");
     }
 }

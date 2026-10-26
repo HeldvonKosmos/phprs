@@ -59,6 +59,9 @@ fn no_lost_updates(pool: Arc<Pool>) {
     assert!(failed.is_empty(), "{} transactions failed, first: {:?}", failed.len(), failed.first());
     let n = run(&pool, "<?grd\nuse OpenGrid\\Database\\DB;\necho DB::select('SELECT n FROM counter:1')[0]['n'];");
     assert_eq!(n, (threads * each).to_string(), "lost updates");
+    // the closures really collided and ran again (else the test shows nothing)
+    let retries = pool.db().expect("database").conflict_retries();
+    assert!(retries > 0, "no write conflict occurred, the retry path did not run");
 }
 
 #[test]
