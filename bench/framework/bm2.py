@@ -13,9 +13,10 @@ Targets (each started fresh, data created over the API, no seeds):
                      the same on PostgreSQL (LV2, "Vergleich der Standard-Setups"):
                      the compose service `postgres`, a fresh database per run,
                      connection only through PGHOST/PGPORT/PGUSER/PGPASSWORD
-  opengrid-embedded-touch0
-                     opengrid-embedded with auth.token_touch_seconds = 0 (the
-                     token's last use written on every request, as Sanctum)
+  <opengrid target>-touch0
+                     any OpenGrid target with auth.token_touch_seconds = 0 (the
+                     token's last use written on every request, as Sanctum),
+                     e.g. opengrid-embedded-touch0, opengrid-server-touch0
 The Laravel app uses its database from the environment: SQLite until the
 platform's SurrealDB layer is installed (setup.sh), then the same SurrealDB
 server as OpenGrid.
@@ -148,7 +149,7 @@ class Target:
             app = os.path.join(self.work, "app")
             shutil.copytree(TEST_APP, app, ignore=shutil.ignore_patterns(".opengrid", "tests"))
             patch_config(app, w, 0 if self.name.endswith("-touch0") else None)
-            if self.name == "opengrid-server":
+            if self.name.startswith("opengrid-server"):
                 self.surreal_server()
             else:
                 self.env["OPENGRID_DB_URL"] = f"surrealkv://{self.work}/db"
