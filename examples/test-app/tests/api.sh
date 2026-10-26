@@ -49,16 +49,15 @@ export OPENGRID_DB_URL="surrealkv://$WORK/db"
 export DB_CONNECTION=sqlite DB_DATABASE="$WORK/db.sqlite"
 # LV2: Laravel on PostgreSQL; a fresh database per run, dropped at the end.
 # Connection only through the environment: PGHOST/PGPORT/PGUSER/PGPASSWORD.
-# Defaults: the in-container server of bench/framework/pg.sh when its socket
-# exists, else the compose service `postgres`.
+# Default: the in-container server of bench/framework/pg.sh, started when
+# needed; another server only through an explicit PGHOST.
 PG_DB=""
 if [ "$TARGET" = laravel ] && [ "$DB" = pgsql ]; then
-  PG_LOCAL=$(cd "$HERE/../../.." && pwd)/.pgdata
-  if [ -z "${PGHOST:-}" ] && [ -S "$PG_LOCAL/.s.PGSQL.5432" ]; then
-    export PGHOST=$PG_LOCAL PGPORT=5432 PGUSER=${PGUSER:-$USER} PGPASSWORD=${PGPASSWORD:-}
-  else
-    export PGHOST=${PGHOST:-postgres} PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-opengrid} PGPASSWORD=${PGPASSWORD:-opengrid}
+  if [ -z "${PGHOST:-}" ]; then
+    "$HERE/../../bench/framework/pg.sh" start >/dev/null || { echo "FAIL setup: bench/framework/pg.sh start"; exit 2; }
+    export PGHOST=$(cd "$HERE/../../.." && pwd)/.pgdata PGPORT=5432 PGUSER=${PGUSER:-$USER} PGPASSWORD=${PGPASSWORD:-}
   fi
+  export PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-$USER} PGPASSWORD=${PGPASSWORD:-}
   PG_DB="apish_$$_$RANDOM"
   psql -q -d postgres -c "CREATE DATABASE $PG_DB" >/dev/null || { echo "FAIL setup: cannot create database on $PGHOST"; exit 2; }
   export DB_CONNECTION=pgsql DB_HOST=$PGHOST DB_PORT=$PGPORT DB_DATABASE=$PG_DB DB_USERNAME=$PGUSER DB_PASSWORD=$PGPASSWORD

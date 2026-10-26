@@ -11,9 +11,9 @@ Targets (each started fresh, data created over the API, no seeds):
   laravel-octane     Laravel + Sanctum, Octane on RoadRunner
   laravel-fpm-pgsql, laravel-octane-pgsql
                      the same on PostgreSQL (LV2, "Vergleich der Standard-Setups"):
-                     the in-container server of pg.sh (started when needed; the
-                     compose service `postgres` when PGHOST is set), a fresh
-                     database per run, connection only through PG* variables
+                     the in-container server of pg.sh (started when needed;
+                     another server only through PGHOST), a fresh database
+                     per run, connection only through PG* variables
   <opengrid target>-touch0
                      any OpenGrid target with auth.token_touch_seconds = 0 (the
                      token's last use written on every request, as Sanctum),
@@ -121,11 +121,10 @@ PG_LOCAL = os.path.join(WS, ".pgdata")
 
 
 def pg_env():
-    # the in-container server of pg.sh when its socket exists, else the
-    # compose service; credentials only through the environment
-    if "PGHOST" not in os.environ and os.path.exists(os.path.join(PG_LOCAL, ".s.PGSQL.5432")):
-        return {"PGHOST": PG_LOCAL, "PGPORT": "5432", "PGUSER": os.environ.get("PGUSER", os.environ.get("USER", "dev")), "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
-    return {k: os.environ.get(k, v) for k, v in (("PGHOST", "postgres"), ("PGPORT", "5432"), ("PGUSER", "opengrid"), ("PGPASSWORD", "opengrid"))}
+    # the in-container server of pg.sh, another one only through an explicit
+    # PGHOST; credentials only through the environment
+    user = os.environ.get("PGUSER", os.environ.get("USER", "dev"))
+    return {"PGHOST": os.environ.get("PGHOST", PG_LOCAL), "PGPORT": os.environ.get("PGPORT", "5432"), "PGUSER": user, "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
 
 
 class Target:
@@ -243,7 +242,7 @@ def main():
         print(f"### {a.label}\n")
     pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
     if pg_version:
-        where = "im Workbench-Container (pg.sh), Kerne der DB-Server" if pg_env()["PGHOST"] == PG_LOCAL else "eigener Container `postgres`, nicht auf Kerne gepinnt"
+        where = "im Workbench-Container (pg.sh), Kerne der DB-Server" if pg_env()["PGHOST"] == PG_LOCAL else f"Server {pg_env()['PGHOST']}, nicht gepinnt"
         print(f"PostgreSQL {pg_version} ({where}) · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
     print(f"Governor {gov} · ", end="")

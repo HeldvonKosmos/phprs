@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PostgreSQL inside the workbench container (LV2), instead of the compose
-# service: data and socket in OpenGrid_Framework/.pgdata (on the mounted
+# PostgreSQL inside the workbench container (LV2; there is no separate
+# database container): data and socket in OpenGrid_Framework/.pgdata (on the mounted
 # volume, outside every repository and outside target/), Unix socket only,
 # local trust authentication, pinned to the database cores like the
 # SurrealDB server in BM2.
