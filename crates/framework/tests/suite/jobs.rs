@@ -96,6 +96,29 @@ final class JobController
 }
 "#,
     ),
+    (
+        "modules/notes/app/Jobs/Patient.grd",
+        r#"<?grd
+namespace Notes\Jobs;
+
+use OpenGrid\Database\DB;
+use OpenGrid\Queue\Job;
+
+final class Patient extends Job
+{
+    public int $tries = 2;
+    public int $backoff = 2;
+
+    public function handle(): void
+    {
+        DB::statement('CREATE tries SET at = time::now()');
+        if (DB::table('tries')->count() < 2) {
+            throw new \RuntimeException('first try fails');
+        }
+    }
+}
+"#,
+    ),
     ("modules/notes/routes/web.grd", "<?grd\nuse Notes\\Controllers\\JobController;\nuse OpenGrid\\Routing\\Route;\nRoute::post('/queue', [JobController::class, 'queue']);\n"),
 ];
 
@@ -208,6 +231,27 @@ fn durable_jobs_wait_for_the_runner_and_fail_into_failed_jobs() {
     assert!(run_task(&pool, "queue_retry", &args(&[("id", "nope")])).unwrap_err().contains("no failed job nope"));
     assert_eq!(run_task(&pool, "queue_flush", &args(&[])).unwrap(), "1 failed job(s) deleted\n");
     assert_eq!(run(&pool, STATS), "[0,4,0]");
+    drop(pool);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// TEST2.7: `$backoff` seconds pass between a failed try and the next one.
+#[test]
+fn backoff_delays_the_next_try() {
+    let root = project("jobs-backoff");
+    let pool = Arc::new(Pool::start(PoolOptions::new(root.clone()).workers(1).database(DbConfig::mem("test", "jobs_backoff"))).expect("pool"));
+    start_runner(&pool, Duration::from_millis(50));
+    run(&pool, "<?grd Notes\\Jobs\\Patient::dispatch();");
+    const TRIES: &str = "<?grd echo OpenGrid\\Database\\DB::table('tries')->count();";
+    assert_eq!(wait_for(&pool, TRIES, "1"), "1", "first try");
+    // half of the backoff later: still one try
+    std::thread::sleep(Duration::from_millis(1000));
+    assert_eq!(run(&pool, TRIES), "1", "the second try waits for the backoff");
+    assert_eq!(wait_for(&pool, TRIES, "2"), "2", "second try after the backoff");
+    assert_eq!(wait_for(&pool, STATS, "[0,1,0]"), "[0,1,0]", "done, not failed");
+    let gap = run(&pool, "<?grd use OpenGrid\\Database\\DB; $r = DB::select('SELECT VALUE at FROM tries ORDER BY at'); echo $r[1]->getTimestamp() - $r[0]->getTimestamp();");
+    let gap: i64 = gap.parse().unwrap_or_else(|_| panic!("gap: {gap}"));
+    assert!((2..=5).contains(&gap), "seconds between the tries: {gap}");
     drop(pool);
     let _ = std::fs::remove_dir_all(&root);
 }

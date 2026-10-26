@@ -42,6 +42,9 @@ fn rejected_constructs_carry_codes() {
         ("GRD014", "<?php eval('1;');"),
         ("GRD015", "<?php exit(1);"),
         ("GRD015", "<?php die();"),
+        ("GRD016", "<?php echo 1; __halt_compiler(); raw data"),
+        ("GRD017", "<p>hello</p><?php echo 1;"),
+        ("GRD017", "<?php echo 1; ?>\n<p>tail</p>"),
         ("GRD018", "<?php $x = `ls`;"),
         ("GRD019", "<?grd $x = array_pop($a);"),
         ("GRD019", "<?grd while ($x = array_shift($q)) {}"),
@@ -166,4 +169,30 @@ fn var_export_of_a_cycle_is_an_error() {
     let src = "<?grd final class N { public ?N $n = null; } $a = new N(); $a->n = $a; try { var_export($a); } catch (Error $e) { echo $e->getMessage(); }";
     vm.run_file("t.grd", src.as_bytes()).expect("runs");
     assert!(String::from_utf8_lossy(&vm.output).ends_with("var_export does not handle circular references"));
+}
+
+/// DIALECT §4.2: every builtin of the compile-time list is rejected with
+/// GRD010 (`eval`, `exit`, `die` are constructs with their own codes), the
+/// list stays sorted (it is searched binary), and the builtins of §4.2 that
+/// are simply absent (file system, network, sessions, …) do not exist at run
+/// time (TEST2.7).
+#[test]
+fn forbidden_builtins_are_rejected_or_absent() {
+    let list = grd_vm::compile::dialect::FORBIDDEN_FUNCTIONS;
+    assert!(list.windows(2).all(|w| w[0] < w[1]), "FORBIDDEN_FUNCTIONS must stay sorted");
+    for name in list {
+        let want = match *name {
+            "eval" => "GRD014",
+            "exit" | "die" => "GRD015",
+            _ => "GRD010",
+        };
+        let src = format!("<?grd {name}('x');");
+        assert_eq!(code_of(&src), Some(want), "{src}");
+    }
+    for name in ["fopen", "file_put_contents", "file_get_contents", "fgetcsv", "unlink", "curl_init", "fsockopen", "session_start", "mysqli_connect", "openssl_encrypt", "gzcompress", "exec", "shell_exec", "system", "passthru", "proc_open", "putenv", "header", "setcookie"] {
+        let mut vm = grd_vm::vm::Vm::with_prelude().expect("prelude");
+        let src = format!("<?grd {name}('x');");
+        let err = vm.run_file("t.grd", src.as_bytes()).expect_err(name).to_string();
+        assert!(err.contains(&format!("Call to undefined function {name}()")), "{name}: {err}");
+    }
 }

@@ -259,4 +259,33 @@ mod tests {
         assert!(add(&root, &needy, None).unwrap_err().contains("needs `billing`"));
         assert!(!root.join("modules/shop").exists());
     }
+
+    /// TEST2.7: a module directory removed by hand is reported as missing;
+    /// module names that could leave `modules/` or break the convention are
+    /// refused when adding, and `remove` does not follow paths.
+    #[test]
+    fn verify_reports_missing_modules_and_names_are_guarded() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("project");
+        std::fs::create_dir_all(root.join("modules")).unwrap();
+        let url = repo(&base.path().join("blog-repo"), &[("module.toml", "name = \"blog\"\nversion = \"1.0.0\"\n")]);
+        add(&root, &url, None).unwrap();
+        std::fs::remove_dir_all(root.join("modules/blog")).unwrap();
+        assert_eq!(verify(&root).unwrap().into_iter().collect::<Vec<_>>(), vec![("blog".to_string(), "missing".to_string())]);
+
+        for bad in ["../evil", "Blog", "a/b", "", "with space", "x.y"] {
+            let dir = base.path().join(format!("bad-{}", bad.len()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let url = repo(&dir, &[("module.toml", &format!("name = \"{bad}\"\n"))]);
+            let err = add(&root, &url, None).unwrap_err();
+            assert!(err.contains(&format!("invalid module name `{bad}`")), "{bad}: {err}");
+        }
+        assert!(!base.path().join("evil").exists(), "nothing written outside modules/");
+        // remove: only a plain installed name
+        std::fs::create_dir_all(base.path().join("outside")).unwrap();
+        for name in ["../outside", "../../outside", "blog/../.."] {
+            assert!(remove(&root, name).unwrap_err().contains("is not installed"), "{name}");
+        }
+        assert!(base.path().join("outside").exists() && root.join("modules").exists());
+    }
 }
