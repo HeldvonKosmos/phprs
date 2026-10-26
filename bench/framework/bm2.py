@@ -245,6 +245,8 @@ def main():
         where = "im Workbench-Container (pg.sh), Kerne der DB-Server" if pg_env()["PGHOST"] == PG_LOCAL else f"Server {pg_env()['PGHOST']}, nicht gepinnt"
         print(f"PostgreSQL {pg_version} ({where}) · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
+    cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
+    gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
     print(f"Governor {gov} · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
           f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else ('PostgreSQL für *-pgsql, sonst SQLite' if pg_version else 'SQLite, Vorstufe')}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"

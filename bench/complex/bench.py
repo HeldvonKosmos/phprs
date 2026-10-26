@@ -114,6 +114,8 @@ def main():
     commit = sh(["git", "-C", repo, "rev-parse", "--short", "HEAD"])
     dirty = " (+ uncommitted changes)" if sh(["git", "-C", repo, "status", "--porcelain", "--", "crates"]) else ""
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
+    cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
+    gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
     print(f"Commit {commit}{dirty} · {datetime.datetime.now():%Y-%m-%d %H:%M} · {sh(['php', '-r', 'echo PHP_VERSION;'])} (NTS, ohne Xdebug)"
           f" · grd {os.path.relpath(grd, repo)}" + (f" · PGO {os.path.relpath(PGO_BIN, repo)}" if PGO_BIN else "") + f" · Kerne {a.cores} · Governor {gov} · Median aus {a.runs} Läufen, σ relativ\n")
 
