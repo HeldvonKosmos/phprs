@@ -228,3 +228,60 @@ fn token_authentication() {
     assert!(r.header("retry-after").is_some());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn script(pool: &Pool, src: String) -> String {
+    pool.run_sync(move |vm| {
+        let r = vm.run_file("s.grd", src.as_bytes());
+        let mut out = String::from_utf8_lossy(&vm.output).into_owned();
+        if let Err(e) = r {
+            out.push_str(&format!("ERR {e}"));
+        }
+        vm.reset_request();
+        out
+    })
+    .unwrap()
+}
+
+/// TEST2.7: a user may hold several tokens; logging out revokes only the
+/// token of that request.
+#[test]
+fn several_tokens_per_user_and_logout_revokes_one() {
+    let (root, pool) = auth_pool("auth-tokens", serde_json::json!({}));
+    let first = login_token(&pool);
+    let r = send(&pool, HttpRequest::post("/api/login", "application/json", br#"{"email":"ada@example.com","password":"secret123"}"#), None);
+    let second = json(&r)["token"].as_str().unwrap().to_string();
+    assert_ne!(first, second);
+    for t in [&first, &second] {
+        assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(t)).status, 200);
+    }
+    assert_eq!(send(&pool, HttpRequest::post("/api/logout", "application/json", b""), Some(&first)).status, 204);
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&first)).status, 401, "revoked");
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&second)).status, 200, "the other token still works");
+    assert_eq!(script(&pool, "<?grd echo OpenGrid\\Database\\DB::table('personal_access_tokens')->count();".into()), "1");
+    drop(pool);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// TEST2.7: token expiry as in Sanctum: `auth.token_expiration` minutes after
+/// creation, or the token's own `expires_at`.
+#[test]
+fn tokens_expire() {
+    let (root, pool) = auth_pool("auth-expiry", serde_json::json!({ "token_expiration": 60 }));
+    let token = login_token(&pool);
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&token)).status, 200, "fresh token");
+    // 59 minutes old: valid; 61 minutes old: expired
+    script(&pool, "<?grd OpenGrid\\Database\\DB::statement('UPDATE personal_access_tokens SET created_at = time::now() - 59m');".into());
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&token)).status, 200, "59 minutes old");
+    script(&pool, "<?grd OpenGrid\\Database\\DB::statement('UPDATE personal_access_tokens SET created_at = time::now() - 61m');".into());
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&token)).status, 401, "61 minutes old");
+    // expires_at of the token itself
+    let make = |when: &str| {
+        script(&pool, format!("<?grd use OpenGrid\\Auth\\Auth; use Users\\Models\\User; echo Auth::createToken(User::query()->first(), 'x', new DateTimeImmutable('{when}'));"))
+    };
+    let past = make("-1 minute");
+    let future = make("+1 hour");
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&past)).status, 401, "past expires_at");
+    assert_eq!(send(&pool, HttpRequest::get("/api/me"), Some(&future)).status, 200, "future expires_at");
+    drop(pool);
+    let _ = std::fs::remove_dir_all(&root);
+}

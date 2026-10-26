@@ -16,7 +16,7 @@ final class PersonalAccessToken extends Model
 {
     protected static string $table = 'personal_access_tokens';
     protected bool $timestamps = false;
-    protected array $fillable = ['user', 'name', 'token_hash', 'created_at', 'last_used_at'];
+    protected array $fillable = ['user', 'name', 'token_hash', 'created_at', 'last_used_at', 'expires_at'];
     protected array $hidden = ['token_hash'];
 }
 
@@ -78,15 +78,24 @@ final class Auth
     }
 
     /** A new token for the user: 256 random bits, stored as SHA-256 hash; the plain token is returned once. */
-    public static function createToken(Model $user, string $name = 'api'): string
+    /**
+     * A new bearer token for the user (plain text, shown once). `$expiresAt`
+     * as Sanctum's `createToken(…, expiresAt:)`; `auth.token_expiration`
+     * (minutes, default 0 = never) as Sanctum's `sanctum.expiration`.
+     */
+    public static function createToken(Model $user, string $name = 'api', ?\DateTimeInterface $expiresAt = null): string
     {
         $plain = bin2hex(random_bytes(32));
-        PersonalAccessToken::create([
+        $row = [
             'user' => $user->id,
             'name' => $name,
             'token_hash' => hash('sha256', $plain),
             'created_at' => new \DateTimeImmutable(),
-        ]);
+        ];
+        if ($expiresAt !== null) {
+            $row['expires_at'] = $expiresAt;
+        }
+        PersonalAccessToken::create($row);
         return $plain;
     }
 
@@ -111,11 +120,21 @@ final class Auth
             return null;
         }
         [$token, $user] = $found;
+        // expired as in Sanctum: older than `auth.token_expiration` minutes,
+        // or past its own `expires_at`
+        $now = new \DateTimeImmutable();
+        $minutes = (int) Config::get('auth.token_expiration', 0);
+        if ($minutes > 0 && $token->created_at->getTimestamp() <= $now->getTimestamp() - $minutes * 60) {
+            return null;
+        }
+        $expires = $token->expires_at ?? null;
+        if ($expires !== null && $expires->getTimestamp() < $now->getTimestamp()) {
+            return null;
+        }
         // DBP1: note the use at most every `auth.token_touch_seconds` (default 60;
         // 0 = every request, as Sanctum): a read-only request then writes nothing
         $every = (int) Config::get('auth.token_touch_seconds', 60);
         $last = $token->last_used_at ?? null;
-        $now = new \DateTimeImmutable();
         if ($every <= 0 || $last === null || $now->getTimestamp() - $last->getTimestamp() >= $every) {
             $token->update(['last_used_at' => $now]);
         }

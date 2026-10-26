@@ -18,4 +18,5 @@ DEFINE FIELD name ON TABLE personal_access_tokens TYPE string DEFAULT 'api';
 DEFINE FIELD token_hash ON TABLE personal_access_tokens TYPE string;
 DEFINE FIELD created_at ON TABLE personal_access_tokens TYPE datetime;
 DEFINE FIELD last_used_at ON TABLE personal_access_tokens TYPE option<datetime>;
+DEFINE FIELD expires_at ON TABLE personal_access_tokens TYPE option<datetime>;
 DEFINE INDEX personal_access_tokens_token_hash ON TABLE personal_access_tokens FIELDS token_hash UNIQUE;
