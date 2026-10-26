@@ -1,0 +1,16 @@
+string(17) "a1 b# c# d# é# x"
+string(21) "a b c333 d4444 é55 x"
+string(24) "a1 b22 c333 d4444 é55 x"
+string(24) "a\ b\\ c\\\ d\\\\ é\\ x"
+string(7) "-a-b-c-"
+string(17) "aN bN cN dN éN x"
+string(2) "cc"
+string(24) "aX b22 c333 d4444 é55 x"
+string(9) "> l1
+> l2"
+array(2) {
+  ["k"]=>
+  string(2) "a#"
+  ["m"]=>
+  string(2) "b#"
+}

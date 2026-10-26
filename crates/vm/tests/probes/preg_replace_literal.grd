@@ -1,0 +1,5 @@
+<?grd
+// PERF3: preg_replace with a replacement without back-references only finds
+// the matches; with $n it still fills the groups. Output is PHP's.
+$s = "a1 b22 c333 d4444 é55 x";
+var_dump(preg_replace('/\d{2,}/', '#', $s), preg_replace('/\d+/', '', $s, 2), preg_replace('/(\d)(\d)/', '$2$1', $s), preg_replace('/\d/', '\\\\', $s), preg_replace('/x*/', '-', 'abc'), preg_replace('/\d+/u', 'N', $s), preg_replace(['/a/', '/b/'], ['b', 'c'], 'ab'), preg_replace('/(?<=a)1/', 'X', $s), preg_replace('/^/m', '> ', "l1\nl2"), preg_replace('/\d/', '#', ['k' => 'a1', 'm' => 'b2']));

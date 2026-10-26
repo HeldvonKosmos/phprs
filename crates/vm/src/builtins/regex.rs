@@ -369,7 +369,24 @@ fn preg_replace(vm: &mut Vm, a: &[Val], callback: Option<Val>) -> Result<Val, Th
             let mut out = String::new();
             let mut last = 0;
             let mut n = 0i64;
-            let snapshot = text.clone();
+            let snapshot = std::mem::take(&mut text);
+            // PERF3: a replacement without `$n`/`\n` needs no capture groups,
+            // finding the matches is enough
+            if let Some(lit) = rep.as_deref().filter(|r| !r.contains(['$', '\\'])) {
+                for m in re.find_iter(snapshot.as_str()) {
+                    let m = m.map_err(rt_err)?;
+                    if limit >= 0 && n >= limit {
+                        break;
+                    }
+                    out.push_str(&snapshot[last..m.start()]);
+                    out.push_str(lit);
+                    last = m.end();
+                    n += 1;
+                }
+                out.push_str(&snapshot[last..]);
+                text = out;
+                continue;
+            }
             for c in re.captures_iter(snapshot.as_str()) {
                 let c = c.map_err(rt_err)?;
                 if limit >= 0 && n >= limit {
