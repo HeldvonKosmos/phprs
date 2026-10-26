@@ -157,11 +157,16 @@ mod tests {
 
     #[test]
     fn budget_is_never_exceeded_under_contention() {
+        // all threads start together, so they race for the last slots
         let counter = Arc::new(AtomicUsize::new(0));
+        let start = Arc::new(std::sync::Barrier::new(8));
         let admitted: usize = (0..8)
             .map(|_| {
-                let c = Arc::clone(&counter);
-                std::thread::spawn(move || (0..1000).filter(|_| admit_from(&c, 100)).count())
+                let (c, start) = (Arc::clone(&counter), Arc::clone(&start));
+                std::thread::spawn(move || {
+                    start.wait();
+                    (0..1000).filter(|_| admit_from(&c, 100)).count()
+                })
             })
             .collect::<Vec<_>>()
             .into_iter()

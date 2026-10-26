@@ -377,9 +377,13 @@ impl Vm {
         Ok(())
     }
 
-    /// Fill `methods_by_sel` / `props_by_sel` from the name maps.
+    /// Fill `methods_by_sel` / `props_by_sel` from the name maps. Selectors
+    /// are numbered in a fixed order (methods by name, properties by slot),
+    /// not in the maps' per-instance hash order: linked code is then the same
+    /// in every VM, which the JIT's process-wide tier-2 cache keys on.
     pub(crate) fn build_sel_tables(&mut self, rt: &mut RtClass) {
-        let names: Vec<Vec<u8>> = rt.methods.keys().cloned().collect();
+        let mut names: Vec<Vec<u8>> = rt.methods.keys().cloned().collect();
+        names.sort_unstable();
         for key in names {
             let info = rt.methods[&key].clone();
             let sel = self.method_sel(&key);
@@ -387,7 +391,8 @@ impl Vm {
             self.method_table.push(info);
             rt.methods_by_sel.insert(sel, idx);
         }
-        let props: Vec<(Vec<u8>, usize)> = rt.prop_index.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        let mut props: Vec<(Vec<u8>, usize)> = rt.prop_index.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        props.sort_unstable_by_key(|p| p.1);
         for (name, slot) in props {
             let sel = self.prop_sel(&name);
             rt.props_by_sel.insert(sel, slot as u32);
