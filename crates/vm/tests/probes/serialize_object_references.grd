@@ -11,4 +11,9 @@ echo serialize($u) === $s ? "round trip\n" : "changed\n";
 $c = new N(); $c->n = $c;
 echo serialize($c), "\n";
 echo serialize(['p' => [1, [2, 3]], 'q' => true, 'r' => null, 'f' => 1.5]), "\n";
-var_dump(unserialize('a:2:{i:0;i:7;i:1;r:2;}'));
+// dialect (DIALECT §5.3): broken input throws where PHP warns and returns false
+try { unserialize('a:2:{i:0;i:7;i:1;r:2;}'); } catch (ValueError $e) { echo $e->getMessage(), "\n"; }
+foreach (['s:5:"abc";', 'b:2;', 'O:1:"NN":0:{}', 'a:1:{i:0;i:1;'] as $bad) {
+    try { unserialize($bad); echo "accepted\n"; } catch (ValueError $e) { echo "rejected\n"; }
+}
+var_dump(unserialize(''));

@@ -54,7 +54,8 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
                 _ => None,
             };
             let restored = match stored {
-                Some(form @ Val::Str(_)) => vm.call_value(&Val::str("unserialize"), vec![form])?,
+                // a form that no longer fits (class changed or gone) is rebuilt
+                Some(form @ Val::Str(_)) => vm.call_value(&Val::str("unserialize"), vec![form]).unwrap_or(Val::Null),
                 _ => Val::Null,
             };
             let obj = match restored {

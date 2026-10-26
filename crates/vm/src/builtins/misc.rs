@@ -48,10 +48,14 @@ pub fn register(vm: &mut Vm) {
     });
     vm.register_native("unserialize", |vm, a| {
         let s = args::string(a, 0, "unserialize")?;
+        if s.is_empty() {
+            return Ok(Val::Bool(false)); // PHP: false without a warning
+        }
         let mut pos = 0;
+        // PHP warns and returns false; the dialect throws instead (DIALECT §5.3)
         match unserialize(vm, s.as_bytes(), &mut pos, &mut Vec::new()) {
             Ok(v) => Ok(v),
-            Err(_) => Ok(Val::Bool(false)),
+            Err(()) => Err(Throw::value_error(format!("unserialize(): Error at offset {} of {} bytes", pos.min(s.len()), s.len()))),
         }
     });
     vm.register_native("urlencode", |_, a| Ok(Val::from(url_encode(args::string(a, 0, "urlencode")?.as_bytes(), true))));
@@ -549,6 +553,14 @@ fn unserialize_inner(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val
         *pos += 1;
         Ok(s)
     };
+    // a delimiter must be exactly there, not just skipped
+    let expect = |pos: &mut usize, c: u8| -> Result<(), ()> {
+        if b.get(*pos) != Some(&c) {
+            return Err(());
+        }
+        *pos += 1;
+        Ok(())
+    };
     let tag = *b.get(*pos).ok_or(())?;
     *pos += 1;
     // scalars are numbered right away; arrays and objects take their number
@@ -561,34 +573,40 @@ fn unserialize_inner(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val
     };
     match tag {
         b'N' => {
-            *pos += 1;
+            expect(pos, b';')?;
             scalar(Val::Null, table)
         }
         b'b' => {
-            *pos += 1;
-            let v = read_until(pos, b';')?;
-            scalar(Val::Bool(v == "1"), table)
+            expect(pos, b':')?;
+            let v = match read_until(pos, b';')?.as_str() {
+                "0" => false,
+                "1" => true,
+                _ => return Err(()),
+            };
+            scalar(Val::Bool(v), table)
         }
         b'i' => {
-            *pos += 1;
+            expect(pos, b':')?;
             let v = read_until(pos, b';')?.parse().map_err(|_| ())?;
             scalar(Val::Int(v), table)
         }
         b'd' => {
-            *pos += 1;
+            expect(pos, b':')?;
             let v = read_until(pos, b';')?.parse().map_err(|_| ())?;
             scalar(Val::Float(v), table)
         }
         b's' => {
-            *pos += 1;
+            expect(pos, b':')?;
             let len: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
-            *pos += 1; // quote
+            expect(pos, b'"')?;
             let s = b.get(*pos..*pos + len).ok_or(())?.to_vec();
-            *pos += len + 2; // closing quote and ;
+            *pos += len;
+            expect(pos, b'"')?;
+            expect(pos, b';')?;
             scalar(Val::bytes(&s), table)
         }
         b'r' if !is_key => {
-            *pos += 1;
+            expect(pos, b':')?;
             let n: usize = read_until(pos, b';')?.parse().map_err(|_| ())?;
             // `r:` points at an object (PHP rejects it for anything else)
             let v = n.checked_sub(1).and_then(|i| table.get(i)).filter(|v| matches!(v, Val::Object(_))).cloned().ok_or(())?;
@@ -596,9 +614,9 @@ fn unserialize_inner(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val
             Ok(v)
         }
         b'a' if !is_key => {
-            *pos += 1;
+            expect(pos, b':')?;
             let n: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
-            *pos += 1; // {
+            expect(pos, b'{')?;
             let slot = table.len();
             table.push(Val::Null);
             let mut arr = PhpArray::new();
@@ -608,19 +626,22 @@ fn unserialize_inner(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val
                 let key = vm.to_array_key(&k).map_err(|_| ())?;
                 arr.insert(key, v);
             }
-            *pos += 1; // }
+            expect(pos, b'}')?;
             let v = Val::array(arr);
             table[slot] = v.clone();
             Ok(v)
         }
         b'O' if !is_key => {
-            *pos += 1;
-            let _len: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
-            *pos += 1;
+            expect(pos, b':')?;
+            let len: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
+            expect(pos, b'"')?;
             let name = read_until(pos, b'"')?;
-            *pos += 1; // :
+            if name.len() != len {
+                return Err(());
+            }
+            expect(pos, b':')?;
             let n: usize = read_until(pos, b':')?.parse().map_err(|_| ())?;
-            *pos += 1;
+            expect(pos, b'{')?;
             let class = vm.lookup_class(name.as_bytes()).ok_or(())?;
             let h = vm.alloc_object(class).map_err(|_| ())?;
             table.push(Val::Object(h));
@@ -631,7 +652,7 @@ fn unserialize_inner(vm: &mut Vm, b: &[u8], pos: &mut usize, table: &mut Vec<Val
                 let key = vm.to_array_key(&k).map_err(|_| ())?;
                 props.insert(key, v);
             }
-            *pos += 1;
+            expect(pos, b'}')?;
             if vm.class(class).find_method(b"__unserialize").is_some() {
                 vm.call_method_sync(h, b"__unserialize", vec![Val::array(props)]).map_err(|_| ())?;
             } else {
