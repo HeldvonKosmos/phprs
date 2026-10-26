@@ -4,6 +4,13 @@
 -- platform's PHP classes, which take `IF` for the table name (R4b2).
 DEFINE TABLE _opengrid_sessions SCHEMALESS PERMISSIONS NONE;
 
+-- Durable jobs (J4), as Laravel's database queue: waiting and running jobs,
+-- and the ones that failed for good.
+DEFINE TABLE jobs SCHEMALESS PERMISSIONS NONE;
+DEFINE INDEX jobs_due ON TABLE jobs FIELDS reserved_at, available_at;
+DEFINE TABLE failed_jobs SCHEMALESS PERMISSIONS NONE;
+DEFINE INDEX failed_jobs_uuid ON TABLE failed_jobs FIELDS uuid UNIQUE;
+
 -- API tokens (AU1): only the SHA-256 hash of a token is stored.
 DEFINE TABLE personal_access_tokens SCHEMAFULL PERMISSIONS NONE;
 DEFINE FIELD user ON TABLE personal_access_tokens TYPE record;

@@ -280,6 +280,10 @@ impl Pool {
         &self.services
     }
 
+    pub fn services_arc(&self) -> Arc<Services> {
+        Arc::clone(&self.services)
+    }
+
     fn submit(&self, job: Job) {
         // The receiver lives as long as any worker thread does.
         let _ = self.tx.send(job);

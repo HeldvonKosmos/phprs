@@ -36,14 +36,36 @@ pub struct JobQueue {
     pub pending: std::sync::atomic::AtomicUsize,
     pub done: std::sync::atomic::AtomicUsize,
     pub failed: std::sync::atomic::AtomicUsize,
+    /// J4: this pool runs durable jobs (the server; not task pools).
+    pub runner: std::sync::atomic::AtomicBool,
+    /// J4: ids of durable jobs handed to a worker and not finished yet.
+    queued: Mutex<std::collections::HashSet<String>>,
 }
 
 impl JobQueue {
     pub fn push(&self, job: crate::worker::Job) -> Result<(), String> {
+        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.push_uncounted(job).inspect_err(|_| {
+            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        })
+    }
+
+    /// Work for a worker that is not a job (the durable queue's poll).
+    pub fn push_uncounted(&self, job: crate::worker::Job) -> Result<(), String> {
         let guard = self.tx.lock().map_err(|_| "job queue poisoned".to_string())?;
         let tx = guard.as_ref().ok_or("the pool is shutting down")?;
-        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tx.send(job).map_err(|_| "no worker takes jobs".to_string())
+    }
+
+    /// J4: mark a durable job as handed out; false if it already is.
+    pub fn claim_slot(&self, id: &str) -> bool {
+        self.queued.lock().map(|mut q| q.insert(id.to_string())).unwrap_or(false)
+    }
+
+    pub fn release_slot(&self, id: &str) {
+        if let Ok(mut q) = self.queued.lock() {
+            q.remove(id);
+        }
     }
 }
 

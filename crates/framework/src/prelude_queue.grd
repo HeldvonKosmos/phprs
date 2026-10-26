@@ -14,17 +14,36 @@ namespace OpenGrid\Queue;
  *
  * The constructor arguments are kept as JSON (scalars and arrays, not
  * objects); a worker runs the job after its current work, outside the
- * request. A failing job runs again up to `$tries` times.
+ * request. A failing job runs again up to `$tries` times, `$backoff`
+ * seconds apart. With a database the job is a row in `jobs` until it
+ * succeeds and survives a restart; a job that fails for good goes to
+ * `failed_jobs` (`opengrid task queue_failed`, `queue_retry`) (J4).
  */
 abstract class Job
 {
     public int $tries = 1;
+    /** Seconds before another try (J4). */
+    public int $backoff = 0;
+    /** Name of the queue (kept with the row; one server runs all queues). */
+    public string $queue = 'default';
 
     abstract public function handle(): void;
 
     public function maxTries(): int { return $this->tries; }
 
-    public static function dispatch(mixed ...$args): void { \opengrid_job_dispatch(static::class, $args); }
+    /** Like Laravel, the job is built here; its arguments go into the queue. */
+    public static function dispatch(mixed ...$args): void
+    {
+        $job = new static(...$args);
+        \opengrid_job_dispatch(static::class, $args, $job->maxTries(), $job->backoff, 0, $job->queue);
+    }
+
+    /** Laravel's `dispatch(...)->delay($seconds)`; only with a database. */
+    public static function dispatchLater(int $seconds, mixed ...$args): void
+    {
+        $job = new static(...$args);
+        \opengrid_job_dispatch(static::class, $args, $job->maxTries(), $job->backoff, $seconds, $job->queue);
+    }
 
     /** Run it now, in this request. */
     public static function dispatchSync(mixed ...$args): void { (new static(...$args))->handle(); }

@@ -31,6 +31,7 @@ pub fn run_task(pool: &Arc<Pool>, name: &str, args: &BTreeMap<String, String>) -
     match name {
         "migrate_push" | "migrate_pull" | "migrate_fresh" | "rollout" => schema_task(pool, name, args),
         "module" => module_task(pool.options(), args, Some(pool)),
+        "queue_failed" | "queue_retry" | "queue_flush" => crate::native::jobs::queue_task(pool, name, args),
         "run" => {
             let sig = args.get("task").ok_or("run needs task:<module>:<name>")?;
             grd_task(pool, sig, args)

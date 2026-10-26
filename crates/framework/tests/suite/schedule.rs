@@ -94,6 +94,8 @@ fn due_entries_run_in_process() {
         std::fs::write(p, src).unwrap();
     }
     let pool = Arc::new(Pool::start(PoolOptions::new(root.clone()).workers(2).database(DbConfig::mem("test", "schedule"))).expect("pool"));
+    // J4: with a database scheduled jobs are durable rows; the server runs them
+    opengrid_framework::native::jobs::start_runner(&pool, Duration::from_millis(50));
     let entries = scheduler::entries(&pool);
     let crons: Vec<String> = entries.iter().map(|e| format!("{} {} {}", e.kind, e.target, e.cron)).collect();
     assert_eq!(crons, ["task notes:stamp 0 3 * * *", "job Notes\\Jobs\\StampJob */15 * * * *", "task notes:stamp 30 8 * * 1"]);

@@ -205,6 +205,8 @@ impl Hooks for OpenGridApp {
         });
         // J3: the schedule runs in this process, every full minute
         crate::scheduler::start(Arc::clone(&pool));
+        // J4: durable jobs run in the server (task pools only write rows)
+        crate::native::jobs::start_runner(&pool, std::time::Duration::from_secs(1));
         if !matches!(ctx.environment, Environment::Production) {
             return Ok(());
         }
@@ -227,7 +229,10 @@ impl Hooks for OpenGridApp {
 
 /// The tasks of `opengrid task …`. In a project with a running server they
 /// run inside it (J1, control socket), otherwise in this process.
-const TASKS: [(&str, &str); 6] = [
+const TASKS: [(&str, &str); 9] = [
+    ("queue_failed", "list jobs that failed for good (table failed_jobs)"),
+    ("queue_retry", "queue failed jobs again: id:<uuid> | id:all"),
+    ("queue_flush", "delete all failed jobs"),
     ("module", "modules from Git: cmd:add url:<repo> [rev:<tag|branch|commit>] | cmd:remove name:<m> | cmd:list | cmd:verify"),
     ("migrate_push", "merge the modules' .surql schema and sync the database (development)"),
     ("migrate_pull", "print the database's current schema in .surql form"),
