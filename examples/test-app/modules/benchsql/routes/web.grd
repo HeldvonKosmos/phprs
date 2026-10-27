@@ -1,0 +1,17 @@
+<?grd
+// Measurement tool (D23, DBR1): the framework-core benchmark. Both apps run
+// exactly these raw SQL statements against the same SQLite database; ORM and
+// auth are replaced by them on both sides on purpose.
+use BenchSql\Controllers\BenchSqlController;
+use BenchSql\Http\Middleware\BenchToken;
+use OpenGrid\Routing\Route;
+
+Route::group(['prefix' => '/api/bench/sql'], function () {
+    Route::get('/health', [BenchSqlController::class, 'health']);
+    Route::post('/login', [BenchSqlController::class, 'login']);
+});
+Route::group(['prefix' => '/api/bench/sql/notes', 'middleware' => [BenchToken::class]], function () {
+    Route::get('', [BenchSqlController::class, 'index']);
+    Route::post('', [BenchSqlController::class, 'store']);
+    Route::get('/{id}', [BenchSqlController::class, 'show']);
+});

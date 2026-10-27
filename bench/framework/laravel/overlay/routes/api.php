@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BenchSqlController;
 use App\Http\Controllers\NoteController;
+use App\Http\Middleware\BenchToken;
 use App\Http\Middleware\JsonWrites;
 use Illuminate\Support\Facades\Route;
 
@@ -18,4 +20,17 @@ Route::prefix('notes')->middleware(['auth:sanctum', JsonWrites::class])->group(f
     Route::get('/{id}', [NoteController::class, 'show']);
     Route::patch('/{id}', [NoteController::class, 'update']);
     Route::delete('/{id}', [NoteController::class, 'destroy']);
+});
+
+// Measurement tool (D23, DBR1): the framework-core benchmark. Both apps run
+// exactly these raw SQL statements against the same SQLite database; ORM and
+// auth are replaced by them on both sides on purpose.
+Route::prefix('bench/sql')->group(function () {
+    Route::get('/health', [BenchSqlController::class, 'health']);
+    Route::post('/login', [BenchSqlController::class, 'login']);
+});
+Route::prefix('bench/sql/notes')->middleware(BenchToken::class)->group(function () {
+    Route::get('', [BenchSqlController::class, 'index']);
+    Route::post('', [BenchSqlController::class, 'store']);
+    Route::get('/{id}', [BenchSqlController::class, 'show']);
 });

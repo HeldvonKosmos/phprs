@@ -47,6 +47,10 @@ mkdir -p "$APP"
 (cd "$HERE" && tar --exclude=./.opengrid --exclude=./tests -cf - .) | (cd "$APP" && tar -xf -)
 export OPENGRID_DB_URL="surrealkv://$WORK/db"
 export DB_CONNECTION=sqlite DB_DATABASE="$WORK/db.sqlite"
+# D23 (DBR1): the framework-core benchmark endpoints on their own SQLite
+# database, the same for both apps (4 notes: ids 1-4, done every second)
+python3 "$HERE/../../bench/framework/sqlite/seed.py" "$WORK/bench.sqlite" 4 >/dev/null
+export OPENGRID_DB_BENCH_SQLITE_URL="sqlite://$WORK/bench.sqlite" BENCH_SQLITE_DATABASE="$WORK/bench.sqlite"
 # LV2: Laravel on PostgreSQL; a fresh database per run, dropped at the end.
 # Connection only through the environment: PGHOST/PGPORT/PGUSER/PGPASSWORD.
 # Default: the in-container server of bench/framework/pg.sh, started when
@@ -219,6 +223,30 @@ req POST /api/logout "" "$TOKEN"
 check "logout" 204
 req GET /api/me "" "$TOKEN"
 check "me with the old token" 401
+
+# ---- framework-core benchmark endpoints (D23, measurement tool) -------------
+# the same raw SQL and the same answers in both apps
+req GET /api/bench/sql/health
+check "bench sql: health" 200 '.status == "ok"'
+req POST /api/bench/sql/login '{"email":"bench@example.com","password":"wrong"}'
+check "bench sql: login with a wrong password" 401 '.message == "Invalid credentials."'
+req POST /api/bench/sql/login '{"email":"bench@example.com","password":"secret-123"}'
+check "bench sql: login" 200 '(.token | length) == 64'
+BT=$(printf '%s' "$BODY" | jq -r .token)
+req GET /api/bench/sql/notes
+check "bench sql: notes without a token" 401 '.message == "Unauthenticated."'
+req GET "/api/bench/sql/notes?done=false&per_page=15" "" "$BT"
+check "bench sql: list" 200 '.total == 2 and .per_page == 15 and .current_page == 1 and [.data[].id] == [4, 2] and [.data[].priority] == [4, 2] and ([.data[].done] | all(. == false))'
+req GET /api/bench/sql/notes/2 "" "$BT"
+check "bench sql: show" 200 '.data == {"id": 2, "title": "Note 0001", "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "done": false, "priority": 2, "created_at": "2026-10-27 00:00:00", "updated_at": "2026-10-27 00:00:00"}'
+req POST /api/bench/sql/notes '{"title":"Bench","body":"created by bm2","priority":2}' "$BT"
+check "bench sql: create" 201 '.data.id == 5 and .data.title == "Bench" and .data.body == "created by bm2" and .data.done == false and .data.priority == 2'
+req POST /api/bench/sql/notes '{"body":"no title"}' "$BT"
+check "bench sql: create without a title" 422 '.message == "The title field is required."'
+req GET /api/bench/sql/notes/99 "" "$BT"
+check "bench sql: unknown note" 404 '.message == "Not found."'
+req GET "/api/bench/sql/notes?done=false" "" "$BT"
+check "bench sql: list after create" 200 '.total == 3'
 
 # ---- restart on the same database (embedded, OpenGrid only) ----------------
 if [ "$TARGET" = opengrid ]; then

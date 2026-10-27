@@ -1,0 +1,3 @@
+name = "benchsql"
+version = "0.1.0"
+description = "Measurement tool, not an application module: the framework-core benchmark with raw SQL on SQLite (D23); the same endpoints and statements exist in the Laravel comparison app"
