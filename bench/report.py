@@ -35,11 +35,19 @@ def main():
     def get(e, t, conc=c):
         return bm2.get(f"{e}|{t}|{conc}")
 
-    def section(title, suffix, endpoints, note):
-        cols = [("OpenGrid embedded", f"opengrid-embedded{suffix}")]
-        if not a.short:
-            cols.append(("with PGO", f"opengrid-embedded-pgo{suffix}"))
-        cols += [("OpenGrid + SurrealDB server", f"opengrid-server{suffix}"), ("Laravel Octane", "laravel-octane-pgsql"), ("Laravel FPM", "laravel-fpm-pgsql")]
+    def section(title, suffix, endpoints, note, core=False):
+        if core:
+            cols = [("OpenGrid", "opengrid-embedded-core")]
+            if not a.short:
+                cols.append(("with PGO", "opengrid-embedded-pgo-core"))
+            cols += [("Laravel Octane", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
+        else:
+            cols = [("OpenGrid embedded", f"opengrid-embedded{suffix}")]
+            if not a.short:
+                cols.append(("with PGO", f"opengrid-embedded-pgo{suffix}"))
+            cols += [("OpenGrid + SurrealDB server", f"opengrid-server{suffix}"), ("Laravel Octane", "laravel-octane-pgsql"), ("Laravel FPM", "laravel-fpm-pgsql")]
+        if not any(get(e, t) for e in endpoints for _, t in cols):
+            return
         print(f"**{title}** — {note}\n")
         print("| Endpoint | " + " | ".join(n for n, _ in cols) + " | embedded / Octane |")
         print("|---|" + "---:|" * (len(cols) + 1))
@@ -48,21 +56,22 @@ def main():
             for _, t in cols:
                 r = get(e, t)
                 cells.append(f"{fmt(r[0])} (p99 {r[2]:.1f} ms)" if r else "–")
-            emb, octane = get(e, cols[0][1]), get(e, "laravel-octane-pgsql")
+            emb, octane = get(e, cols[0][1]), get(e, "laravel-octane-core" if core else "laravel-octane-pgsql")
             ratio = f"{emb[0] / octane[0]:.1f}×" if emb and octane else "–"
             print(f"| {e} | " + " | ".join(cells) + f" | {ratio} |")
         print()
 
     print(f"Requests per second at {c} connections (p99 in brackets); 0 non-2xx responses unless stated.\n")
-    section("Standard setups", "", ENDPOINTS, "both sides in their default settings (OpenGrid notes a token's use at most every 60 s, Sanctum at most once a second)")
-    section("Same semantics", "-touch1", ["list", "show", "create"], "OpenGrid notes a token's use at most once a second, as Sanctum does in effect")
-    section("Stricter than Laravel", "-touch0", ["list", "show", "create"], "OpenGrid writes the token's use on every request")
+    section("(a) Framework core: raw SQL on SQLite", "", ENDPOINTS, "both frameworks run exactly the same SQL statements against the same SQLite database in their own process (same library, WAL, synchronous FULL); ORM and auth are replaced by these statements on both sides on purpose", core=True)
+    section("(b) Standard setups", "", ENDPOINTS, "both sides in their default settings (OpenGrid notes a token's use at most every 60 s, Sanctum at most once a second)")
+    section("(b) Same semantics", "-touch1", ["list", "show", "create"], "OpenGrid notes a token's use at most once a second, as Sanctum does in effect")
+    section("(b) Stricter than Laravel", "-touch0", ["list", "show", "create"], "OpenGrid writes the token's use on every request")
     errors = sum(v[3] for v in bm2.values())
     total = sum(v[4] for v in bm2.values())
     print(f"Non-2xx responses: {errors} of {fmt(total)} requests.\n")
 
     if base:
-        print("**Database share** (1 connection, p50 in ms): total time of the request in BM2, time of the same statements against the same database without the framework (`dbbase.py`), and the difference. The database time was measured without load from framework code, so the difference is an approximation, not an exact value.\n")
+        print("**(c) Database share** (1 connection, p50 in ms): total time of the request in BM2, time of the same statements against the same database without the framework (`dbbase.py`), and the difference. The database time was measured without load from framework code, so the difference is an approximation, not an exact value.\n")
         # the baseline writes the token use as often as the target does: never
         # within the run (OpenGrid default, 60 s), once a second (touch1,
         # Laravel/Sanctum), on every request (touch0)

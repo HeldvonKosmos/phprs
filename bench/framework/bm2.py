@@ -14,6 +14,11 @@ Targets (each started fresh, data created over the API, no seeds):
                      the in-container server of pg.sh (started when needed;
                      another server only through PGHOST), a fresh database
                      per run, connection only through PG* variables
+  <target>-core      framework core (D23): opengrid-embedded-core,
+                     opengrid-embedded-pgo-core, laravel-octane-core,
+                     laravel-fpm-core run the same raw SQL on a fresh SQLite
+                     database (bench/framework/sqlite/), endpoints
+                     /api/bench/sql/…, the token check in both apps the same
   <opengrid target>-touchN
                      any OpenGrid target with auth.token_touch_seconds = N:
                      touch1 writes the token's last use at most once a second,
@@ -143,6 +148,8 @@ class Target:
         for k in ("OPENGRID_DB_URL", "SURREAL_DB_HOST", "GRD_JIT", "OPENGRID_JIT"):
             self.env.pop(k, None)
         self.pg_db = None
+        # D23 (DBR1): the framework core with the same raw SQL on SQLite
+        self.core = name.endswith("-core")
 
     def surreal_server(self):
         port = free_port()
@@ -157,6 +164,11 @@ class Target:
 
     def launch(self):
         w = self.a.workers
+        if self.core:
+            # a fresh SQLite database of the same schema and data for both apps
+            db = os.path.join(self.work, "bench.sqlite")
+            subprocess.run(["python3", os.path.join(HERE, "sqlite", "seed.py"), db, str(self.a.notes)], check=True, capture_output=True)
+            self.env.update(OPENGRID_DB_BENCH_SQLITE_URL=f"sqlite://{db}", BENCH_SQLITE_DATABASE=db)
         if self.name.startswith("opengrid"):
             app = os.path.join(self.work, "app")
             shutil.copytree(TEST_APP, app, ignore=shutil.ignore_patterns(".opengrid", "tests"))
@@ -191,6 +203,12 @@ class Target:
         wait_http(self.base + "/health", p, self.name, timeout=120)
 
     def seed(self):
+        if self.core:
+            st, body = http("POST", self.base + "/api/bench/sql/login", {"email": "bench@example.com", "password": "secret-123"})
+            assert st == 200, (st, body)
+            self.token = body["token"]
+            self.note_id = str(self.a.notes // 2 + 1)
+            return
         user = {"name": "Bench", "email": "bench@example.com", "password": "secret-123", "password_confirmation": "secret-123"}
         st, _ = http("POST", self.base + "/api/register", user)
         assert st == 201, st
@@ -205,6 +223,15 @@ class Target:
 
     def endpoint(self, e):
         b, t = self.base, self.token
+        if self.core:
+            c = b + "/api/bench/sql"
+            return {
+                "health": (c + "/health", "GET", None, None),
+                "list": (c + "/notes?done=false&per_page=15", "GET", None, t),
+                "show": (c + f"/notes/{self.note_id}", "GET", None, t),
+                "create": (c + "/notes", "POST", {"title": "Bench", "body": "created by bm2", "priority": 2}, t),
+                "login": (c + "/login", "POST", {"email": "bench@example.com", "password": "secret-123"}, None),
+            }[e]
         return {
             "health": (b + "/health", "GET", None, None),
             "list": (b + "/api/notes?filter%5Bdone%5D=false&sort=priority:desc&per_page=15", "GET", None, t),
@@ -254,6 +281,10 @@ def main():
         where = {PG_TCP: "im Workbench-Container (pg.sh), TCP 127.0.0.1:5432, Kerne der DB-Server", PG_SOCKET: "im Workbench-Container (pg.sh), Unix-Socket, Kerne der DB-Server"}.get(pg_env()["PGHOST"], f"Server {pg_env()['PGHOST']}, nicht gepinnt")
         pg_dur = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "select string_agg(name || '=' || setting, ', ' order by name) from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_sync_method')"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip()
         print(f"PostgreSQL {pg_version} ({where}; {pg_dur}) · ", end="")
+    if any(t.endswith("-core") for t in a.targets.split(",")):
+        php_sqlite = sh(["php", "-r", "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();"])
+        og_lib = next((l.split("=>")[1].split("(")[0].strip() for l in sh(["ldd", a.opengrid]).splitlines() if "libsqlite3" in l), "?")
+        print(f"SQLite {php_sqlite} (PHP pdo_sqlite; OpenGrid gegen {og_lib}; WAL, synchronous FULL, busy_timeout 5000, je Worker eine Verbindung) · ", end="")
     # surrealkv commits after a grouped WAL fsync unless SURREAL_DATASTORE_SYNC says otherwise
     print(f"surrealkv sync={os.environ.get('SURREAL_DATASTORE_SYNC', 'every (Standard)')} · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"

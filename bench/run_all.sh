@@ -72,7 +72,7 @@ bench/framework/pg.sh start
 
 [ "$FRAMEWORK_ONLY" = 1 ] || python3 bench/complex/bench.py --runs 7 --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
 python3 bench/framework/bm2.py --label "Stand $COMMIT: Standard und gleiche Semantik" \
-  --targets opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-fpm-pgsql,laravel-octane-pgsql,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
+  --targets opengrid-embedded-core,opengrid-embedded-pgo-core,laravel-octane-core,laravel-fpm-core,opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-fpm-pgsql,laravel-octane-pgsql,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
   --json "$OUT/bm2.json" > "$OUT/bm2.md" 2> "$OUT/bm2.err"
 # the databases alone with each endpoint's statements (BENCHMARKS §0.4)
 python3 bench/framework/dbbase.py --json "$OUT/dbbase.json" > "$OUT/dbbase.md" 2> "$OUT/dbbase.err"
