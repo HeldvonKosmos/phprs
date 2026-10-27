@@ -56,7 +56,7 @@ function once(PDO $pdo, string $endpoint, bool $touch, object $token, object $us
     if ($endpoint === 'login') {
         q($pdo, 'select * from "users" where "email" = ? limit 1', [$user->email]);
         q($pdo, 'insert into "personal_access_tokens" ("name", "token", "abilities", "tokenable_id", "tokenable_type", "updated_at", "created_at") values (?, ?, ?, ?, ?, ?, ?) returning "id"',
-            [$token->name, hash('sha256', "dbbase-$k-" . getmypid()), $token->abilities, $token->tokenable_id, $token->tokenable_type, $now, $now]);
+            [$token->name, hash('sha256', "dbbase-$k-" . getmypid() . '-' . hrtime(true)), $token->abilities, $token->tokenable_id, $token->tokenable_type, $now, $now]);
         return;
     }
     q($pdo, 'select * from "personal_access_tokens" where "token" = ? limit 1', [$token->token]);
@@ -74,7 +74,7 @@ function once(PDO $pdo, string $endpoint, bool $touch, object $token, object $us
             break;
         case 'create':
             q($pdo, 'insert into "notes" ("done", "priority", "title", "body", "user", "id", "updated_at", "created_at") values (?, ?, ?, ?, ?, ?, ?, ?)',
-                ['false', 2, 'Bench', 'created by dbbase', $user->id, sprintf('%08x-%04x-4%03x-a%03x-%012x', getmypid(), $k & 0xffff, $k & 0xfff, ($k >> 12) & 0xfff, $k), $now, $now]);
+                ['false', 2, 'Bench', 'created by dbbase', $user->id, substr(hash('sha256', getmypid() . '-' . $k . '-' . hrtime(true)), 0, 36), $now, $now]);
             break;
         case 'health':
             break;

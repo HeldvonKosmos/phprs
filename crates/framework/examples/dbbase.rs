@@ -147,7 +147,9 @@ fn main() {
                 let (h, db, d, endpoint) = (h.clone(), &db, d.clone(), endpoint.clone());
                 s.spawn(move || {
                     let mut lat = Vec::new();
-                    let mut k = (c as u64) << 40;
+                    // unique per run and client: token hashes of `login` must not
+                    // repeat across runs (unique index)
+                    let mut k = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_micros() as u64) ^ ((c as u64) << 56);
                     loop {
                         let t0 = Instant::now();
                         if t0 >= end {
