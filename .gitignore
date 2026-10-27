@@ -79,3 +79,6 @@ MEMORY.md
 # written by migrate_push / schema sync in tests (generated)
 crates/framework/tests/fixtures/app/database/schema/temporary.surql
 __pycache__/
+
+# local hook of bench/run_all.sh (machine-specific, never committed)
+/bench/local/

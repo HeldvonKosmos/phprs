@@ -14,6 +14,7 @@
 #            ../target/bench-tmp/smoke-<commit>-<time>/, numbers meaningless;
 #            the working tree may be dirty
 #   --plan:  print the stages and the estimated duration, run nothing
+# Last step: bench/local/after-run <result dir>, when that local file exists.
 # Before measuring: prerequisites (tools, Laravel app in sync with the
 # overlay, FrankenPHP, SQLite 3.45.2) and the api.sh gates (OpenGrid with
 # and without PGO, Laravel on FPM, RoadRunner and FrankenPHP).
@@ -162,4 +163,10 @@ stage report python3 bench/report.py "$OUT" > "$OUT/report.md"
 kill -TERM $QUIET; wait $QUIET || true
 trap - EXIT
 { echo "finished $(date -u +%FT%TZ)"; cat "$OUT/quiet.txt"; echo "fill $(df -h "$TMPDIR" | tail -1)"; echo "governor $(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor), clock cap $(awk -v k="$(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }') GHz"; } >> "$OUT/env.txt"
+# last step: a local hook (bench/local/after-run, not in the repository, see
+# .gitignore) may process the result, e.g. update local documents; the
+# measurement is complete at this point, so a failing hook only warns
+if [ -x bench/local/after-run ]; then
+  bench/local/after-run "$OUT" > "$OUT/after-run.log" 2>&1 || echo "run_all: bench/local/after-run failed (see $OUT/after-run.log)" >&2
+fi
 echo "run_all: results in $OUT"
