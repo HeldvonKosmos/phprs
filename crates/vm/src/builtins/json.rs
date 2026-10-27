@@ -166,7 +166,7 @@ fn encode(vm: &mut Vm, v: &Val, flags: i64, depth: usize, max_depth: usize, out:
     match v {
         Val::Null => out.extend_from_slice(b"null"),
         Val::Bool(b) => out.extend_from_slice(if *b { b"true" } else { b"false" }),
-        Val::Int(i) => out.extend_from_slice(i.to_string().as_bytes()),
+        Val::Int(i) => push_int(*i, out),
         Val::Float(f) => {
             if !f.is_finite() {
                 return Err(JsonErr::Json(7, "Inf and NaN cannot be JSON encoded".into()));
@@ -193,7 +193,31 @@ fn encode(vm: &mut Vm, v: &Val, flags: i64, depth: usize, max_depth: usize, out:
                 }
                 out.push(b']');
             } else {
-                encode_map(vm, a.iter().map(|(k, v)| (key_bytes(k), v.clone())).collect(), flags, depth, max_depth, out)?;
+                // PERF4: straight from the array, without copying keys and values
+                out.push(b'{');
+                for (i, (k, val)) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push(b',');
+                    }
+                    newline(flags, depth + 1, out);
+                    match k {
+                        ArrayKey::Int(n) => {
+                            out.push(b'"');
+                            push_int(*n, out);
+                            out.push(b'"');
+                        }
+                        ArrayKey::Str(s) => encode_string(s.as_bytes(), flags, out)?,
+                    }
+                    out.push(b':');
+                    if flags & PRETTY_PRINT != 0 {
+                        out.push(b' ');
+                    }
+                    encode(vm, val, flags, depth + 1, max_depth, out)?;
+                }
+                if !a.is_empty() {
+                    newline(flags, depth, out);
+                }
+                out.push(b'}');
             }
         }
         Val::Object(h) => {
@@ -249,11 +273,23 @@ fn encode_props(vm: &mut Vm, h: ObjHandle, flags: i64, depth: usize, max_depth: 
     encode_map(vm, entries, flags, depth, max_depth, out)
 }
 
-fn key_bytes(k: &ArrayKey) -> Vec<u8> {
-    match k {
-        ArrayKey::Int(i) => i.to_string().into_bytes(),
-        ArrayKey::Str(s) => s.as_bytes().to_vec(),
+/// An integer in decimal, without an intermediate string.
+fn push_int(i: i64, out: &mut Vec<u8>) {
+    let mut buf = [0u8; 20];
+    let mut n = i.unsigned_abs();
+    let mut at = buf.len();
+    loop {
+        at -= 1;
+        buf[at] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
     }
+    if i < 0 {
+        out.push(b'-');
+    }
+    out.extend_from_slice(&buf[at..]);
 }
 
 fn encode_map(vm: &mut Vm, entries: Vec<(Vec<u8>, Val)>, flags: i64, depth: usize, max_depth: usize, out: &mut Vec<u8>) -> Result<(), JsonErr> {
