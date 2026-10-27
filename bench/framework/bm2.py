@@ -14,13 +14,13 @@ Targets (each started fresh, data created over the API, no seeds):
                      the in-container server of pg.sh (started when needed;
                      another server only through PGHOST), a fresh database
                      per run, connection only through PG* variables
-  <opengrid target>-touch0
-                     any OpenGrid target with auth.token_touch_seconds = 0 (the
-                     token's last use written on every request, as Sanctum),
-                     e.g. opengrid-embedded-touch0, opengrid-server-touch0
-The Laravel app uses its database from the environment: SQLite until the
-platform's SurrealDB layer is installed (setup.sh), then the same SurrealDB
-server as OpenGrid.
+  <opengrid target>-touchN
+                     any OpenGrid target with auth.token_touch_seconds = N:
+                     touch1 writes the token's last use at most once a second,
+                     as Sanctum does in effect (Eloquent saves last_used_at
+                     only when it changed, to the second; querylog.py, D11
+                     2026-10-27); touch0 writes on every request, stricter
+                     than Laravel. E.g. opengrid-embedded-touch1.
 
 Endpoints: GET /health, GET /api/notes?filter[done]=false&sort=priority:desc,
 GET /api/notes/{id}, POST /api/notes (all with a bearer token), POST /api/login
@@ -31,7 +31,7 @@ same number of workers on both sides.
 
 usage: bm2.py [--targets …] [--workers 4] [--conc 1,16,64] [--duration 10] [--warmup 3] [--notes 200]
 """
-import argparse, datetime, json, os, secrets, shutil, signal, socket, subprocess, sys, tempfile, time, urllib.request
+import argparse, datetime, json, os, re, secrets, shutil, signal, socket, subprocess, sys, tempfile, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "../.."))
@@ -160,7 +160,8 @@ class Target:
         if self.name.startswith("opengrid"):
             app = os.path.join(self.work, "app")
             shutil.copytree(TEST_APP, app, ignore=shutil.ignore_patterns(".opengrid", "tests"))
-            patch_config(app, w, 0 if self.name.endswith("-touch0") else None)
+            m = re.search(r"-touch(\d+)$", self.name)
+            patch_config(app, w, int(m.group(1)) if m else None)
             if self.name.startswith("opengrid-server"):
                 self.surreal_server()
             else:

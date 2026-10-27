@@ -133,7 +133,9 @@ final class Auth
             return null;
         }
         // DBP1: note the use at most every `auth.token_touch_seconds` (default 60;
-        // 0 = every request, as Sanctum): a read-only request then writes nothing
+        // 0 = every request; 1 is what Sanctum does in effect, as Eloquent saves
+        // last_used_at only when it changed to the second): a read-only request
+        // then writes nothing
         $every = (int) Config::get('auth.token_touch_seconds', 60);
         $last = $token->last_used_at ?? null;
         if ($every <= 0 || $last === null || $now->getTimestamp() - $last->getTimestamp() >= $every) {

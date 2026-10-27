@@ -58,7 +58,7 @@ bench/framework/pg.sh start
 
 python3 bench/complex/bench.py --runs 7 --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
 python3 bench/framework/bm2.py --label "Stand $COMMIT: Standard und gleiche Semantik" \
-  --targets opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-fpm-pgsql,laravel-octane-pgsql,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
+  --targets opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-fpm-pgsql,laravel-octane-pgsql,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
   --json "$OUT/bm2.json" > "$OUT/bm2.md" 2> "$OUT/bm2.err"
 { echo "finished $(date -u +%FT%TZ)"; echo "fill $(df -h "$TMPDIR" | tail -1)"; echo "governor $(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor), clock cap $(awk -v k="$(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }') GHz"; } >> "$OUT/env.txt"
 echo "run_all: results in $OUT"
