@@ -120,7 +120,7 @@ check() {
 
 # ---- setup -----------------------------------------------------------------
 if [ "$TARGET" = opengrid ]; then
-  if (cd "$APP" && "$BIN" task migrate_push >"$WORK/migrate.log" 2>&1); then pass "schema: migrate_push"; else fail "schema: migrate_push" "$(tail -n 5 "$WORK/migrate.log")"; exit 1; fi
+  if (cd "$APP" && "$BIN" task migrate_push >"$WORK/migrate.log" 2>&1); then pass "schema: migrate_push"; else fail "schema: migrate_push" "$(grep -m1 -A3 'panicked' "$WORK/migrate.log" || tail -n 5 "$WORK/migrate.log")"; exit 1; fi
 else
   LARAVEL_APP=${LARAVEL_APP:-$(cd "$HERE/../../.." && pwd)/bench/laravel-app}
   [ "$DB" = pgsql ] || touch "$DB_DATABASE"
