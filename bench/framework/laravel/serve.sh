@@ -19,8 +19,9 @@ mkdir -p "$W"
 cd "$APP"
 # an Octane start interrupted while it replaced the binary leaves rr.backup
 [ -e rr ] || [ ! -f rr.backup ] || mv rr.backup rr
-php artisan optimize:clear >/dev/null
-php artisan optimize >/dev/null
+# under a lock: between optimize:clear and optimize the caches are missing, and a
+# test that boots the app meanwhile (schedule.rs) waits for the same lock
+flock bootstrap/cache/.opengrid-optimize.lock sh -c 'php artisan optimize:clear >/dev/null && php artisan optimize >/dev/null'
 
 pids=()
 stop() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null; exit 0; }

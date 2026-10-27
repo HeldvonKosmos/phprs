@@ -149,9 +149,11 @@ fn frequencies_are_laravels_cron_expressions() {
         "daily()", "dailyAt('03:00')", "dailyAt('8:30')", "dailyAt('23')", "weekly()", "weeklyOn(1, '8:30')", "weeklyOn(5)", "monthly()", "cron('5 4 * * 2')",
     ];
     let calls = CALLS.iter().map(|c| format!("$s->command('x')->{c}->getExpression()")).collect::<Vec<_>>().join(", ");
-    let out = Command::new("php")
+    // serve.sh rebuilds the app's caches under this lock (`api.sh --app
+    // laravel` may start it at the same time); booting the app waits for it
+    let out = Command::new("flock")
         .current_dir(&app)
-        .arg("-r")
+        .args(["bootstrap/cache/.opengrid-optimize.lock", "php", "-r"])
         .arg(format!("require 'vendor/autoload.php'; $app = require 'bootstrap/app.php'; $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); $s = $app->make(Illuminate\\Console\\Scheduling\\Schedule::class); echo json_encode([{calls}]);"))
         .output()
         .expect("run php");
