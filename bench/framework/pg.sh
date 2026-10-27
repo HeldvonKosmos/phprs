@@ -13,6 +13,13 @@ DATA=${PG_DATA:-$WS/.pgdata}
 CORES=${PG_CORES:-4-7}
 case "${1:-status}" in
   start)
+    # a data directory of another major version (e.g. 16 after the switch to
+    # 17) is kept aside, not deleted; the benchmark data is created again
+    major=$(initdb --version | sed -E 's/.* ([0-9]+)(\.[0-9]+)*$/\1/')
+    if [ -f "$DATA/PG_VERSION" ] && [ "$(cat "$DATA/PG_VERSION")" != "$major" ]; then
+      old="$DATA.pg$(cat "$DATA/PG_VERSION")"
+      mv "$DATA" "$old" && echo "pg: data of PostgreSQL $(cat "$old/PG_VERSION") moved to $old"
+    fi
     if [ ! -f "$DATA/PG_VERSION" ]; then
       initdb -D "$DATA" -U "$USER" --auth=trust -E UTF8 --locale=C.UTF-8 >/dev/null
       { echo "listen_addresses = ''"; echo "unix_socket_directories = '$DATA'"; echo "max_connections = 200"; } >> "$DATA/postgresql.conf"
