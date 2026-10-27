@@ -1,0 +1,27 @@
+<?grd
+namespace BenchSql\Views;
+
+/** Measurement tool (THESIS1): a note hydrated from a raw row, with its user. */
+final class NoteView
+{
+    public function __construct(
+        public int $id,
+        public string $title,
+        public ?string $body,
+        public bool $done,
+        public int $priority,
+        public string $createdAt,
+        public UserView $user,
+    ) {
+    }
+
+    public static function fromRow(array $row): NoteView
+    {
+        return new NoteView($row['id'], $row['title'], $row['body'], $row['done'] === 1, $row['priority'], $row['created_at'], new UserView($row['user_id'], $row['user_name'], $row['user_email']));
+    }
+
+    public function toArray(): array
+    {
+        return ['id' => $this->id, 'title' => $this->title, 'body' => $this->body, 'done' => $this->done, 'priority' => $this->priority, 'created_at' => $this->createdAt, 'user' => $this->user->toArray()];
+    }
+}

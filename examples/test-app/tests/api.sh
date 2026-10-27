@@ -248,6 +248,22 @@ check "bench sql: unknown note" 404 '.message == "Not found."'
 req GET "/api/bench/sql/notes?done=false" "" "$BT"
 check "bench sql: list after create" 200 '.total == 3'
 
+# THESIS1: the logic workloads (same answers in both apps)
+req GET "/api/bench/logic/hydrate?n=2" "" "$BT"
+check "bench logic: hydrate" 200 '[.data[].id] == [1, 2] and .data[0].done == true and .data[1].title == "Note 0001" and .data[0].user == {"id": 1, "name": "Bench", "email": "bench@example.com"}'
+req GET "/api/bench/logic/hydrate?n=0" "" "$BT"
+check "bench logic: hydrate with n = 0" 200 '.data == []'
+req GET "/api/bench/logic/collect?n=5" "" "$BT"
+check "bench logic: collect" 200 '.groups == {"2": {"count": 2, "chars": 68, "first": "Bench"}, "4": {"count": 1, "chars": 49, "first": "Note 0003"}}'
+req POST /api/bench/logic/validate '{"items":[{"title":"a","priority":1,"tags":["x","y"]},{"title":"b","priority":5}]}' "$BT"
+check "bench logic: validate" 200 '.valid == 2'
+req POST /api/bench/logic/validate '{"items":[{"title":"a","priority":9}]}' "$BT"
+check "bench logic: validate rejects" 422 '(.errors | keys) == ["items.0.priority"]'
+req GET "/api/bench/logic/json?n=2" "" "$BT"
+check "bench logic: json" 200 '.count == 2 and .items[1] == {"id": 1, "name": "item 1", "tags": ["a", "b", "c"], "meta": {"created": "2026-10-27", "score": 1.5, "flags": {"x": true, "y": false}}}'
+req GET "/api/bench/logic/json" "" ""
+check "bench logic: without a token" 401 '.message == "Unauthenticated."'
+
 # ---- restart on the same database (embedded, OpenGrid only) ----------------
 if [ "$TARGET" = opengrid ]; then
   stop_server

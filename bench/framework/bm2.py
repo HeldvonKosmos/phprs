@@ -27,6 +27,13 @@ Targets (each started fresh, data created over the API, no seeds):
                      2026-10-27); touch0 writes on every request, stricter
                      than Laravel. E.g. opengrid-embedded-touch1.
 
+Logic endpoints (THESIS1, core targets only): <workload>:<n> with workload
+hydrate, collect, validate or json and n = 0…1000 (e.g. hydrate:100), at
+/api/bench/logic/…; run with --notes 1000 so n = 1000 comes from one user's
+notes. validate posts n items. Before measuring, every logic endpoint's
+answer is fetched once; its size and a hash of the canonical JSON go into
+the result, and a difference between targets is reported.
+
 Endpoints: GET /health, GET /api/notes?filter[done]=false&sort=priority:desc,
 GET /api/notes/{id}, POST /api/notes (all with a bearer token), POST /api/login
 (bcrypt cost 10 on both sides). Load generator oha: per endpoint and
@@ -36,7 +43,7 @@ same number of workers on both sides.
 
 usage: bm2.py [--targets …] [--workers 4] [--conc 1,16,64] [--duration 10] [--warmup 3] [--notes 200]
 """
-import argparse, datetime, json, os, re, secrets, shutil, signal, socket, subprocess, sys, tempfile, time, urllib.request
+import argparse, datetime, hashlib, json, os, re, secrets, shutil, signal, socket, subprocess, sys, tempfile, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "../.."))
@@ -57,6 +64,13 @@ def free_port():
 
 
 def http(method, url, body=None, token=None):
+    st, raw = http_raw(method, url, body, token)
+    if 200 <= st < 300:
+        return st, (json.loads(raw) if raw else None)
+    return st, raw.decode(errors="replace")
+
+
+def http_raw(method, url, body=None, token=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
@@ -65,10 +79,9 @@ def http(method, url, body=None, token=None):
         req.add_header("Authorization", "Bearer " + token)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read()
-            return r.status, (json.loads(raw) if raw else None)
+            return r.status, r.read()
     except urllib.error.HTTPError as e:
-        return e.code, e.read().decode(errors="replace")
+        return e.code, e.read()
 
 
 def wait_http(url, proc, what, timeout=60):
@@ -227,6 +240,16 @@ class Target:
 
     def endpoint(self, e):
         b, t = self.base, self.token
+        if ":" in e:
+            # THESIS1: a logic workload with n
+            assert self.core, f"{e}: logic endpoints only on -core targets"
+            w, n = e.split(":")
+            n = int(n)
+            if w == "validate":
+                items = [{"title": f"Item {i}", "priority": i % 5 + 1, "tags": ["a", "b"]} for i in range(n)]
+                return (b + "/api/bench/logic/validate", "POST", {"items": items}, t)
+            assert w in ("hydrate", "collect", "json"), w
+            return (b + f"/api/bench/logic/{w}?n={n}", "GET", None, t)
         if self.core:
             c = b + "/api/bench/sql"
             return {
@@ -314,6 +337,7 @@ def main():
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores}, DB-Server {a.db_cores}, Last {a.load_cores}"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
     results = {}
+    answers = {}
     conc = [int(c) for c in a.conc.split(",")]
     for name in a.targets.split(","):
         with tempfile.TemporaryDirectory(prefix=f"bm2-{name}-") as work:
@@ -323,6 +347,10 @@ def main():
                 t.seed()
                 for e in a.endpoints.split(","):
                     url, method, body, token = t.endpoint(e)
+                    if ":" in e:
+                        st, raw = http_raw(method, url, body, token)
+                        canon = json.dumps(json.loads(raw), sort_keys=True, separators=(",", ":"))
+                        answers[(e, name)] = (st, len(raw), hashlib.sha256(canon.encode()).hexdigest()[:12])
                     for c in conc:
                         oha(url, c, a.warmup, a.load_cores, method, body, token)
                         r = oha(url, c, a.duration, a.load_cores, method, body, token)
@@ -349,8 +377,21 @@ def main():
                 rps, p50, p99, bad, total, inflight = results[(e, name, c)]
                 print(f"| {name} | {c} | {rps:.0f} | {p50:.2f} | {p99:.2f} | {bad} von {total} | {inflight:.1f} |")
         print()
+    if answers:
+        print("#### Antworten der Logik-Endpunkte (vor der Messung je einmal abgerufen)\n")
+        print("| Endpunkt | Ziel | Status | Bytes | Hash (kanonisches JSON) |")
+        print("|---|---|---:|---:|---|")
+        for (e, name), (st, size, h) in sorted(answers.items()):
+            print(f"| {e} | {name} | {st} | {size} | {h} |")
+        for e in sorted({e for e, _ in answers}):
+            if len({v[2] for (e2, _), v in answers.items() if e2 == e}) > 1:
+                print(f"\n**Abweichung:** `{e}` antwortet nicht in allen Zielen gleich.")
+                print(f"WARNING {e}: answers differ between targets", file=sys.stderr)
+        print()
     if a.json:
-        json.dump({f"{e}|{n}|{c}": v for (e, n, c), v in results.items()}, open(a.json, "w"), indent=1)
+        out = {f"{e}|{n}|{c}": v for (e, n, c), v in results.items()}
+        out.update({f"answer|{e}|{n}": v for (e, n), v in answers.items()})
+        json.dump(out, open(a.json, "w"), indent=1)
 
 
 if __name__ == "__main__":

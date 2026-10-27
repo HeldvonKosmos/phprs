@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BenchLogicController;
 use App\Http\Controllers\BenchSqlController;
 use App\Http\Controllers\NoteController;
 use App\Http\Middleware\BenchToken;
@@ -33,4 +34,12 @@ Route::prefix('bench/sql/notes')->middleware(BenchToken::class)->group(function 
     Route::get('', [BenchSqlController::class, 'index']);
     Route::post('', [BenchSqlController::class, 'store']);
     Route::get('/{id}', [BenchSqlController::class, 'show']);
+});
+
+// THESIS1: workloads with an adjustable amount of logic per request (?n=)
+Route::prefix('bench/logic')->middleware(BenchToken::class)->group(function () {
+    Route::get('/hydrate', [BenchLogicController::class, 'hydrate']);
+    Route::get('/collect', [BenchLogicController::class, 'collect']);
+    Route::post('/validate', [BenchLogicController::class, 'validate']);
+    Route::get('/json', [BenchLogicController::class, 'json']);
 });
