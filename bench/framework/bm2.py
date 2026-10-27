@@ -118,14 +118,19 @@ def patch_config(app, workers, touch=None):
 
 
 PG_TCP = "127.0.0.1"
+PG_SOCKET = os.path.join(WS, ".pgdata")
+# --pg socket (default): Laravel's best case, no network stack; --pg tcp: 127.0.0.1:5432
+PG_MODE = {"mode": "socket"}
 
 
 def pg_env():
-    # the in-container server of pg.sh over TCP (the network stack belongs to
-    # Laravel's standard setup), another one only through an explicit PGHOST;
-    # credentials only through the environment
+    # the in-container server of pg.sh, by default over its Unix socket
+    # (Laravel's best case, DECISIONS 27.10.), with --pg tcp over 127.0.0.1;
+    # another server only through an explicit PGHOST; credentials only
+    # through the environment
     user = os.environ.get("PGUSER", os.environ.get("USER", "dev"))
-    return {"PGHOST": os.environ.get("PGHOST", PG_TCP), "PGPORT": os.environ.get("PGPORT", "5432"), "PGUSER": user, "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
+    local = PG_TCP if PG_MODE["mode"] == "tcp" else PG_SOCKET
+    return {"PGHOST": os.environ.get("PGHOST", local), "PGPORT": os.environ.get("PGPORT", "5432"), "PGUSER": user, "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
 
 
 class Target:
@@ -229,8 +234,10 @@ def main():
     ap.add_argument("--opengrid", default=os.path.join(WS, "target/profiling/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
+    ap.add_argument("--pg", choices=["socket", "tcp"], default="socket", help="how Laravel reaches the in-container PostgreSQL")
     ap.add_argument("--label", default="", help="heading of the result, e.g. 'Vergleich der Standard-Setups'")
     a = ap.parse_args()
+    PG_MODE["mode"] = a.pg
     a.opengrid = os.path.abspath(a.opengrid)
     a.opengrid_pgo = os.path.abspath(a.opengrid_pgo)
     sh = lambda c, cwd=None: subprocess.run(c, capture_output=True, text=True, cwd=cwd).stdout.strip()
@@ -243,7 +250,7 @@ def main():
         print(f"### {a.label}\n")
     pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
     if pg_version:
-        where = "im Workbench-Container (pg.sh), TCP 127.0.0.1:5432, Kerne der DB-Server" if pg_env()["PGHOST"] == PG_TCP else f"Server {pg_env()['PGHOST']}, nicht gepinnt"
+        where = {PG_TCP: "im Workbench-Container (pg.sh), TCP 127.0.0.1:5432, Kerne der DB-Server", PG_SOCKET: "im Workbench-Container (pg.sh), Unix-Socket, Kerne der DB-Server"}.get(pg_env()["PGHOST"], f"Server {pg_env()['PGHOST']}, nicht gepinnt")
         print(f"PostgreSQL {pg_version} ({where}) · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
