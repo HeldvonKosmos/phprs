@@ -63,13 +63,18 @@ def main():
 
     if base:
         print("**Database share** (1 connection, p50 in ms): total time of the request in BM2, time of the same statements against the same database without the framework (`dbbase.py`), and the difference. The database time was measured without load from framework code, so the difference is an approximation, not an exact value.\n")
+        # the baseline writes the token use as often as the target does: never
+        # within the run (OpenGrid default, 60 s), once a second (touch1,
+        # Laravel/Sanctum), on every request (touch0)
         rows = [
             ("OpenGrid embedded", "opengrid-embedded", "opengrid-embedded", ""),
+            ("OpenGrid embedded, touch1", "opengrid-embedded-touch1", "opengrid-embedded", "+touch1"),
             ("OpenGrid embedded, touch0", "opengrid-embedded-touch0", "opengrid-embedded", "+touch"),
             ("OpenGrid + server", "opengrid-server", "opengrid-server", ""),
+            ("OpenGrid + server, touch1", "opengrid-server-touch1", "opengrid-server", "+touch1"),
             ("OpenGrid + server, touch0", "opengrid-server-touch0", "opengrid-server", "+touch"),
-            ("Laravel Octane", "laravel-octane-pgsql", "laravel-octane-pgsql", ""),
-            ("Laravel FPM", "laravel-fpm-pgsql", "laravel-fpm-pgsql", ""),
+            ("Laravel Octane", "laravel-octane-pgsql", "laravel-octane-pgsql", "+touch1"),
+            ("Laravel FPM", "laravel-fpm-pgsql", "laravel-fpm-pgsql", "+touch1"),
         ]
         print("| Target | Endpoint | total p50 | database p50 | difference (framework) | database share |")
         print("|---|---|---:|---:|---:|---:|")
@@ -85,7 +90,7 @@ def main():
                 db = b["p50_ms"] if b else 0.0
                 share = f"{100 * db / r[1]:.0f} %" if r[1] else "–"
                 print(f"| {label} | {e} | {r[1]:.2f} | {db:.2f} | {r[1] - db:.2f} | {share} |")
-        print("\nLaravel rows: without Sanctum's token update, which in BM2 happens at most once a second per token (`dbbase.py` measures it as the `+touch` variant).\n")
+        print("\nThe baseline writes the token's use as often as the target does: not within the run for OpenGrid's default (at most every 60 s), at most once a second for touch1 and Laravel (Sanctum in effect), on every request for touch0; every write sets a new value on both sides.\n")
 
 
 if __name__ == "__main__":

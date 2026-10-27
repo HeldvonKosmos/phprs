@@ -12,8 +12,10 @@ application server is stopped and the database stays:
 - laravel-octane-pgsql / laravel-fpm-pgsql: dbbase.php with PDO pgsql over
   the Unix socket, one connection per client (Octane) or a new connection
   per request (FPM).
-Variants `+touch`: the token use written on every request (OpenGrid touch0;
-Sanctum's update, which in the benchmark happens at most once a second).
+Variants: no suffix, no token write (OpenGrid's default writes at most every
+60 s); `+touch1` at most once a second for the token (OpenGrid touch1 and
+Laravel, as Sanctum does in effect); `+touch` on every request (touch0).
+Every write sets a new value.
 
 Usage: bench/framework/dbbase.py [--targets …] [--endpoints …] [--conc 1,16,64] [--warmup 3] [--duration 10] [--json FILE]
 Needs `cargo build --profile profiling -p opengrid-framework --example dbbase`.
@@ -36,7 +38,9 @@ def variants(target, endpoint):
         return ["health"] if target == "laravel-fpm-pgsql" else []
     if endpoint == "login":
         return ["login"]
-    return [endpoint, endpoint + "+touch"]
+    # no write (OpenGrid default, every 60 s), once a second (touch1, Laravel),
+    # every request (touch0)
+    return [endpoint, endpoint + "+touch1", endpoint + "+touch"]
 
 
 def main():

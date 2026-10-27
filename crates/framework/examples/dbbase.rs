@@ -8,6 +8,11 @@
 //!   dbbase <url> <endpoint> <clients> <warmup s> <duration s>
 //!   endpoint: list | show | create | login, optionally with `+touch` (the
 //!   token use written on every request, as with token_touch_seconds = 0)
+//!   or `+touch1` (written at most once a second for the token, as with
+//!   touch1 and as Sanctum does in effect: client 0 writes once a second,
+//!   so all clients together write once a second, like requests sharing
+//!   one token). Without a suffix nothing is written (OpenGrid's default
+//!   writes at most every 60 s).
 //! Credentials for `ws://` through SURREAL_DB_USERNAME/PASSWORD; namespace
 //! and database through SURREAL_DB_NAMESPACE/DATABASE (default bench/bench,
 //! as in bm2.py; embedded: opengrid/opengrid, the framework's default).
@@ -20,15 +25,42 @@ use surrealdb::engine::any::{Any, connect};
 use surrealdb::opt::auth::Root;
 use surrealdb::types::{Object, Value};
 
-fn query(rt: &tokio::runtime::Handle, db: &Surreal<Any>, sql: &str, vars: Vec<(&str, Value)>) -> Vec<Value> {
+fn try_query(rt: &tokio::runtime::Handle, db: &Surreal<Any>, sql: &str, vars: &[(&str, Value)]) -> Result<Vec<Value>, String> {
     rt.block_on(async {
         let mut obj = Object::new();
         for (k, v) in vars {
-            obj.insert(k.to_string(), v);
+            obj.insert(k.to_string(), v.clone());
         }
-        let mut resp = db.query(sql).bind(obj).await.expect("query");
-        (0..resp.num_statements()).map(|i| resp.take::<Value>(i).expect("statement")).collect()
+        let mut resp = db.query(sql).bind(obj).await.map_err(|e| e.to_string())?;
+        (0..resp.num_statements()).map(|i| resp.take::<Value>(i).map_err(|e| e.to_string())).collect()
     })
+}
+
+fn query(rt: &tokio::runtime::Handle, db: &Surreal<Any>, sql: &str, vars: Vec<(&str, Value)>) -> Vec<Value> {
+    try_query(rt, db, sql, &vars).unwrap_or_else(|e| panic!("{sql}: {e}"))
+}
+
+/// The token-use write as OpenGrid does it: a write conflict between clients
+/// updating the same token is retried like in `SurrealDb::query` (20 times,
+/// 200 µs × attempt), and `Auth::noteUse` gives up on it without failing the
+/// request (twice). Returns the retries.
+fn touch_query(rt: &tokio::runtime::Handle, db: &Surreal<Any>, vars: Vec<(&str, Value)>) -> u32 {
+    let sql = "UPDATE $rid MERGE { last_used_at: time::now() }";
+    let mut retries = 0;
+    for _note_use in 0..2 {
+        for attempt in 0..=20u32 {
+            match try_query(rt, db, sql, &vars) {
+                Ok(_) => return retries,
+                Err(e) if attempt < 20 && e.contains("can be retried") => {
+                    retries += 1;
+                    std::thread::sleep(Duration::from_micros(200 * u64::from(attempt + 1)));
+                }
+                Err(e) if e.contains("can be retried") => break,
+                Err(e) => panic!("{sql}: {e}"),
+            }
+        }
+    }
+    retries
 }
 
 fn field(v: &Value, name: &str) -> Value {
@@ -65,6 +97,7 @@ struct Data {
 }
 
 fn run_once(rt: &tokio::runtime::Handle, db: &Surreal<Any>, d: &Data, endpoint: &str, touch: bool, k: u64) {
+    // `touch` here: this request writes the token use
     if endpoint == "login" {
         query(rt, db, "SELECT * FROM users WHERE email = $f0 LIMIT 1 START 0", vec![("f0", d.email.clone())]);
         let mut t = d.token.clone();
@@ -78,7 +111,7 @@ fn run_once(rt: &tokio::runtime::Handle, db: &Surreal<Any>, d: &Data, endpoint: 
     if touch {
         // as OpenGrid's `$token->update(['last_used_at' => $now])`: a new
         // value every time (a constant one would leave nothing to write)
-        query(rt, db, "UPDATE $rid MERGE { last_used_at: time::now() }", vec![("rid", d.token_id.clone())]);
+        touch_query(rt, db, vec![("rid", d.token_id.clone())]);
     }
     match endpoint {
         "list" => {
@@ -99,12 +132,16 @@ fn run_once(rt: &tokio::runtime::Handle, db: &Surreal<Any>, d: &Data, endpoint: 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let [_, url, endpoint, clients, warmup, duration] = args.as_slice() else {
-        eprintln!("usage: dbbase <url> <endpoint[+touch]> <clients> <warmup s> <duration s>");
+        eprintln!("usage: dbbase <url> <endpoint[+touch|+touch1]> <clients> <warmup s> <duration s>");
         std::process::exit(2);
     };
-    let (endpoint, touch) = match endpoint.strip_suffix("+touch") {
-        Some(e) => (e.to_string(), true),
-        None => (endpoint.clone(), false),
+    // 0: never, 1: once a second (client 0), 2: every request
+    let (endpoint, touch_mode) = if let Some(e) = endpoint.strip_suffix("+touch1") {
+        (e.to_string(), 1)
+    } else if let Some(e) = endpoint.strip_suffix("+touch") {
+        (e.to_string(), 2)
+    } else {
+        (endpoint.clone(), 0)
     };
     let clients: usize = clients.parse().expect("clients");
     let (warmup, duration) = (Duration::from_secs_f64(warmup.parse().expect("warmup")), Duration::from_secs_f64(duration.parse().expect("duration")));
@@ -150,12 +187,21 @@ fn main() {
                     // unique per run and client: token hashes of `login` must not
                     // repeat across runs (unique index)
                     let mut k = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_micros() as u64) ^ ((c as u64) << 56);
+                    let mut last_touch: Option<Instant> = None;
                     loop {
                         let t0 = Instant::now();
                         if t0 >= end {
                             break;
                         }
                         k += 1;
+                        let touch = match touch_mode {
+                            2 => true,
+                            1 if c == 0 && last_touch.is_none_or(|l| t0.duration_since(l) >= Duration::from_secs(1)) => {
+                                last_touch = Some(t0);
+                                true
+                            }
+                            _ => false,
+                        };
                         run_once(&h, db, &d, &endpoint, touch, k);
                         if t0 >= measure_from {
                             lat.push(t0.elapsed().as_secs_f64() * 1000.0);

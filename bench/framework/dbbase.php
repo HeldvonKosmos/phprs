@@ -8,14 +8,18 @@
 //   persistent: one connection per client for the whole run (Octane)
 //   connect:    a new connection for every request, with Laravel's
 //               `set search_path to "public"` (FPM)
-//   +touch:     Sanctum's token update on every request (it happens at most
-//               once a second per token in the benchmark)
+//   +touch:     the token update on every request (as OpenGrid touch0)
+//   +touch1:    the token update at most once a second for the token, as
+//               Sanctum does in effect (client 0 writes once a second, so all
+//               clients together write once a second, like requests sharing
+//               one token); every write sets a new value
+//   no suffix:  no token update
 // Connection from the environment: PGHOST (the socket directory), PGPORT,
 // PGDATABASE, PGUSER, PGPASSWORD. Prints one JSON line: ops, ops/s, p50, p99.
 
 [$_, $endpoint, $clients, $warmup, $duration, $mode] = $argv + [null, 'show', 1, 3, 10, 'persistent'];
-$touch = str_ends_with($endpoint, '+touch');
-$endpoint = str_replace('+touch', '', $endpoint);
+$touchMode = str_ends_with($endpoint, '+touch1') ? 1 : (str_ends_with($endpoint, '+touch') ? 2 : 0);
+$endpoint = preg_replace('/\+touch1?$/', '', $endpoint);
 $clients = (int) $clients;
 $dsn = sprintf('pgsql:host=%s;port=%s;dbname=%s', getenv('PGHOST'), getenv('PGPORT') ?: '5432', getenv('PGDATABASE'));
 // Illuminate\Database\Connectors\Connector::$options
@@ -52,7 +56,8 @@ $seed = null;
 
 function once(PDO $pdo, string $endpoint, bool $touch, object $token, object $user, object $note, int $k): void
 {
-    $now = date('Y-m-d H:i:s');
+    // a new value on every write (microseconds), like OpenGrid's time::now()
+    $now = (new DateTimeImmutable())->format('Y-m-d H:i:s.u');
     if ($endpoint === 'login') {
         q($pdo, 'select * from "users" where "email" = ? limit 1', [$user->email]);
         q($pdo, 'insert into "personal_access_tokens" ("name", "token", "abilities", "tokenable_id", "tokenable_type", "updated_at", "created_at") values (?, ?, ?, ?, ?, ?, ?) returning "id"',
@@ -95,8 +100,13 @@ for ($c = 0; $c < $clients; $c++) {
         $pdo = $mode === 'persistent' ? connect($dsn, $options) : null;
         $lat = [];
         $k = 0;
+        $lastTouch = null;
         while (($t0 = microtime(true)) < $end) {
             $k++;
+            $touch = $touchMode === 2 || ($touchMode === 1 && $c === 0 && ($lastTouch === null || $t0 - $lastTouch >= 1.0));
+            if ($touch && $touchMode === 1) {
+                $lastTouch = $t0;
+            }
             $p = $pdo ?? connect($dsn, $options);
             once($p, $endpoint, $touch, $token, $user, $note, $k);
             $p = null; // connect mode: the connection closes with the request, as in FPM
