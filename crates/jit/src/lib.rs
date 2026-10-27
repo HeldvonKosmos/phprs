@@ -177,7 +177,7 @@ impl ForceExit {
         }
     }
 }
-use codegen::{buf_words, signature, Gen, NativeCallee, ST_EXIT, ST_RETURN};
+use codegen::{buf_words, signature, Gen, NativeCallee, ST_DEEP, ST_EXIT, ST_RETURN};
 
 /// A function compiled for native calls.
 #[derive(Clone)]
@@ -616,7 +616,7 @@ impl JitBackend for CraneliftJit {
     fn run(&mut self, id: u32, buf: &mut [u64], vm: &mut Vm) -> JitStatus {
         let ptr = self.codes[id as usize].ptr.load(Ordering::Acquire);
         // SAFETY: `ptr` is a function finalized by a `Compiler`'s JITModule
-        // with the signature `extern "C" fn(*mut u64, *mut Vm) -> i64`
+        // with the signature `extern "C" fn(*mut u64, *mut Vm, i64) -> i64`
         // (codegen::signature, the ISA's default C calling convention): the
         // tier-1 module lives as long as `self`, the tier-2 module as long as
         // the process (background thread, never dropped), and a slot only
@@ -627,8 +627,9 @@ impl JitBackend for CraneliftJit {
         // before swapping).
         // `vm` goes to the runtime functions only (see "runtime functions for
         // objects").
-        let f: extern "C" fn(*mut u64, *mut Vm) -> i64 = unsafe { std::mem::transmute(ptr) };
-        let status = f(buf.as_mut_ptr(), vm as *mut Vm);
+        let f: extern "C" fn(*mut u64, *mut Vm, i64) -> i64 = unsafe { std::mem::transmute(ptr) };
+        // native call depth 0: code entered from the interpreter
+        let status = f(buf.as_mut_ptr(), vm as *mut Vm, 0);
         if self.log {
             if self.stats.len() <= id as usize {
                 self.stats.resize_with(id as usize + 1, HashMap::new);
@@ -638,6 +639,7 @@ impl JitBackend for CraneliftJit {
         match status {
             ST_EXIT => JitStatus::Exit,
             ST_RETURN => JitStatus::Return,
+            ST_DEEP => JitStatus::TooDeep,
             _ => JitStatus::Bailout,
         }
     }

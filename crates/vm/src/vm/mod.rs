@@ -222,6 +222,9 @@ pub struct Vm {
     pub(crate) jit_loops: FastMap<(usize, usize), jit::JitSlotState>,
     /// Reused state buffer for JIT calls.
     pub(crate) jit_buf: Vec<u64>,
+    /// Frame depth of the last call whose native recursion was too deep;
+    /// compiled code is not entered from deeper frames (`usize::MAX`: none).
+    pub(crate) jit_deep_mark: usize,
     /// JITO1: class of `$this` for the next compile request (methods).
     pub(crate) jit_this: Option<u32>,
     /// JITO1: class table for the JIT and the class count it was built for.
@@ -293,6 +296,7 @@ impl Vm {
             jit_funcs: Vec::new(),
             jit_loops: Default::default(),
             jit_buf: Vec::new(),
+            jit_deep_mark: usize::MAX,
             jit_this: None,
             jit_class_table: None,
             jit_hot: (jit::JIT_HOT_CALLS, jit::JIT_HOT_BACKEDGES),

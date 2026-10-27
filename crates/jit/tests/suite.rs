@@ -5,6 +5,8 @@
 //! collection; each run must have compiled a minimum of code (TEST2.4). A
 //! further test shows the asynchronous hot swap.
 
+#[path = "suite/depth.rs"]
+mod depth;
 #[path = "suite/fuzz.rs"]
 mod fuzz;
 #[path = "suite/oracle.rs"]

@@ -208,6 +208,9 @@ pub enum JitStatus {
     Return,
     /// Nothing happened that the interpreter can see: run the original code.
     Bailout,
+    /// A bailout because native calls between compiled functions nested too
+    /// deep: the interpreter runs the deeper levels of this call itself.
+    TooDeep,
 }
 
 pub trait JitBackend {
@@ -496,6 +499,15 @@ impl Vm {
     /// and run; the stack is left as it is.
     #[allow(clippy::too_many_arguments)]
     fn jit_enter(&mut self, module: u32, unit: UnitId, ic: usize, this: Option<ObjHandle>, this_class: Option<u32>, at: usize, n: usize) -> Option<Val> {
+        // below a call that was too deep for native recursion the interpreter
+        // keeps going (its frames are on the heap); entering compiled code at
+        // every level again would cost the native depth each time
+        if self.jit_deep_mark != usize::MAX {
+            if self.frames.len() > self.jit_deep_mark {
+                return None;
+            }
+            self.jit_deep_mark = usize::MAX;
+        }
         if matches!(self.jit_funcs[ic], JitSlotState::Untried) {
             if self.profiles[ic].calls < self.jit_hot.0 {
                 return None;
@@ -543,6 +555,9 @@ impl Vm {
         let mut jit = self.jit.take();
         let status = jit.as_mut().map(|j| j.run(id, &mut buf, self));
         self.jit = jit;
+        if status == Some(JitStatus::TooDeep) {
+            self.jit_deep_mark = self.frames.len();
+        }
         let out = if status == Some(JitStatus::Return) { val_of(buf[2], buf[3]) } else { None };
         self.jit_buf = buf;
         out

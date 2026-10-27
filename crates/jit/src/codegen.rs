@@ -1,9 +1,11 @@
 //! Bytecode → CLIF for an analysed function or loop region.
 //!
 //! Every compiled function has the signature `fn(buf: *mut u64, vm: *mut
-//! Vm) -> i64` (layout in `grd_vm::vm::jit`): 0 = exit (resume the
-//! interpreter at `buf[0]`), 1 = return (value in `buf[2..4]`), 2 = bailout
-//! (nothing to see). `vm` only passes through to the runtime functions.
+//! Vm, depth: i64) -> i64` (layout in `grd_vm::vm::jit`): 0 = exit (resume
+//! the interpreter at `buf[0]`), 1 = return (value in `buf[2..4]`), 2 =
+//! bailout (nothing to see), 3 = too deep (bailout because native calls
+//! nested past `MAX_NATIVE_DEPTH`). `vm` only passes through to the runtime
+//! functions; `depth` counts native calls between compiled functions.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -20,6 +22,14 @@ use crate::analysis::{Analysis, CallKind, Ty};
 pub const ST_EXIT: i64 = 0;
 pub const ST_RETURN: i64 = 1;
 pub const ST_BAILOUT: i64 = 2;
+pub const ST_DEEP: i64 = 3;
+
+/// Native calls between compiled functions run on the machine stack (the
+/// interpreter's frames are on the heap). Past this depth a whole function
+/// reports `ST_DEEP` at entry, before any effect, and the VM runs the deeper
+/// levels in the interpreter (JIT_OBJECTS §11b). A level takes a few hundred
+/// bytes, so this stays well inside a 2 MB thread stack.
+pub const MAX_NATIVE_DEPTH: i64 = 1000;
 
 /// A value in compiled code.
 #[derive(Clone, Copy, Debug)]
@@ -76,6 +86,7 @@ pub struct Gen<'a, 'b> {
     pub whole: bool,
     pub buf: Value,
     vm: Value,
+    depth: Value,
     slots: Vec<Option<SV>>,
     flags: Vec<Option<Variable>>,
     blocks: HashMap<usize, Block>,
@@ -96,7 +107,8 @@ impl<'a, 'b> Gen<'a, 'b> {
         b.switch_to_block(entry);
         let buf = b.block_params(entry)[0];
         let vm = b.block_params(entry)[1];
-        let mut g = Gen { b, module, unit, an, whole, buf, vm, slots: Vec::new(), flags: Vec::new(), blocks: HashMap::new(), callees, rt, force };
+        let depth = b.block_params(entry)[2];
+        let mut g = Gen { b, module, unit, an, whole, buf, vm, depth, slots: Vec::new(), flags: Vec::new(), blocks: HashMap::new(), callees, rt, force };
         g.declare_slots();
         g
     }
@@ -748,6 +760,17 @@ impl<'a, 'b> Gen<'a, 'b> {
 
     /// Emit the whole function body: entry jump, then every reachable block.
     pub fn emit(&mut self, entry_tags: &[u64]) {
+        if self.whole {
+            // too deep: leave before anything happened (not a forced exit)
+            let deep = self.b.ins().icmp_imm_s(IntCC::SignedGreaterThan, self.depth, MAX_NATIVE_DEPTH);
+            let out = self.b.create_block();
+            let go = self.b.create_block();
+            self.b.ins().brif(deep, out, &[], go, &[]);
+            self.b.switch_to_block(out);
+            let st = self.ic(ST_DEEP);
+            self.b.ins().return_(&[st]);
+            self.b.switch_to_block(go);
+        }
         self.load_entry(entry_tags);
         let entry_ip = self.an.entry;
         self.goto(entry_ip, &[]);
@@ -1062,10 +1085,22 @@ impl<'a, 'b> Gen<'a, 'b> {
                             self.b.ins().store(mf(), bits, addr, (w * 8 + 8) as i32);
                         }
                         self.force_before_call(ip, &pre);
-                        let call = self.b.ins().call(fref, &[addr, self.vm]);
+                        let d1 = self.b.ins().iadd_imm_s(self.depth, 1);
+                        let call = self.b.ins().call(fref, &[addr, self.vm, d1]);
                         let status = self.b.inst_results(call)[0];
                         let failed = self.b.ins().icmp_imm_s(IntCC::NotEqual, status, ST_RETURN);
-                        self.guard_after_call(failed, ip, &pre);
+                        if self.whole {
+                            // a whole function passes the callee's status up (bailout
+                            // or too deep), so the VM learns why
+                            let fail = self.b.create_block();
+                            let cont = self.b.create_block();
+                            self.b.ins().brif(failed, fail, &[], cont, &[]);
+                            self.b.switch_to_block(fail);
+                            self.b.ins().return_(&[status]);
+                            self.b.switch_to_block(cont);
+                        } else {
+                            self.guard_after_call(failed, ip, &pre);
+                        }
                         let bits = self.b.ins().load(types::I64, mf(), addr, 3 * 8);
                         match sig.ret {
                             Ty::Int => V::I(bits),
@@ -1129,6 +1164,7 @@ impl<'a, 'b> Gen<'a, 'b> {
 
 pub fn signature(module: &impl cranelift_module::Module) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64));
     sig.params.push(AbiParam::new(types::I64));
     sig.params.push(AbiParam::new(types::I64));
     sig.returns.push(AbiParam::new(types::I64));
