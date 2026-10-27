@@ -128,12 +128,25 @@ fn run(path: &str, sql: &str, pos: &[SqlValue], named: &[(String, SqlValue)]) ->
         let mut stmt = conn.prepare(sql).map_err(sql_error)?;
         bind(&mut stmt, pos, named)?;
         let names: Vec<String> = stmt.column_names().into_iter().map(str::to_string).collect();
+        // PERF4: the keys once per statement; every row is a clone of this
+        // template, filled in column order (as an array literal, REST1).
+        // Repeated column names: the last one wins, as with PDO, by insert.
+        let mut template = PhpArray::new();
+        for n in &names {
+            template.insert(ArrayKey::from_str(n), Val::Null);
+        }
+        let by_position = template.len() == names.len();
         let mut out = PhpArray::new();
         let mut rows = stmt.raw_query();
         while let Some(row) = rows.next().map_err(sql_error)? {
-            let mut r = PhpArray::with_capacity(names.len());
+            let mut r = template.clone();
             for (i, n) in names.iter().enumerate() {
-                r.insert(ArrayKey::from_str(n), cell(row.get_ref(i).map_err(sql_error)?));
+                let v = cell(row.get_ref(i).map_err(sql_error)?);
+                if by_position {
+                    r.set_at(i, v);
+                } else {
+                    r.insert(ArrayKey::from_str(n), v);
+                }
             }
             out.push(Val::array(r));
         }

@@ -50,13 +50,14 @@ var_dump($rows[0], $rows[1]['done'], $rows[1]['score']);
 var_dump($db->update('UPDATE notes SET done = ? WHERE done = ?', [1, 0]), $db->delete('DELETE FROM notes WHERE id = ?', [$id]));
 echo json_encode($db->select('SELECT count(*) AS n, typeof(score) AS t FROM notes')), "\n";
 echo $db->select('PRAGMA journal_mode')[0]['journal_mode'], ' ', $db->select('PRAGMA synchronous')[0]['synchronous'], ' ', $db->select('PRAGMA busy_timeout')[0]['timeout'], "\n";
+echo json_encode($db->select('SELECT 1 AS a, 2 AS b, 3 AS a, 4 AS "7"')), ' ', json_encode($db->select('SELECT title, done FROM notes UNION ALL SELECT \'z\', 9')), "\n";
 try { $db->select('SELECT nope FROM notes'); } catch (RuntimeException $e) { echo get_class($e), ': ', $e->getMessage(), "\n"; }
 try { $db->select('SELECT ?', [[1]]); } catch (TypeError $e) { echo 'TypeError: ', $e->getMessage(), "\n"; }
 "#,
     );
     assert_eq!(
         out,
-        "bool(true)\nint(2)\narray(5) {\n  [\"id\"]=>\n  int(1)\n  [\"title\"]=>\n  string(1) \"a\"\n  [\"done\"]=>\n  int(0)\n  [\"score\"]=>\n  float(1.5)\n  [\"body\"]=>\n  NULL\n}\nint(1)\nfloat(2)\nint(1)\nint(1)\n[{\"n\":1,\"t\":\"real\"}]\nwal 2 5000\nRuntimeException: SQLite: no such column: nope\nTypeError: SQLite binding must be int, float, string, bool or null, array given\n"
+        "bool(true)\nint(2)\narray(5) {\n  [\"id\"]=>\n  int(1)\n  [\"title\"]=>\n  string(1) \"a\"\n  [\"done\"]=>\n  int(0)\n  [\"score\"]=>\n  float(1.5)\n  [\"body\"]=>\n  NULL\n}\nint(1)\nfloat(2)\nint(1)\nint(1)\n[{\"n\":1,\"t\":\"real\"}]\nwal 2 5000\n[{\"a\":3,\"b\":2,\"7\":4}] [{\"title\":\"a\",\"done\":1},{\"title\":\"z\",\"done\":9}]\nRuntimeException: SQLite: no such column: nope\nTypeError: SQLite binding must be int, float, string, bool or null, array given\n"
     );
     drop(pool);
     let _ = std::fs::remove_dir_all(&dir);
