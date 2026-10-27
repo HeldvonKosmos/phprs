@@ -90,7 +90,9 @@ start_server() {
   if [ "$TARGET" = opengrid ]; then
     (cd "$APP" && exec "$BIN" start --no-banner --binding 127.0.0.1 --port "$PORT" >>"$WORK/server.log" 2>&1) &
   else
-    "$SERVE" "$RUNTIME" "$PORT" "$WORK/run" 2 >>"$WORK/server.log" 2>&1 &
+    # RoadRunner's RPC / FrankenPHP's admin port: one found free, not port + 1 (BENCH1)
+    SIDE_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])') \
+      "$SERVE" "$RUNTIME" "$PORT" "$WORK/run" 2 >>"$WORK/server.log" 2>&1 &
   fi
   PID=$!
   for _ in $(seq 1 300); do  # 60 s: Laravel runs artisan optimize first; slow under load

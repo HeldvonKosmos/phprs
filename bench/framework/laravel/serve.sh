@@ -8,6 +8,11 @@
 #   octane  Laravel Octane on RoadRunner with <workers> PHP workers
 #   frankenphp  Laravel Octane on FrankenPHP (worker mode, its own PHP 8.5 and SQLite) with <workers> workers
 #
+# SIDE_PORT: RoadRunner's RPC or FrankenPHP's admin port (default port + 1;
+# bm2.py passes a port it found free, BENCH1: port + 1 could be held by a
+# client connection, and RoadRunner then stopped with "address already in use").
+# Exits with the server's exit code and shows the end of its log on failure.
+#
 # Database: the environment decides (DB_CONNECTION, DB_DATABASE, …); the
 # workdir holds sockets, pid files, temp files and logs.
 set -euo pipefail
@@ -22,7 +27,14 @@ cd "$APP"
 [ -e rr ] || [ ! -f rr.backup ] || mv rr.backup rr
 # under a lock: between optimize:clear and optimize the caches are missing, and a
 # test that boots the app meanwhile (schedule.rs) waits for the same lock
-flock bootstrap/cache/.opengrid-optimize.lock sh -c 'php artisan optimize:clear >/dev/null && php artisan optimize >/dev/null'
+# SERVE_CACHES (BENCH1 cold start): build (default: clear and rebuild),
+# keep (use the caches as they are, e.g. built at deploy), none (clear only)
+case "${SERVE_CACHES:-build}" in
+  build) flock bootstrap/cache/.opengrid-optimize.lock sh -c 'php artisan optimize:clear >/dev/null && php artisan optimize >/dev/null' ;;
+  keep) ;;
+  none) flock bootstrap/cache/.opengrid-optimize.lock php artisan optimize:clear >/dev/null ;;
+  *) echo "serve: SERVE_CACHES must be build, keep or none" >&2; exit 2;;
+esac
 
 pids=()
 stop() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null; exit 0; }
@@ -74,14 +86,23 @@ CONF
     nginx -c "$W/nginx.conf" -p "$W" -e "$W/nginx-error.log" & pids+=($!)
     ;;
   octane)
-    php artisan octane:start --server=roadrunner --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --rpc-port=$((PORT + 1)) \
+    php artisan octane:start --server=roadrunner --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --rpc-port="${SIDE_PORT:-$((PORT + 1))}" \
       >"$W/octane.log" 2>&1 & pids+=($!)
     ;;
   frankenphp)
     # Octane on FrankenPHP in worker mode, the same workers and no recycling
-    php artisan octane:start --server=frankenphp --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --admin-port=$((PORT + 1)) \
+    php artisan octane:start --server=frankenphp --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --admin-port="${SIDE_PORT:-$((PORT + 1))}" \
       >"$W/octane.log" 2>&1 & pids+=($!)
     ;;
   *) echo "serve: unknown mode $MODE" >&2; exit 2;;
 esac
-wait
+# the first server process to end ends the run, with its exit code (a plain
+# `wait` returned 0 even when the server failed to start)
+rc=0
+wait -n "${pids[@]}" || rc=$?
+echo "serve: $MODE ended with exit code $rc" >&2
+for log in "$W/octane.log" "$W/php-fpm.log" "$W/nginx-error.log"; do
+  [ -s "$log" ] && { echo "--- $log (end)" >&2; tail -n 20 "$log" >&2; }
+done
+for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+exit $(( rc == 0 ? 1 : rc ))
