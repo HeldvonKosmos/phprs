@@ -5,12 +5,12 @@ copied and set up as by bm2.py (embedded database, schema pushed), then
 200 of /health, repeated; median and range per worker count. The server is
 pinned to the application cores like in BM2.
 
-  startup.py [--workers 1,4,16] [--runs 5] [--opengrid BIN] [--cores 8-11]
+  startup.py [--workers 1,4,16] [--runs 5] [--opengrid BIN] [--cores 8,10,12,14]
 Also prints how long compiling all .grd files of the project takes alone
 (`grd compile`, one process), as the share PAR1 could parallelise.
 """
 
-import argparse, glob, os, shutil, statistics, subprocess, sys, tempfile, time, urllib.request
+import argparse, glob, re, os, shutil, statistics, subprocess, sys, tempfile, time, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
@@ -37,7 +37,7 @@ def main():
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--opengrid", default=os.path.join(bm2.WS, "target/dist/opengrid"))
     ap.add_argument("--grd", default=os.path.join(bm2.WS, "target/dist/grd"))
-    ap.add_argument("--cores", default="8-11")
+    ap.add_argument("--cores", default=bm2.APP_CORES)
     a = ap.parse_args()
     binary = os.path.abspath(a.opengrid)
     print(f"Binary {binary} · Kerne {a.cores} · {a.runs} Starts je Worker-Zahl · Zeit bis zur ersten 200 von /health\n")
@@ -67,7 +67,7 @@ def main():
             print(f"| {w} | {statistics.median(times):.0f} | {min(times):.0f} | {max(times):.0f} |")
         files = sorted(glob.glob(os.path.join(app, "**", "*.grd"), recursive=True))
         t0 = time.monotonic()
-        r = subprocess.run(["taskset", "-c", a.cores.split("-")[0], os.path.abspath(a.grd), "compile"] + files, capture_output=True)
+        r = subprocess.run(["taskset", "-c", re.split("[-,]", a.cores)[0], os.path.abspath(a.grd), "compile"] + files, capture_output=True)
         dt = (time.monotonic() - t0) * 1000
         print(f"\nKompilieren aller {len(files)} .grd-Dateien des Projekts allein (`grd compile`, ein Prozess, ein Kern): {dt:.0f} ms (Exit {r.returncode})")
 

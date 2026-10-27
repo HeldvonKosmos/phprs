@@ -53,7 +53,7 @@ def main():
     ap.add_argument("--notes", type=int, default=200)
     ap.add_argument("--json", help="write the raw results here")
     args = ap.parse_args()
-    a = argparse.Namespace(workers=4, notes=args.notes, app_cores="8-11", db_cores="4-7", load_cores="0-3",
+    a = argparse.Namespace(workers=4, notes=args.notes, app_cores=bm2.APP_CORES, db_cores=bm2.DB_CORES, load_cores=bm2.LOAD_CORES,
                            opengrid=os.path.join(bm2.WS, "target/profiling/opengrid"), opengrid_pgo=os.path.join(bm2.WS, "target-pgo/opengrid-pgo"))
     if not os.path.exists(DBBASE):
         sys.exit(f"missing {DBBASE}: cargo build --profile profiling -p opengrid-framework --example dbbase")

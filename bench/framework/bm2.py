@@ -53,6 +53,33 @@ SERVE = os.path.join(HERE, "laravel/serve.sh")
 LARAVEL_APP = os.environ.get("LARAVEL_APP", os.path.join(WS, "bench/laravel-app"))
 ALL_TARGETS = ["opengrid-server", "opengrid-embedded", "laravel-fpm", "laravel-octane"]
 ENDPOINTS = ["health", "list", "show", "create", "login"]
+# Cores (D11, Jonas 2026-10-27): the application on four physical cores, one
+# SMT thread each (8, 10, 12, 14; their siblings 9, 11, 13, 15 stay idle), the
+# database servers and the load generator as before
+APP_CORES, DB_CORES, LOAD_CORES = "8,10,12,14", "4-7", "0-3"
+
+
+def cpus(spec):
+    """'8,10,12,14' or '4-7' -> [8, 10, 12, 14] / [4, 5, 6, 7]."""
+    out = []
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        out += list(range(int(lo), int(hi or lo) + 1))
+    return out
+
+
+def topology(spec):
+    """How many physical cores a CPU list covers, with the SMT siblings
+    (from /sys); e.g. '4 physische Kerne, je 1 Thread'."""
+    cores = {}
+    for c in cpus(spec):
+        try:
+            sib = open(f"/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list").read().strip()
+        except OSError:
+            return "Topologie unbekannt"
+        cores.setdefault(sib, []).append(c)
+    per = sorted({len(v) for v in cores.values()})
+    return f"{len(cores)} physische Kerne, je {'/'.join(map(str, per))} Thread{'s' if per != [1] else ''}"
 
 
 def free_port():
@@ -84,11 +111,14 @@ def http_raw(method, url, body=None, token=None):
         return e.code, e.read()
 
 
-def wait_http(url, proc, what, timeout=60):
+def wait_http(url, proc, what, timeout=60, log=None):
     end = time.time() + timeout
     while time.time() < end:
         if proc.poll() is not None:
-            sys.exit(f"{what} exited early (code {proc.returncode})")
+            # BENCH1: the end of the server's log says why (it used to be lost
+            # with the temporary directory)
+            tail = open(log, errors="replace").read()[-3000:] if log and os.path.exists(log) else ""
+            sys.exit(f"{what} exited early (code {proc.returncode})" + (f"\n--- {log} (end)\n{tail}" if tail else ""))
         try:
             with urllib.request.urlopen(url, timeout=2) as r:
                 if r.status == 200:
@@ -128,7 +158,12 @@ def oha(url, conc, duration, cores, method="GET", body=None, token=None):
 def patch_config(app, workers, touch=None):
     p = os.path.join(app, "config/development.yaml")
     s = open(p).read()
-    s = s.replace("level: info", "level: warn").replace("workers: 2", f"workers: {workers}\n    debug: false\n    watch: false")
+    s = s.replace("level: info", "level: warn")
+    # repeatable (startup.py patches the same copy for 1, 4, 16 workers)
+    if "    debug: false\n    watch: false" not in s:
+        s = s.replace("workers: 2", "workers: 2\n    debug: false\n    watch: false", 1)
+    s, n = re.subn(r"workers: \d+", f"workers: {workers}", s, count=1)
+    assert n == 1, "workers missing in the test app's config"
     if touch is not None:
         assert "  auth:\n" in s, "settings.auth missing in the test app's config"
         s = s.replace("  auth:\n", f"  auth:\n    token_touch_seconds: {touch}\n", 1)
@@ -218,9 +253,11 @@ class Target:
             if r.returncode != 0:
                 sys.exit(f"artisan migrate failed: {r.stdout[-800:]}{r.stderr[-800:]}")
             mode = self.name.split("-")[1]
-            p = start([SERVE, mode, str(self.port), os.path.join(self.work, "run"), str(w)], self.a.app_cores, self.env, f"{self.work}/server.log")
+            # RoadRunner's RPC / FrankenPHP's admin port: a port found free, not port + 1
+            env = dict(self.env, SIDE_PORT=str(free_port()))
+            p = start([SERVE, mode, str(self.port), os.path.join(self.work, "run"), str(w)], self.a.app_cores, env, f"{self.work}/server.log")
         self.procs.append(p)
-        wait_http(self.base + "/health", p, self.name, timeout=120)
+        wait_http(self.base + "/health", p, self.name, timeout=120, log=f"{self.work}/server.log")
 
     def seed(self):
         if self.core:
@@ -286,9 +323,9 @@ def main():
     ap.add_argument("--duration", type=int, default=10)
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--notes", type=int, default=200)
-    ap.add_argument("--app-cores", default="8-11")
-    ap.add_argument("--db-cores", default="4-7")
-    ap.add_argument("--load-cores", default="0-3")
+    ap.add_argument("--app-cores", default=APP_CORES)
+    ap.add_argument("--db-cores", default=DB_CORES)
+    ap.add_argument("--load-cores", default=LOAD_CORES)
     ap.add_argument("--opengrid", default=os.path.join(WS, "target/profiling/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
@@ -339,7 +376,7 @@ def main():
     print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on, PERF4 d)' if a.opengrid_jit else 'aus (Standard, D9)'} · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
           f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else ('PostgreSQL für *-pgsql, sonst SQLite' if pg_version else 'SQLite, Vorstufe')}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
-          f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores}, DB-Server {a.db_cores}, Last {a.load_cores}"
+          f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({topology(a.app_cores)}), DB-Server {a.db_cores} ({topology(a.db_cores)}), Last {a.load_cores} ({topology(a.load_cores)})"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
     results = {}
     answers = {}

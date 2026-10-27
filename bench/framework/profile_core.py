@@ -36,7 +36,7 @@ def main():
         with open(wrapper, "w") as f:
             f.write(f'#!/bin/sh\nif [ "$1" = start ]; then exec valgrind --tool=callgrind --instr-atstart=no --callgrind-out-file={out} {os.path.abspath(args.opengrid)} "$@"; fi\nexec {os.path.abspath(args.opengrid)} "$@"\n')
         os.chmod(wrapper, 0o755)
-        a = argparse.Namespace(workers=1, notes=args.notes, app_cores="8-11", db_cores="4-7", load_cores="0-3", opengrid=wrapper, opengrid_pgo=wrapper)
+        a = argparse.Namespace(workers=1, notes=args.notes, app_cores=bm2.APP_CORES, db_cores=bm2.DB_CORES, load_cores=bm2.LOAD_CORES, opengrid=wrapper, opengrid_pgo=wrapper)
         t = bm2.Target("opengrid-embedded-core", a, work)
         try:
             t.launch()

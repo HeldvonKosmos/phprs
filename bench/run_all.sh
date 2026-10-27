@@ -10,7 +10,8 @@
 #   bench/run_all.sh [--skip-build] [--framework-only]
 #   --framework-only: BM2 and the database baseline, no c1-c3 (and no grd builds)
 # Results: ../target/bench-tmp/<commit>-<UTC time>/ (env.txt, lang.md,
-# bm2.md, bm2.json, thesis.md, thesis.json, sqlbase.json, report.md); databases on the mounted volume (TMPDIR there).
+# bm2.md, bm2.json, thesis.md, thesis.json, sqlbase.json, report.md, quiet.txt,
+# quiet.log, load.md/json, memory.md/json, coldstart.md/json); databases on the mounted volume (TMPDIR there).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 WS=$(cd .. && pwd)
@@ -27,7 +28,7 @@ caps=$(cat /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_max_freq | sort -u)
 CAP_GHZ=$(awk -v k="$caps" 'BEGIN { printf "%.2f", k / 1e6 }')
 HW_GHZ=$(awk -v k="$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }')
 [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "working tree not clean"
-busy=$(pgrep -fa 'cargo |rustc|cargo-mutants|bench.py|bm2.py|oha |surreal start|opengrid start' | grep -v "$$" || true)
+busy=$(pgrep -fa 'cargo |rustc|cargo-mutants|bench.py|bm2.py|load.py|memory.py|coldstart.py|dbbase.py|sqlbase.py|oha |surreal start|opengrid start|valgrind' | grep -v "$$" || true)
 [ -z "$busy" ] || fail "other work is running: $busy"
 
 COMMIT=$(git rev-parse --short HEAD)
@@ -64,6 +65,8 @@ bench/framework/pg.sh start
   echo "commit $COMMIT ($(git log -1 --format=%cI)), main $(git rev-parse --short origin/main 2>/dev/null || echo ?)"
   echo "started $(date -u +%FT%TZ)"
   echo "governor $(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor), $(nproc) cpus, clock cap $CAP_GHZ GHz of $HW_GHZ GHz"
+  echo "cpu $(lscpu | sed -n 's/^Model name: *//p'), $(lscpu | sed -n 's/^Thread(s) per core: *//p') threads per core"
+  echo "cores $(python3 -c 'import sys; sys.path.insert(0, "bench/framework"); import bm2; print("; ".join(f"{n} {s} ({bm2.topology(s)})" for n, s in (("app", bm2.APP_CORES), ("db", bm2.DB_CORES), ("load", bm2.LOAD_CORES))))')"
   echo "volume $(findmnt -no SOURCE,FSTYPE,OPTIONS -T "$TMPDIR" | cut -c1-120)"
   echo "fill $(df -h "$TMPDIR" | tail -1)"
   echo "php $(php -r 'echo PHP_VERSION;'), $(postgres --version), surreal $(surreal version | head -1), $(oha --version)"
@@ -72,6 +75,11 @@ bench/framework/pg.sh start
   echo "durability surrealkv: sync=${SURREAL_DATASTORE_SYNC:-every (default)}, commit after grouped WAL fsync (embedded and server)"
   ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
 } > "$OUT/env.txt"
+
+# BENCH1: quiet check for the whole measurement (foreign processes, idle cores)
+python3 bench/quiet.py --log "$OUT/quiet.log" > "$OUT/quiet.txt" &
+QUIET=$!
+trap 'kill -TERM $QUIET 2>/dev/null || true' EXIT
 
 [ "$FRAMEWORK_ONLY" = 1 ] || python3 bench/complex/bench.py --runs 7 --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
 python3 bench/framework/bm2.py --label "Stand $COMMIT: Standard und gleiche Semantik" \
@@ -88,6 +96,12 @@ python3 bench/framework/bm2.py --label "Stand $COMMIT: Logik je Anfrage (THESIS1
   --json "$OUT/thesis.json" > "$OUT/thesis.md" 2> "$OUT/thesis.err"
 python3 bench/framework/sqlite/sqlbase.py --endpoints health,list,show,hydrate:0,hydrate:1,hydrate:10,hydrate:100,hydrate:1000,json:0,create \
   --json "$OUT/sqlbase.json" > "$OUT/sqlbase.md" 2> "$OUT/sqlbase.err"
+# BENCH1: many connections and open-loop load, memory (PSS), cold start
+python3 bench/framework/load.py --json "$OUT/load.json" > "$OUT/load.md" 2> "$OUT/load.err"
+python3 bench/framework/memory.py --json "$OUT/memory.json" > "$OUT/memory.md" 2> "$OUT/memory.err"
+python3 bench/framework/coldstart.py --json "$OUT/coldstart.json" > "$OUT/coldstart.md" 2> "$OUT/coldstart.err"
 python3 bench/report.py "$OUT" > "$OUT/report.md"
-{ echo "finished $(date -u +%FT%TZ)"; echo "fill $(df -h "$TMPDIR" | tail -1)"; echo "governor $(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor), clock cap $(awk -v k="$(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }') GHz"; } >> "$OUT/env.txt"
+kill -TERM $QUIET; wait $QUIET || true
+trap - EXIT
+{ echo "finished $(date -u +%FT%TZ)"; cat "$OUT/quiet.txt"; echo "fill $(df -h "$TMPDIR" | tail -1)"; echo "governor $(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor), clock cap $(awk -v k="$(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }') GHz"; } >> "$OUT/env.txt"
 echo "run_all: results in $OUT"

@@ -79,7 +79,7 @@ def main():
     ap.add_argument("--targets", default="opengrid-embedded,opengrid-embedded-touch0,laravel-octane-pgsql")
     ap.add_argument("--notes", type=int, default=200)
     args = ap.parse_args()
-    a = argparse.Namespace(workers=4, notes=args.notes, app_cores="8-11", db_cores="4-7", load_cores="0-3",
+    a = argparse.Namespace(workers=4, notes=args.notes, app_cores=bm2.APP_CORES, db_cores=bm2.DB_CORES, load_cores=bm2.LOAD_CORES,
                            opengrid=os.path.join(bm2.WS, "target/profiling/opengrid"), opengrid_pgo=os.path.join(bm2.WS, "target-pgo/opengrid-pgo"))
     if any(t.endswith("-pgsql") for t in args.targets.split(",")):
         subprocess.run([os.path.join(bm2.HERE, "pg.sh"), "start"], check=True, capture_output=True)
