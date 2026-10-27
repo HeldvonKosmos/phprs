@@ -225,7 +225,10 @@ req GET /api/me "" "$TOKEN"
 check "me with the old token" 401
 
 # ---- framework-core benchmark endpoints (D23, measurement tool) -------------
-# the same raw SQL and the same answers in both apps
+# the same raw SQL and the same answers in both apps. Left out when api.sh
+# trains a PGO build (API_PGO_TRAINING=1, bench/pgo.sh): training never runs
+# what the benchmarks measure (D14).
+if [ "${API_PGO_TRAINING:-0}" != 1 ]; then
 req GET /api/bench/sql/health
 check "bench sql: health" 200 '.status == "ok"'
 req POST /api/bench/sql/login '{"email":"bench@example.com","password":"wrong"}'
@@ -263,6 +266,7 @@ req GET "/api/bench/logic/json?n=2" "" "$BT"
 check "bench logic: json" 200 '.count == 2 and .items[1] == {"id": 1, "name": "item 1", "tags": ["a", "b", "c"], "meta": {"created": "2026-10-27", "score": 1.5, "flags": {"x": true, "y": false}}}'
 req GET "/api/bench/logic/json" "" ""
 check "bench logic: without a token" 401 '.message == "Unauthenticated."'
+fi
 
 # ---- restart on the same database (embedded, OpenGrid only) ----------------
 if [ "$TARGET" = opengrid ]; then

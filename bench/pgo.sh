@@ -6,8 +6,9 @@
 #   PGO_ROUNDS=n                   training repetitions (default 10)
 # Training never uses what the benchmarks measure (D14): grd runs the VM
 # probes (with and without JIT) and the support specification, opengrid the
-# test project's acceptance test (examples/test-app/tests/api.sh). c1-c3 and
-# BM2 stay measurements only.
+# test project's acceptance test (examples/test-app/tests/api.sh) without its
+# benchmark-endpoint sections (/api/bench/sql, /api/bench/logic: what BM2's
+# -core targets and THESIS1 measure). c1-c3 and BM2 stay measurements only.
 # Needs `rustup component add llvm-tools-preview`. Uses its own target
 # directory so the normal build cache stays untouched.
 set -euo pipefail
@@ -36,7 +37,7 @@ echo "== training"
 ROUNDS=${PGO_ROUNDS:-10}
 if [ "$BINNAME" = opengrid ]; then
     for _ in $(seq "$ROUNDS"); do
-        OPENGRID_BIN="$BIN" examples/test-app/tests/api.sh > /dev/null || { echo "api.sh failed with the instrumented binary"; exit 1; }
+        API_PGO_TRAINING=1 OPENGRID_BIN="$BIN" examples/test-app/tests/api.sh > /dev/null || { echo "api.sh failed with the instrumented binary"; exit 1; }
     done
 else
     SUPPORT=$TD/support.grd
