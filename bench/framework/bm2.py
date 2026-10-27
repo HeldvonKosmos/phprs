@@ -161,6 +161,9 @@ class Target:
         self.env = dict(os.environ)
         for k in ("OPENGRID_DB_URL", "SURREAL_DB_HOST", "GRD_JIT", "OPENGRID_JIT"):
             self.env.pop(k, None)
+        # PERF4 d: the JIT in OpenGrid's workers, measured once (D9: off by default)
+        if getattr(a, "opengrid_jit", False) and name.startswith("opengrid"):
+            self.env["OPENGRID_JIT"] = "on"
         self.pg_db = None
         # D23 (DBR1): the framework core with the same raw SQL on SQLite
         self.core = name.endswith("-core")
@@ -290,6 +293,7 @@ def main():
     ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
     ap.add_argument("--pg", choices=["socket", "tcp"], default="socket", help="how Laravel reaches the in-container PostgreSQL")
+    ap.add_argument("--opengrid-jit", action="store_true", help="OPENGRID_JIT=on for the OpenGrid targets (PERF4 d; default off, D9)")
     ap.add_argument("--label", default="", help="heading of the result, e.g. 'Vergleich der Standard-Setups'")
     a = ap.parse_args()
     PG_MODE["mode"] = a.pg
@@ -332,6 +336,7 @@ def main():
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
     gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
     print(f"Governor {gov} · ", end="")
+    print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on, PERF4 d)' if a.opengrid_jit else 'aus (Standard, D9)'} · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
           f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else ('PostgreSQL für *-pgsql, sonst SQLite' if pg_version else 'SQLite, Vorstufe')}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores}, DB-Server {a.db_cores}, Last {a.load_cores}"
