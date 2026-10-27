@@ -51,6 +51,8 @@ mod server;
 mod server_mode;
 #[path = "suite/validation_spec.rs"]
 mod validation_spec;
+#[path = "suite/sqlite.rs"]
+mod sqlite;
 #[path = "suite/session.rs"]
 mod session;
 #[path = "suite/transactions.rs"]

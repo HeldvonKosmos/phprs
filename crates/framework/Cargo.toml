@@ -38,6 +38,10 @@ chrono = "0.4"
 indexmap = "2"
 regex = "1"
 notify = "8"
+# D23 (DBR1): raw SQL on SQLite for the framework-core benchmark. Linked
+# against the system SQLite (not `bundled`), so PHP's pdo_sqlite and
+# OpenGrid use the very same library and version.
+rusqlite = "=0.40.2"
 getrandom = "0.4"
 rust_decimal = "1"
 geo = "0.32"

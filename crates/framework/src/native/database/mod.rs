@@ -4,6 +4,7 @@
 
 pub mod builder;
 pub mod db;
+pub mod sqlite;
 pub mod inflect;
 pub mod model;
 pub mod record_id;
@@ -26,6 +27,7 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
     builder::register(vm)?;
     model::register(vm)?;
     db::register(vm)?;
+    sqlite::register(vm)?;
     schema::register(vm)?;
     Ok(())
 }

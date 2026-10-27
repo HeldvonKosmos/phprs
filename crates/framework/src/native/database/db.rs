@@ -61,6 +61,11 @@ pub fn register(vm: &mut Vm) -> Result<(), Throw> {
             query(vm, &sql, vars)?;
             Ok(Val::Bool(true))
         })
+        // D23: a raw-SQL connection (SQLite) by name, Laravel's DB::connection
+        .static_method("connection", |vm, c| {
+            let name = string_arg(&c, 0, "DB::connection")?;
+            super::sqlite::connection(vm, &name)
+        })
         .static_method("table", |vm, c| {
             let table = string_arg(&c, 0, "DB::table")?;
             Ok(Val::Object(builder::new_for_table(vm, &table, false, None)?))
