@@ -12,7 +12,8 @@ effect; stricter than Laravel: touch0) and the database baseline next to
 the total time (BENCHMARKS §0.4). With thesis.json (bm2.py with the logic
 endpoints) and sqlbase.json (sqlite/sqlbase.py) also the THESIS1 curves,
 their crossover with the best Octane and the time split per point.
---short leaves out the PGO column.
+OpenGrid's PGO build leads and carries the ratios (release default,
+PERF4 b); --short leaves out the column without PGO.
 """
 
 import argparse, json, os
@@ -22,6 +23,14 @@ ENDPOINTS = ["health", "list", "show", "create", "login"]
 
 def fmt(x):
     return f"{x:,.0f}".replace(",", " ")
+
+
+def og_cols(get, endpoints, label, pgo, plain, short):
+    """OpenGrid's columns: the PGO build first (release default, PERF4 b),
+    then the build without PGO; only the plain one when no PGO run exists."""
+    if any(get(e, pgo) for e in endpoints):
+        return [(f"{label} (PGO)", pgo)] + ([] if short else [("without PGO", plain)])
+    return [(f"{label} (without PGO)", plain)]
 
 
 def main():
@@ -39,16 +48,14 @@ def main():
         return bm2.get(f"{e}|{t}|{conc}")
 
     def section(title, suffix, endpoints, note, core=False):
+        # PERF4 b: PGO is the release default, so the PGO binary leads and
+        # carries the ratio; the build without PGO keeps its own column
         if core:
-            cols = [("OpenGrid", "opengrid-embedded-core")]
-            if not a.short:
-                cols.append(("with PGO", "opengrid-embedded-pgo-core"))
+            cols = og_cols(get, endpoints, "OpenGrid", "opengrid-embedded-pgo-core", "opengrid-embedded-core", a.short)
             cols += [("Laravel Octane (FrankenPHP)", "laravel-frankenphp-core"), ("Laravel Octane (RoadRunner)", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
         else:
-            cols = [("OpenGrid embedded", f"opengrid-embedded{suffix}")]
-            if not a.short:
-                cols.append(("with PGO", f"opengrid-embedded-pgo{suffix}"))
-            cols += [("OpenGrid + SurrealDB server", f"opengrid-server{suffix}"), ("Laravel Octane (FrankenPHP)", "laravel-frankenphp-pgsql"), ("Laravel Octane (RoadRunner)", "laravel-octane-pgsql"), ("Laravel FPM", "laravel-fpm-pgsql")]
+            cols = og_cols(get, endpoints, "OpenGrid embedded", f"opengrid-embedded-pgo{suffix}", f"opengrid-embedded{suffix}", a.short)
+            cols += [("OpenGrid + SurrealDB server (without PGO)", f"opengrid-server{suffix}"), ("Laravel Octane (FrankenPHP)", "laravel-frankenphp-pgsql"), ("Laravel Octane (RoadRunner)", "laravel-octane-pgsql"), ("Laravel FPM", "laravel-fpm-pgsql")]
         if not any(get(e, t) for e in endpoints for _, t in cols):
             return
         print(f"**{title}** — {note}\n")
@@ -112,7 +119,7 @@ def main():
 
 WORKLOADS = ["hydrate", "collect", "validate", "json"]
 NS = [1, 10, 100, 1000]
-CORE_COLS = [("OpenGrid", "opengrid-embedded-core"), ("with PGO", "opengrid-embedded-pgo-core"), ("Laravel Octane (FrankenPHP)", "laravel-frankenphp-core"), ("Laravel Octane (RoadRunner)", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
+LARAVEL_CORE = [("Laravel Octane (FrankenPHP)", "laravel-frankenphp-core"), ("Laravel Octane (RoadRunner)", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
 
 
 def crossover(points):
@@ -138,11 +145,14 @@ def thesis(d):
     sp = os.path.join(d, "sqlbase.json")
     sb = json.load(open(sp)) if os.path.exists(sp) else {}
     get = lambda e, tg, c: t.get(f"{e}|{tg}|{c}")
-    cols = [(n, tg) for n, tg in CORE_COLS if any(get(f"{w}:{x}", tg, 16) for w in WORKLOADS for x in NS)]
-    print("**(e) Logic per request (THESIS1)** — framework core (raw SQL on SQLite, as (a)), the same workload in both apps with n elements; requests per second at 16 connections (p99 in brackets). The ratio is OpenGrid without PGO against the faster Octane server.\n")
+    eps = [f"{w}:{x}" for w in WORKLOADS for x in NS]
+    cols = og_cols(lambda e, tg: get(e, tg, 16), eps, "OpenGrid", "opengrid-embedded-pgo-core", "opengrid-embedded-core", False)
+    lead = cols[0][1]
+    cols += [(n, tg) for n, tg in LARAVEL_CORE if any(get(e, tg, 16) for e in eps)]
+    print(f"**(e) Logic per request (THESIS1)** — framework core (raw SQL on SQLite, as (a)), the same workload in both apps with n elements; requests per second at 16 connections (p99 in brackets). The ratio is {cols[0][0]} against the faster Octane server.\n")
     summary = []
     for w in WORKLOADS:
-        if not any(get(f"{w}:{x}", "opengrid-embedded-core", 16) for x in NS):
+        if not any(get(f"{w}:{x}", lead, 16) for x in NS):
             continue
         print(f"*{w}*\n")
         print("| n | " + " | ".join(n for n, _ in cols) + " | OpenGrid / best Octane |")
@@ -151,7 +161,7 @@ def thesis(d):
         for x in NS:
             e = f"{w}:{x}"
             cells = [f"{fmt(r[0])} (p99 {r[2]:.1f} ms)" if (r := get(e, tg, 16)) else "–" for _, tg in cols]
-            og = get(e, "opengrid-embedded-core", 16)
+            og = get(e, lead, 16)
             octanes = [r for r in (get(e, "laravel-frankenphp-core", 16), get(e, "laravel-octane-core", 16)) if r]
             ratio = og[0] / max(r[0] for r in octanes) if og and octanes else None
             if ratio is not None:
@@ -171,7 +181,7 @@ def thesis(d):
         base_e = "json:0" if w == "validate" else f"{w}:0"
         for x in NS:
             for label, tg in cols:
-                if tg.endswith("pgo-core"):
+                if tg.startswith("opengrid") and tg != lead:
                     continue
                 r, b = get(f"{w}:{x}", tg, 1), get(base_e, tg, 1)
                 if not r or not b:
