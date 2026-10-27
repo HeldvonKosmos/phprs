@@ -15,7 +15,7 @@ standard deviation over --runs runs. Checksums must match.
 With --grd-pgo BIN (PGO1) the PGO binary is measured in the same interleaved
 runs and every table gets its own columns for it.
 
-usage: bench.py [--grd BIN] [--grd-pgo BIN] [--runs 7] [--cores 8-11] [--compare A,B,C] [--bench c1_request,...]
+usage: bench.py [--grd BIN] [--grd-pgo BIN] [--runs 7] [--cores 8,10,12,14] [--compare A,B,C] [--bench c1_request,...]
 """
 import argparse, datetime, os, statistics, subprocess, sys, tempfile, time
 
@@ -93,7 +93,7 @@ def main():
     ap.add_argument("--grd", default=os.path.join(HERE, "../../../target/profiling/grd"))
     ap.add_argument("--grd-pgo", default=None)
     ap.add_argument("--runs", type=int, default=7)
-    ap.add_argument("--cores", default="8-11")
+    ap.add_argument("--cores", default="8,10,12,14")
     ap.add_argument("--compare", default="A,B,C")
     ap.add_argument("--bench", default="c1_request,c2_runtime,c3_compute")
     a = ap.parse_args()

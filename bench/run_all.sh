@@ -73,12 +73,19 @@ export TMPDIR=$WS/target/bench-tmp/tmp
 mkdir -p "$TMPDIR"
 
 # every stage with its start and end (stages.txt), for the plan of the next run
+# The stage's own processes (the Python tools, setup commands such as
+# artisan migrate, samplers) run on the load cores, so the application cores'
+# idle SMT siblings stay idle; servers and oha set their cores themselves.
+LOAD_CORES=$(python3 -c 'import sys; sys.path.insert(0, "bench/framework"); import bm2; print(bm2.LOAD_CORES)')
+APP_CORES=$(python3 -c 'import sys; sys.path.insert(0, "bench/framework"); import bm2; print(bm2.APP_CORES)')
 stage() {
   local name=$1; shift
   local t0; t0=$(date +%s)
   echo "$(date -u +%T) start $name" >> "$OUT/stages.txt"
-  "$@"
-  echo "$(date -u +%T) end $name ($(( $(date +%s) - t0 )) s)" >> "$OUT/stages.txt"
+  local rc=0
+  if [ "$(type -t "$1")" = function ]; then "$@" || rc=$?; else taskset -c "$LOAD_CORES" "$@" || rc=$?; fi
+  echo "$(date -u +%T) end $name ($(( $(date +%s) - t0 )) s, exit $rc)" >> "$OUT/stages.txt"
+  return $rc
 }
 # --smoke: short durations for every tool (BENCH2), the same targets and endpoints
 if [ "$SMOKE" = 1 ]; then
@@ -100,12 +107,19 @@ elif [ "$SKIP_BUILD" = 0 ]; then
 fi
 # gates: both sides pass the acceptance test with the binaries and runtimes
 # that are measured (BENCHMARKS §1.1)
+# (absolute binary paths: api.sh changes into the app's directory; every gate
+# counts, not just the last one)
 gates() {
-  OPENGRID_BIN=../target/profiling/opengrid examples/test-app/tests/api.sh | tail -1
-  OPENGRID_BIN=../target-pgo/opengrid-pgo examples/test-app/tests/api.sh | tail -1
-  for rt in fpm octane frankenphp; do
-    examples/test-app/tests/api.sh --app laravel --runtime "$rt" | tail -1
+  local bad=0 line
+  for bin in "$WS/target/profiling/opengrid" "$WS/target-pgo/opengrid-pgo"; do
+    line=$(OPENGRID_BIN=$bin examples/test-app/tests/api.sh 2>&1 | tail -1)
+    echo "$bin: $line"; case "$line" in *"steps passed"*) ;; *) bad=1;; esac
   done
+  for rt in fpm octane frankenphp; do
+    line=$(examples/test-app/tests/api.sh --app laravel --runtime "$rt" 2>&1 | tail -1)
+    echo "laravel $rt: $line"; case "$line" in *"steps passed"*) ;; *) bad=1;; esac
+  done
+  return $bad
 }
 stage gates gates > "$OUT/gates.txt" 2>&1 || { cat "$OUT/gates.txt"; fail "an api.sh gate failed (see $OUT/gates.txt)"; }
 
@@ -129,7 +143,7 @@ python3 bench/quiet.py --log "$OUT/quiet.log" > "$OUT/quiet.txt" &
 QUIET=$!
 trap 'kill -TERM $QUIET 2>/dev/null || true' EXIT
 
-[ "$FRAMEWORK_ONLY" = 1 ] || stage lang python3 bench/complex/bench.py "${LANG_ARGS[@]}" --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
+[ "$FRAMEWORK_ONLY" = 1 ] || stage lang python3 bench/complex/bench.py "${LANG_ARGS[@]}" --cores "$APP_CORES" --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
 stage bm2 python3 bench/framework/bm2.py "${BM2_ARGS[@]}" --label "Stand $COMMIT: Standard und gleiche Semantik" \
   --targets opengrid-embedded-core,opengrid-embedded-pgo-core,laravel-frankenphp-core,laravel-octane-core,laravel-fpm-core,opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-frankenphp,laravel-octane,laravel-fpm,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
   --json "$OUT/bm2.json" > "$OUT/bm2.md" 2> "$OUT/bm2.err"

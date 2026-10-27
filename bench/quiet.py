@@ -19,7 +19,7 @@ import argparse, os, signal, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "framework"))
 import bm2  # noqa: E402
 
-OWN = {"oha", "opengrid", "opengrid-pgo", "grd", "grd-pgo", "php", "php-fpm", "nginx", "rr", "frankenphp",
+OWN = {"oha", "opengrid", "opengrid-pgo", "grd", "grd-pgo", "php", "php-fpm", "nginx", "rr", "rr.bin", "frankenphp",
        "surreal", "python3", "bash", "sh", "taskset", "timeout", "valgrind", "flock", "llvm-profdata",
        # the process name is cut to 15 characters
        "grd-worker-0", "grd-worker-1", "grd-worker-2", "grd-worker-3", "tokio-rt-worker"}
