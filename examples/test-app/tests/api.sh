@@ -55,7 +55,8 @@ PG_DB=""
 if [ "$TARGET" = laravel ] && [ "$DB" = pgsql ]; then
   if [ -z "${PGHOST:-}" ]; then
     "$HERE/../../bench/framework/pg.sh" start >/dev/null || { echo "FAIL setup: bench/framework/pg.sh start"; exit 2; }
-    export PGHOST=127.0.0.1 PGPORT=5432 PGUSER=${PGUSER:-$USER} PGPASSWORD=${PGPASSWORD:-}
+    # the Unix socket, like the benchmark (D21)
+    export PGHOST=$(cd "$HERE/../../.." && pwd)/.pgdata PGPORT=5432 PGUSER=${PGUSER:-$USER} PGPASSWORD=${PGPASSWORD:-}
   fi
   export PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-$USER} PGPASSWORD=${PGPASSWORD:-}
   PG_DB="apish_$$_$RANDOM"

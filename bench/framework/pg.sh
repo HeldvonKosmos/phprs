@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # PostgreSQL inside the workbench container (LV2; there is no separate
 # database container): data and socket in OpenGrid_Framework/.pgdata (on the mounted
-# volume, outside every repository and outside target/), the Unix socket and
-# TCP on 127.0.0.1:5432 only (Laravel connects over TCP like a production
-# setup), local trust authentication, pinned to the database cores like the
+# volume, outside every repository and outside target/), the Unix socket
+# (Laravel's connection in the benchmark, D21) and TCP on 127.0.0.1:5432
+# (only for bm2.py --pg tcp), local trust authentication, pinned to the database cores like the
 # SurrealDB server in BM2.
 #   bench/framework/pg.sh start|stop|status|env
 #   PG_DATA=<dir> PG_CORES=<cpus> (default 4-7)
@@ -32,6 +32,6 @@ case "${1:-status}" in
     ;;
   stop) pg_ctl -D "$DATA" -m fast stop >/dev/null && echo "pg: stopped";;
   status) pg_ctl -D "$DATA" status >/dev/null 2>&1 && echo "pg: running ($DATA)" || { echo "pg: not running"; exit 1; };;
-  env) echo "PGHOST=127.0.0.1 PGPORT=5432 PGUSER=$USER";;
+  env) echo "PGHOST=$DATA PGPORT=5432 PGUSER=$USER";;
   *) echo "usage: pg.sh start|stop|status|env"; exit 2;;
 esac

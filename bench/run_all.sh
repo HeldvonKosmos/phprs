@@ -50,6 +50,7 @@ bench/framework/pg.sh start
   echo "volume $(findmnt -no SOURCE,FSTYPE,OPTIONS -T "$TMPDIR" | cut -c1-120)"
   echo "fill $(df -h "$TMPDIR" | tail -1)"
   echo "php $(php -r 'echo PHP_VERSION;'), $(postgres --version), surreal $(surreal version | head -1), $(oha --version)"
+  echo "laravel to postgresql: unix socket $WS/.pgdata (bm2.py --pg socket, D21)"
   ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
 } > "$OUT/env.txt"
 
