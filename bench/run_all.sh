@@ -6,7 +6,8 @@
 # CPU governor `performance`, one clock cap on all cores (recorded), a
 # clean working tree, no other build or
 # benchmark running, binaries built from HEAD.
-#   bench/run_all.sh [--skip-build]
+#   bench/run_all.sh [--skip-build] [--framework-only]
+#   --framework-only: BM2 and the database baseline, no c1-c3 (and no grd builds)
 # Results: ../target/bench-tmp/<commit>-<UTC time>/ (env.txt, lang.md,
 # bm2.md, bm2.json); databases on the mounted volume (TMPDIR there).
 set -euo pipefail
@@ -35,9 +36,22 @@ export TMPDIR=$WS/target/bench-tmp/tmp
 mkdir -p "$TMPDIR"
 
 # binaries from HEAD (never in parallel: PGO builds need the memory)
-if [ "${1:-}" != --skip-build ]; then
+SKIP_BUILD=0; FRAMEWORK_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --skip-build) SKIP_BUILD=1;;
+    --framework-only) FRAMEWORK_ONLY=1;;
+    *) fail "unknown option $arg";;
+  esac
+done
+if [ "$SKIP_BUILD" = 0 ] && [ "$FRAMEWORK_ONLY" = 1 ]; then
+  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --bin opengrid
+  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --example dbbase
+  PGO_BIN=opengrid bash bench/pgo.sh > "$OUT/pgo-opengrid.log" 2>&1
+elif [ "$SKIP_BUILD" = 0 ]; then
   taskset -c 0-7 cargo build -q --profile profiling -p grd-jit --bin grd
   taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --bin opengrid
+  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --example dbbase
   bash bench/pgo.sh > "$OUT/pgo-grd.log" 2>&1
   PGO_BIN=opengrid bash bench/pgo.sh > "$OUT/pgo-opengrid.log" 2>&1
 fi
@@ -56,9 +70,12 @@ bench/framework/pg.sh start
   ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
 } > "$OUT/env.txt"
 
-python3 bench/complex/bench.py --runs 7 --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
+[ "$FRAMEWORK_ONLY" = 1 ] || python3 bench/complex/bench.py --runs 7 --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
 python3 bench/framework/bm2.py --label "Stand $COMMIT: Standard und gleiche Semantik" \
   --targets opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-fpm-pgsql,laravel-octane-pgsql,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
   --json "$OUT/bm2.json" > "$OUT/bm2.md" 2> "$OUT/bm2.err"
+# the databases alone with each endpoint's statements (BENCHMARKS §0.4)
+python3 bench/framework/dbbase.py --json "$OUT/dbbase.json" > "$OUT/dbbase.md" 2> "$OUT/dbbase.err"
+python3 bench/report.py "$OUT" > "$OUT/report.md"
 { echo "finished $(date -u +%FT%TZ)"; echo "fill $(df -h "$TMPDIR" | tail -1)"; echo "governor $(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor), clock cap $(awk -v k="$(cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }') GHz"; } >> "$OUT/env.txt"
 echo "run_all: results in $OUT"
