@@ -2,16 +2,17 @@
 # Starts the Laravel comparison application (LV1) in the foreground until it
 # gets SIGTERM/SIGINT. Configuration and routes are cached first (production).
 #
-#   serve.sh <fpm|octane> <port> <workdir> [workers]
+#   serve.sh <fpm|octane|frankenphp> <port> <workdir> [workers]
 #
 #   fpm     nginx (1 worker process) + PHP-FPM (pm=static, <workers> children), opcache on, JIT off
 #   octane  Laravel Octane on RoadRunner with <workers> PHP workers
+#   frankenphp  Laravel Octane on FrankenPHP (worker mode, its own PHP 8.5 and SQLite) with <workers> workers
 #
 # Database: the environment decides (DB_CONNECTION, DB_DATABASE, …); the
 # workdir holds sockets, pid files, temp files and logs.
 set -euo pipefail
 
-MODE=${1:?fpm|octane}; PORT=${2:?port}; W=${3:?workdir}; N=${4:-2}
+MODE=${1:?fpm|octane|frankenphp}; PORT=${2:?port}; W=${3:?workdir}; N=${4:-2}
 HERE=$(cd "$(dirname "$0")" && pwd)
 APP=${LARAVEL_APP:-$(cd "$HERE/../../../.." && pwd)/bench/laravel-app}
 [ -f "$APP/artisan" ] || { echo "serve: no Laravel app at $APP (run setup.sh)" >&2; exit 2; }
@@ -74,6 +75,11 @@ CONF
     ;;
   octane)
     php artisan octane:start --server=roadrunner --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --rpc-port=$((PORT + 1)) \
+      >"$W/octane.log" 2>&1 & pids+=($!)
+    ;;
+  frankenphp)
+    # Octane on FrankenPHP in worker mode, the same workers and no recycling
+    php artisan octane:start --server=frankenphp --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --admin-port=$((PORT + 1)) \
       >"$W/octane.log" 2>&1 & pids+=($!)
     ;;
   *) echo "serve: unknown mode $MODE" >&2; exit 2;;

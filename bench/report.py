@@ -40,24 +40,27 @@ def main():
             cols = [("OpenGrid", "opengrid-embedded-core")]
             if not a.short:
                 cols.append(("with PGO", "opengrid-embedded-pgo-core"))
-            cols += [("Laravel Octane", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
+            cols += [("Laravel Octane (FrankenPHP)", "laravel-frankenphp-core"), ("Laravel Octane (RoadRunner)", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
         else:
             cols = [("OpenGrid embedded", f"opengrid-embedded{suffix}")]
             if not a.short:
                 cols.append(("with PGO", f"opengrid-embedded-pgo{suffix}"))
-            cols += [("OpenGrid + SurrealDB server", f"opengrid-server{suffix}"), ("Laravel Octane", "laravel-octane-pgsql"), ("Laravel FPM", "laravel-fpm-pgsql")]
+            cols += [("OpenGrid + SurrealDB server", f"opengrid-server{suffix}"), ("Laravel Octane (FrankenPHP)", "laravel-frankenphp-pgsql"), ("Laravel Octane (RoadRunner)", "laravel-octane-pgsql"), ("Laravel FPM", "laravel-fpm-pgsql")]
         if not any(get(e, t) for e in endpoints for _, t in cols):
             return
         print(f"**{title}** — {note}\n")
-        print("| Endpoint | " + " | ".join(n for n, _ in cols) + " | embedded / Octane |")
+        print("| Endpoint | " + " | ".join(n for n, _ in cols) + " | OpenGrid / best Octane |")
         print("|---|" + "---:|" * (len(cols) + 1))
         for e in endpoints:
             cells = []
             for _, t in cols:
                 r = get(e, t)
                 cells.append(f"{fmt(r[0])} (p99 {r[2]:.1f} ms)" if r else "–")
-            emb, octane = get(e, cols[0][1]), get(e, "laravel-octane-core" if core else "laravel-octane-pgsql")
-            ratio = f"{emb[0] / octane[0]:.1f}×" if emb and octane else "–"
+            # against the faster of the two Octane servers (Laravel's best case)
+            emb = get(e, cols[0][1])
+            octanes = [r for r in (get(e, "laravel-frankenphp-core" if core else "laravel-frankenphp-pgsql"), get(e, "laravel-octane-core" if core else "laravel-octane-pgsql")) if r]
+            best = max(octanes, key=lambda r: r[0]) if octanes else None
+            ratio = f"{emb[0] / best[0]:.1f}×" if emb and best else "–"
             print(f"| {e} | " + " | ".join(cells) + f" | {ratio} |")
         print()
 

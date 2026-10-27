@@ -10,7 +10,7 @@
 #
 #   tests/api.sh                          OpenGrid, ../../../target/debug/opengrid
 #   OPENGRID_BIN=/path/to/opengrid tests/api.sh
-#   tests/api.sh --app laravel [--runtime fpm|octane]
+#   tests/api.sh --app laravel [--runtime fpm|octane|frankenphp]
 #                                         the Laravel comparison application (LV1,
 #                                         bench/framework/laravel; SQLite until the
 #                                         platform's SurrealDB layer is there)
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
     --app) TARGET=$2; shift 2;;
     --runtime) RUNTIME=$2; shift 2;;
     --db) DB=$2; shift 2;;
-    *) echo "usage: api.sh [--app opengrid|laravel] [--runtime fpm|octane] [--db sqlite|pgsql]"; exit 2;;
+    *) echo "usage: api.sh [--app opengrid|laravel] [--runtime fpm|octane|frankenphp] [--db sqlite|pgsql]"; exit 2;;
   esac
 done
 BIN=${OPENGRID_BIN:-$HERE/../../../target/debug/opengrid}

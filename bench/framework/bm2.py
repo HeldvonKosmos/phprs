@@ -123,6 +123,7 @@ def patch_config(app, workers, touch=None):
 
 
 PG_TCP = "127.0.0.1"
+SQLITE_LIB = os.path.join(os.path.expanduser("~"), ".local/opt/sqlite-3.45.2/lib")
 PG_SOCKET = os.path.join(WS, ".pgdata")
 # --pg socket (default): Laravel's best case, no network stack; --pg tcp: 127.0.0.1:5432
 PG_MODE = {"mode": "socket"}
@@ -169,6 +170,9 @@ class Target:
             db = os.path.join(self.work, "bench.sqlite")
             subprocess.run(["python3", os.path.join(HERE, "sqlite", "seed.py"), db, str(self.a.notes)], check=True, capture_output=True)
             self.env.update(OPENGRID_DB_BENCH_SQLITE_URL=f"sqlite://{db}", BENCH_SQLITE_DATABASE=db)
+            # the SQLite FrankenPHP ships (3.45.2, same compile options) for
+            # OpenGrid, PHP-FPM and RoadRunner too (sqlite/build_sqlite.sh)
+            self.env["LD_LIBRARY_PATH"] = SQLITE_LIB + (":" + self.env["LD_LIBRARY_PATH"] if self.env.get("LD_LIBRARY_PATH") else "")
         if self.name.startswith("opengrid"):
             app = os.path.join(self.work, "app")
             shutil.copytree(TEST_APP, app, ignore=shutil.ignore_patterns(".opengrid", "tests"))
@@ -282,9 +286,23 @@ def main():
         pg_dur = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "select string_agg(name || '=' || setting, ', ' order by name) from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_sync_method')"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip()
         print(f"PostgreSQL {pg_version} ({where}; {pg_dur}) · ", end="")
     if any(t.endswith("-core") for t in a.targets.split(",")):
-        php_sqlite = sh(["php", "-r", "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();"])
-        og_lib = next((l.split("=>")[1].split("(")[0].strip() for l in sh(["ldd", a.opengrid]).splitlines() if "libsqlite3" in l), "?")
-        print(f"SQLite {php_sqlite} (PHP pdo_sqlite; OpenGrid gegen {og_lib}; WAL, synchronous FULL, busy_timeout 5000, je Worker eine Verbindung) · ", end="")
+        if not os.path.exists(os.path.join(SQLITE_LIB, "libsqlite3.so.0")):
+            subprocess.run([os.path.join(HERE, "sqlite", "build_sqlite.sh")], check=True)
+        lib_env = dict(os.environ, LD_LIBRARY_PATH=SQLITE_LIB)
+        version_php = "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();"
+        php_sqlite = subprocess.run(["php", "-r", version_php], capture_output=True, text=True, env=lib_env).stdout.strip()
+        og_lib = next((l.split("=>")[1].split("(")[0].strip() for l in subprocess.run(["ldd", a.opengrid], capture_output=True, text=True, env=lib_env).stdout.splitlines() if "libsqlite3" in l), "?")
+        fp = os.path.join(LARAVEL_APP, "frankenphp")
+        fp_sqlite = "–"
+        if os.path.exists(fp):
+            with tempfile.NamedTemporaryFile("w", suffix=".php", delete=False) as f:
+                f.write("<?php " + version_php)
+            fp_sqlite = sh([fp, "php-cli", f.name])
+            os.unlink(f.name)
+        print(f"SQLite der Kern-Ziele: PHP-FPM/RoadRunner {php_sqlite}, OpenGrid {og_lib}, FrankenPHP {fp_sqlite} eingebaut (gleiche Compile-Optionen; WAL, synchronous FULL, busy_timeout 5000, je Worker eine Verbindung) · ", end="")
+    fp_bin = os.path.join(LARAVEL_APP, "frankenphp")
+    if any("frankenphp" in t for t in a.targets.split(",")) and os.path.exists(fp_bin):
+        print(f"{sh([fp_bin, 'version']).split(' Caddy')[0]} (Worker-Modus, eigenes PHP) · ", end="")
     # surrealkv commits after a grouped WAL fsync unless SURREAL_DATASTORE_SYNC says otherwise
     print(f"surrealkv sync={os.environ.get('SURREAL_DATASTORE_SYNC', 'every (Standard)')} · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
