@@ -51,6 +51,8 @@ bench/framework/pg.sh start
   echo "fill $(df -h "$TMPDIR" | tail -1)"
   echo "php $(php -r 'echo PHP_VERSION;'), $(postgres --version), surreal $(surreal version | head -1), $(oha --version)"
   echo "laravel to postgresql: unix socket $WS/.pgdata (bm2.py --pg socket, D21)"
+  echo "durability postgresql: $(PGHOST=$WS/.pgdata psql -d postgres -Atc "select string_agg(name || '=' || setting, ' ' order by name) from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_level','wal_sync_method','shared_buffers')")"
+  echo "durability surrealkv: sync=${SURREAL_DATASTORE_SYNC:-every (default)}, commit after grouped WAL fsync (embedded and server)"
   ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
 } > "$OUT/env.txt"
 

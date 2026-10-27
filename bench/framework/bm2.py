@@ -251,7 +251,10 @@ def main():
     pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
     if pg_version:
         where = {PG_TCP: "im Workbench-Container (pg.sh), TCP 127.0.0.1:5432, Kerne der DB-Server", PG_SOCKET: "im Workbench-Container (pg.sh), Unix-Socket, Kerne der DB-Server"}.get(pg_env()["PGHOST"], f"Server {pg_env()['PGHOST']}, nicht gepinnt")
-        print(f"PostgreSQL {pg_version} ({where}) · ", end="")
+        pg_dur = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "select string_agg(name || '=' || setting, ', ' order by name) from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_sync_method')"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip()
+        print(f"PostgreSQL {pg_version} ({where}; {pg_dur}) · ", end="")
+    # surrealkv commits after a grouped WAL fsync unless SURREAL_DATASTORE_SYNC says otherwise
+    print(f"surrealkv sync={os.environ.get('SURREAL_DATASTORE_SYNC', 'every (Standard)')} · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
     gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
