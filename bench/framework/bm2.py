@@ -117,14 +117,15 @@ def patch_config(app, workers, touch=None):
     open(p, "w").write(s)
 
 
-PG_LOCAL = os.path.join(WS, ".pgdata")
+PG_TCP = "127.0.0.1"
 
 
 def pg_env():
-    # the in-container server of pg.sh, another one only through an explicit
-    # PGHOST; credentials only through the environment
+    # the in-container server of pg.sh over TCP (the network stack belongs to
+    # Laravel's standard setup), another one only through an explicit PGHOST;
+    # credentials only through the environment
     user = os.environ.get("PGUSER", os.environ.get("USER", "dev"))
-    return {"PGHOST": os.environ.get("PGHOST", PG_LOCAL), "PGPORT": os.environ.get("PGPORT", "5432"), "PGUSER": user, "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
+    return {"PGHOST": os.environ.get("PGHOST", PG_TCP), "PGPORT": os.environ.get("PGPORT", "5432"), "PGUSER": user, "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
 
 
 class Target:
@@ -242,7 +243,7 @@ def main():
         print(f"### {a.label}\n")
     pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
     if pg_version:
-        where = "im Workbench-Container (pg.sh), Kerne der DB-Server" if pg_env()["PGHOST"] == PG_LOCAL else f"Server {pg_env()['PGHOST']}, nicht gepinnt"
+        where = "im Workbench-Container (pg.sh), TCP 127.0.0.1:5432, Kerne der DB-Server" if pg_env()["PGHOST"] == PG_TCP else f"Server {pg_env()['PGHOST']}, nicht gepinnt"
         print(f"PostgreSQL {pg_version} ({where}) · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])

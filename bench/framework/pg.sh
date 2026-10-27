@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # PostgreSQL inside the workbench container (LV2; there is no separate
 # database container): data and socket in OpenGrid_Framework/.pgdata (on the mounted
-# volume, outside every repository and outside target/), Unix socket only,
-# local trust authentication, pinned to the database cores like the
+# volume, outside every repository and outside target/), the Unix socket and
+# TCP on 127.0.0.1:5432 only (Laravel connects over TCP like a production
+# setup), local trust authentication, pinned to the database cores like the
 # SurrealDB server in BM2.
 #   bench/framework/pg.sh start|stop|status|env
 #   PG_DATA=<dir> PG_CORES=<cpus> (default 4-7)
@@ -25,11 +26,12 @@ case "${1:-status}" in
       { echo "listen_addresses = ''"; echo "unix_socket_directories = '$DATA'"; echo "max_connections = 200"; } >> "$DATA/postgresql.conf"
     fi
     if pg_ctl -D "$DATA" status >/dev/null 2>&1; then echo "pg: running ($DATA)"; exit 0; fi
-    taskset -c "$CORES" pg_ctl -D "$DATA" -l "$DATA/server.log" -w start >/dev/null
+    # set at start, so it also holds for data directories created before
+    taskset -c "$CORES" pg_ctl -D "$DATA" -l "$DATA/server.log" -o "-c listen_addresses=127.0.0.1 -c port=5432" -w start >/dev/null
     echo "pg: started ($DATA, cores $CORES, $(postgres --version))"
     ;;
   stop) pg_ctl -D "$DATA" -m fast stop >/dev/null && echo "pg: stopped";;
   status) pg_ctl -D "$DATA" status >/dev/null 2>&1 && echo "pg: running ($DATA)" || { echo "pg: not running"; exit 1; };;
-  env) echo "PGHOST=$DATA PGUSER=$USER";;
+  env) echo "PGHOST=127.0.0.1 PGPORT=5432 PGUSER=$USER";;
   *) echo "usage: pg.sh start|stop|status|env"; exit 2;;
 esac
