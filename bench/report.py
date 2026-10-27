@@ -11,7 +11,10 @@ setups; same semantics: OpenGrid touch1, which is what Sanctum does in
 effect; stricter than Laravel: touch0) and the database baseline next to
 the total time (BENCHMARKS §0.4). With thesis.json (bm2.py with the logic
 endpoints) and sqlbase.json (sqlite/sqlbase.py) also the THESIS1 curves,
-their crossover with the best Octane and the time split per point.
+their crossover with the best Octane and the time split per point;
+with load.json, memory.json, coldstart.json the BENCH1 tables (many
+connections, fixed rate, memory, cold start); with pg17/bm2.json the
+PostgreSQL 17 cross-check.
 OpenGrid's PGO build leads and carries the ratios (release default,
 PERF4 b); --short leaves out the column without PGO.
 """
@@ -115,6 +118,82 @@ def main():
         print("\nThe baseline writes the token's use as often as the target does: not within the run for OpenGrid's default (at most every 60 s), at most once a second for touch1 and Laravel (Sanctum in effect), on every request for touch0; every write sets a new value on both sides.\n")
 
     thesis(a.dir)
+    bench1(a.dir)
+    pg17(a.dir, bm2, c)
+
+
+def pg17(d, bm2, c):
+    """The PostgreSQL 17 cross-check (pg17_check.sh) next to the main run on 16."""
+    p = os.path.join(d, "pg17", "bm2.json")
+    if not os.path.exists(p):
+        return
+    new = json.load(open(p))
+    print(f"**(k) PostgreSQL 17 cross-check** — the Laravel targets on PostgreSQL measured again on PostgreSQL 17 after the main run (16), same method; requests per second at {c} connections, change against 16.\n")
+    print("| Target | Endpoint | PostgreSQL 16 | PostgreSQL 17 | change |")
+    print("|---|---|---:|---:|---:|")
+    for k in sorted(new):
+        e, t, conc = k.split("|")
+        if int(conc) != c or k not in bm2:
+            continue
+        a, b = bm2[k][0], new[k][0]
+        print(f"| {t} | {e} | {fmt(a)} | {fmt(b)} | {100 * (b / a - 1):+.0f} % |")
+    print()
+
+
+def bench1(d):
+    """BENCH1 results (load.py, memory.py, coldstart.py), when present."""
+    import statistics
+    lp = os.path.join(d, "load.json")
+    if os.path.exists(lp):
+        load = json.load(open(lp))
+        eps = sorted({k.split("|")[0] for k in load})
+        for e in eps:
+            rows = [(k.split("|")[1], v) for k, v in load.items() if k.split("|")[0] == e]
+            concs = sorted({int(c) for _, v in rows for c in v["closed"]})
+            print(f"**(g) Many connections, `{e}`** — closed loop; requests per second (p99 / p99.9 in ms); failures are non-2xx responses and connection errors.\n")
+            print("| Target | " + " | ".join(f"{c} connections" for c in concs) + " | failures |")
+            print("|---|" + "---:|" * (len(concs) + 1))
+            for t, v in rows:
+                cells = [f"{fmt(x['rps'])} ({x['p99']:.1f} / {x['p999']:.1f})" + (" ‡" if x.get("load_busy", 0) > 90 else "") for c in concs for x in [v["closed"][str(c)]]]
+                print(f"| {t} | " + " | ".join(cells) + f" | {sum(v['closed'][str(c)]['bad'] for c in concs)} |")
+            levels = sorted(int(x) for x in rows[0][1]["open"])
+            print(f"\n**(h) Fixed request rate, `{e}`** — open loop (oha -q with latency correction) at a share of each target's own capacity (its rate at 256 connections); p99 in ms. Knee: the first level whose p99 is more than twice the p99 at {levels[0]} %. Spike: {levels[0]} % plus 65 % for 4 s.\n")
+            print("| Target | capacity req/s | " + " | ".join(f"{lv} %" for lv in levels) + " | knee | spike: p99 without → with |")
+            print("|---|---:|" + "---:|" * len(levels) + "---|---:|")
+            for t, v in rows:
+                o = v["open"]
+                base = o[str(levels[0])]["p99"]
+                knee = next((f"at {lv} %" for lv in levels[1:] if o[str(lv)]["p99"] > 2 * base), f"none up to {levels[-1]} %")
+                print(f"| {t} | {fmt(v['capacity'])} | " + " | ".join(f"{o[str(lv)]['p99']:.1f}" for lv in levels) + f" | {knee} | {base:.1f} → {v['spike']['base']['p99']:.1f} |")
+            print()
+        if any(x.get("load_busy", 0) > 90 for v in load.values() for x in v["closed"].values()):
+            print("‡ the load generator's cores were more than 90 % busy: the client may be the limit at this point.\n")
+    mp = os.path.join(d, "memory.json")
+    if os.path.exists(mp):
+        mem = json.load(open(mp))
+        mib = lambda k: f"{k / 1024:.0f}"
+        print("**(i) Memory** — PSS (shared pages split between the processes sharing them) over every process of a stack, in MiB; *app + database* adds PostgreSQL's server processes or the SurrealDB server; embedded databases (SurrealKV, SQLite) live in the app process.\n")
+        print("| Target | app idle | app under load (peak) | app after 10 000 requests | app + database idle | app + database under load (peak) |")
+        print("|---|---:|---:|---:|---:|---:|")
+        for t, r in mem.items():
+            print(f"| {t}{'' if r['db_separate'] else ' (embedded database)'} | {mib(r['idle'][0])} | {mib(r['load_app_peak'])} | {mib(r['after'][0])} | {mib(sum(r['idle']))} | {mib(r['load_all_peak'])} |")
+        print()
+    cp = os.path.join(d, "coldstart.json")
+    if os.path.exists(cp):
+        cold = json.load(open(cp))
+        print("**(j) Cold start** — from starting the server to the first 200 of an empty route (median of the starts); Laravel with its caches built beforehand (as after a deploy) and without; then the first request of `show` against the median of the following ones (ms).\n")
+        print("| Target | workers | Laravel caches | start ms | first request ms | warm ms |")
+        print("|---|---:|---|---:|---:|---:|")
+        for t, r in cold.items():
+            for key, starts in r["start"].items():
+                w, caches = key.split("|")
+                print(f"| {t} | {w} | {dict(keep='built', none='none').get(caches, '–')} | {statistics.median(starts):.0f} | {statistics.median(r['first'][key]):.1f} | {statistics.median(r['warm'][key]):.2f} |")
+        how = {"Dateiwächter": "file watcher", "opcache-Prüfung": "opcache revalidation (revalidate_freq=2)", "octane:reload": "php artisan octane:reload"}
+        print("\n| Target | hot reload | to the new answer, ms (median of 3) |")
+        print("|---|---|---:|")
+        for t, r in cold.items():
+            print(f"| {t} | {how.get(r['reload']['how'], r['reload']['how'])} | {statistics.median(r['reload']['ms']):.0f} |")
+        print()
 
 
 WORKLOADS = ["hydrate", "collect", "validate", "json"]
