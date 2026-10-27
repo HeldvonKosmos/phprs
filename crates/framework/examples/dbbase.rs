@@ -76,9 +76,9 @@ fn run_once(rt: &tokio::runtime::Handle, db: &Surreal<Any>, d: &Data, endpoint: 
     }
     query(rt, db, "SELECT * FROM personal_access_tokens WHERE token_hash = $h LIMIT 1 FETCH user", vec![("h", d.token_hash.clone())]);
     if touch {
-        let mut o = Object::new();
-        o.insert("last_used_at".to_string(), field(&d.note, "created_at"));
-        query(rt, db, "UPDATE $rid MERGE $data", vec![("rid", d.token_id.clone()), ("data", Value::Object(o))]);
+        // as OpenGrid's `$token->update(['last_used_at' => $now])`: a new
+        // value every time (a constant one would leave nothing to write)
+        query(rt, db, "UPDATE $rid MERGE { last_used_at: time::now() }", vec![("rid", d.token_id.clone())]);
     }
     match endpoint {
         "list" => {
