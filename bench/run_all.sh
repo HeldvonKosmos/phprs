@@ -3,7 +3,7 @@
 # comparisons A/B/C, with and without PGO) and framework over HTTP (BM2:
 # all endpoints at 1/16/64 connections, standard settings and the same
 # semantics as Sanctum; THESIS1: logic per request on the framework core,
-# with the SQLite statements alone for the time split). Refuses to start unless the conditions hold:
+# with n = 0 as the base cost). Refuses to start unless the conditions hold:
 # CPU governor `performance`, one clock cap on all cores (recorded), a
 # clean working tree, no other build or
 # benchmark running, binaries built from HEAD.
@@ -18,7 +18,7 @@
 # overlay, FrankenPHP, SQLite 3.45.2) and the api.sh gates (OpenGrid with
 # and without PGO, Laravel on FPM, RoadRunner and FrankenPHP).
 # Results: ../target/bench-tmp/<commit>-<UTC time>/ (env.txt, lang.md,
-# bm2.md, bm2.json, thesis.md, thesis.json, sqlbase.json, report.md, quiet.txt,
+# bm2.md, bm2.json, thesis.md, thesis.json, report.md, quiet.txt,
 # quiet.log, load.md/json, memory.md/json, coldstart.md/json); databases on the mounted volume (TMPDIR there).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -50,12 +50,12 @@ caps=$(cat /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_max_freq | sort -u)
 CAP_GHZ=$(awk -v k="$caps" 'BEGIN { printf "%.2f", k / 1e6 }')
 HW_GHZ=$(awk -v k="$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq)" 'BEGIN { printf "%.2f", k / 1e6 }')
 [ "$SMOKE" = 1 ] || [ -z "$(git status --porcelain --untracked-files=no)" ] || fail "working tree not clean"
-busy=$(pgrep -fa 'cargo |rustc|cargo-mutants|bench.py|bm2.py|load.py|memory.py|coldstart.py|dbbase.py|sqlbase.py|oha |surreal start|opengrid start|valgrind' | grep -v "$$" || true)
+busy=$(pgrep -fa 'cargo |rustc|cargo-mutants|bench.py|bm2.py|load.py|memory.py|coldstart.py|oha |surreal start|opengrid start|valgrind' | grep -v "$$" || true)
 [ -z "$busy" ] || fail "other work is running: $busy"
 
 # prerequisites (BENCH2): everything the stages need, checked before an hour of building
 LARAVEL_APP=${LARAVEL_APP:-$WS/bench/laravel-app}
-for tool in oha surreal php php-fpm nginx psql postgres pg_ctl curl jq taskset lscpu cmp; do
+for tool in oha surreal php php-fpm nginx curl jq taskset lscpu cmp; do
   command -v "$tool" >/dev/null || fail "missing tool: $tool"
 done
 [ -f "$LARAVEL_APP/artisan" ] || fail "no Laravel app at $LARAVEL_APP (bench/framework/laravel/setup.sh)"
@@ -82,38 +82,29 @@ stage() {
 }
 # --smoke: short durations for every tool (BENCH2), the same targets and endpoints
 if [ "$SMOKE" = 1 ]; then
-  LANG_ARGS=(--runs 1); BM2_ARGS=(--duration 1 --warmup 1); DBB_ARGS=(--duration 1 --warmup 0.5)
-  SQLB_ARGS=(--duration 0.5 --warmup 0.2); LOAD_ARGS=(--duration 1 --warmup 1 --spike-total 4 --spike-at 1 --spike-len 2)
+  LANG_ARGS=(--runs 1); BM2_ARGS=(--duration 1 --warmup 1); LOAD_ARGS=(--duration 1 --warmup 1 --spike-total 4 --spike-at 1 --spike-len 2)
   MEM_ARGS=(--duration 2 --requests 1000); COLD_ARGS=(--runs 1 --warm 20)
 else
-  LANG_ARGS=(--runs 7); BM2_ARGS=(); DBB_ARGS=(); SQLB_ARGS=(); LOAD_ARGS=(); MEM_ARGS=(); COLD_ARGS=()
+  LANG_ARGS=(--runs 7); BM2_ARGS=(); LOAD_ARGS=(); MEM_ARGS=(); COLD_ARGS=()
 fi
 
 # binaries from HEAD (never in parallel: PGO builds need the memory)
 if [ "$SKIP_BUILD" = 0 ] && [ "$FRAMEWORK_ONLY" = 1 ]; then
   taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --bin opengrid
-  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --example dbbase
-  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --example sqlbase
   PGO_BIN=opengrid bash bench/pgo.sh > "$OUT/pgo-opengrid.log" 2>&1
 elif [ "$SKIP_BUILD" = 0 ]; then
   taskset -c 0-7 cargo build -q --profile profiling -p grd-jit --bin grd
   taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --bin opengrid
-  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --example dbbase
-  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --example sqlbase
   bash bench/pgo.sh > "$OUT/pgo-grd.log" 2>&1
   PGO_BIN=opengrid bash bench/pgo.sh > "$OUT/pgo-opengrid.log" 2>&1
 fi
-bench/framework/pg.sh start
-
 # gates: both sides pass the acceptance test with the binaries and runtimes
 # that are measured (BENCHMARKS §1.1)
 gates() {
   OPENGRID_BIN=../target/profiling/opengrid examples/test-app/tests/api.sh | tail -1
   OPENGRID_BIN=../target-pgo/opengrid-pgo examples/test-app/tests/api.sh | tail -1
   for rt in fpm octane frankenphp; do
-    for db in sqlite pgsql; do
-      examples/test-app/tests/api.sh --app laravel --runtime "$rt" --db "$db" | tail -1
-    done
+    examples/test-app/tests/api.sh --app laravel --runtime "$rt" | tail -1
   done
 }
 stage gates gates > "$OUT/gates.txt" 2>&1 || { cat "$OUT/gates.txt"; fail "an api.sh gate failed (see $OUT/gates.txt)"; }
@@ -126,9 +117,9 @@ stage gates gates > "$OUT/gates.txt" 2>&1 || { cat "$OUT/gates.txt"; fail "an ap
   echo "cores $(python3 -c 'import sys; sys.path.insert(0, "bench/framework"); import bm2; print("; ".join(f"{n} {s} ({bm2.topology(s)})" for n, s in (("app", bm2.APP_CORES), ("db", bm2.DB_CORES), ("load", bm2.LOAD_CORES))))')"
   echo "volume $(findmnt -no SOURCE,FSTYPE,OPTIONS -T "$TMPDIR" | cut -c1-120)"
   echo "fill $(df -h "$TMPDIR" | tail -1)"
-  echo "php $(php -r 'echo PHP_VERSION;'), $(postgres --version), surreal $(surreal version | head -1), $(oha --version)"
-  echo "laravel to postgresql: unix socket $WS/.pgdata (bm2.py --pg socket, D21)"
-  echo "durability postgresql: $(PGHOST=$WS/.pgdata psql -d postgres -Atc "select string_agg(name || '=' || setting, ' ' order by name) from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_level','wal_sync_method','shared_buffers')")"
+  echo "php $(php -r 'echo PHP_VERSION;'), surreal $(surreal version | head -1), $(oha --version)"
+  echo "sqlite $(LD_LIBRARY_PATH=$HOME/.local/opt/sqlite-3.45.2/lib php -r "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();") for the core targets and Laravel (D23, D24), frankenphp $("$LARAVEL_APP/frankenphp" version | cut -d' ' -f1-2)"
+  echo "durability sqlite: journal_mode=WAL synchronous=FULL busy_timeout=5000 (core targets and Laravel, D24)"
   echo "durability surrealkv: sync=${SURREAL_DATASTORE_SYNC:-every (default)}, commit after grouped WAL fsync (embedded and server)"
   ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
 } > "$OUT/env.txt"
@@ -140,19 +131,15 @@ trap 'kill -TERM $QUIET 2>/dev/null || true' EXIT
 
 [ "$FRAMEWORK_ONLY" = 1 ] || stage lang python3 bench/complex/bench.py "${LANG_ARGS[@]}" --grd-pgo ../target-pgo/grd-pgo > "$OUT/lang.md"
 stage bm2 python3 bench/framework/bm2.py "${BM2_ARGS[@]}" --label "Stand $COMMIT: Standard und gleiche Semantik" \
-  --targets opengrid-embedded-core,opengrid-embedded-pgo-core,laravel-frankenphp-core,laravel-octane-core,laravel-fpm-core,opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-frankenphp-pgsql,laravel-octane-pgsql,laravel-fpm-pgsql,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
+  --targets opengrid-embedded-core,opengrid-embedded-pgo-core,laravel-frankenphp-core,laravel-octane-core,laravel-fpm-core,opengrid-embedded,opengrid-embedded-pgo,opengrid-server,laravel-frankenphp,laravel-octane,laravel-fpm,opengrid-embedded-touch1,opengrid-embedded-pgo-touch1,opengrid-server-touch1,opengrid-embedded-touch0,opengrid-embedded-pgo-touch0,opengrid-server-touch0 \
   --json "$OUT/bm2.json" > "$OUT/bm2.md" 2> "$OUT/bm2.err"
-# the databases alone with each endpoint's statements (BENCHMARKS §0.4)
-stage dbbase python3 bench/framework/dbbase.py "${DBB_ARGS[@]}" --json "$OUT/dbbase.json" > "$OUT/dbbase.md" 2> "$OUT/dbbase.err"
 # THESIS1: logic per request (n = 1…1000) on the framework core, with n = 0
-# as the base cost, and the SQLite statements alone for the time split
+# as the base cost
 THESIS_EP=$(python3 -c "print(','.join(['hydrate:0','collect:0','json:0'] + [f'{w}:{n}' for w in ('hydrate','collect','validate','json') for n in (1,10,100,1000)]))")
 stage thesis python3 bench/framework/bm2.py "${BM2_ARGS[@]}" --label "Stand $COMMIT: Logik je Anfrage (THESIS1)" \
   --targets opengrid-embedded-core,opengrid-embedded-pgo-core,laravel-frankenphp-core,laravel-octane-core,laravel-fpm-core \
   --endpoints "$THESIS_EP" --conc 1,16 --notes 1000 \
   --json "$OUT/thesis.json" > "$OUT/thesis.md" 2> "$OUT/thesis.err"
-stage sqlbase python3 bench/framework/sqlite/sqlbase.py "${SQLB_ARGS[@]}" --endpoints health,list,show,hydrate:0,hydrate:1,hydrate:10,hydrate:100,hydrate:1000,json:0,create \
-  --json "$OUT/sqlbase.json" > "$OUT/sqlbase.md" 2> "$OUT/sqlbase.err"
 # BENCH1: many connections and open-loop load, memory (PSS), cold start
 stage load python3 bench/framework/load.py "${LOAD_ARGS[@]}" --json "$OUT/load.json" > "$OUT/load.md" 2> "$OUT/load.err"
 stage memory python3 bench/framework/memory.py "${MEM_ARGS[@]}" --json "$OUT/memory.json" > "$OUT/memory.md" 2> "$OUT/memory.err"

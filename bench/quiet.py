@@ -3,7 +3,7 @@
 `--interval` seconds until it gets SIGTERM and reports what was not part of
 the benchmark.
 - foreign processes: any process outside the benchmark's own programs
-  (oha, opengrid, grd, php, php-fpm, nginx, rr, frankenphp, postgres,
+  (oha, opengrid, grd, php, php-fpm, nginx, rr, frankenphp,
   surreal, the bench scripts, the PGO tools) that used more than
   `--threshold` % of a core in a sample,
 - idle cores: the cores no part of the benchmark uses (by default the SMT
@@ -19,8 +19,8 @@ import argparse, os, signal, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "framework"))
 import bm2  # noqa: E402
 
-OWN = {"oha", "opengrid", "opengrid-pgo", "grd", "grd-pgo", "php", "php-fpm", "nginx", "rr", "frankenphp", "postgres", "postmaster",
-       "surreal", "python3", "bash", "sh", "taskset", "timeout", "dbbase", "sqlbase", "valgrind", "flock", "psql", "llvm-profdata",
+OWN = {"oha", "opengrid", "opengrid-pgo", "grd", "grd-pgo", "php", "php-fpm", "nginx", "rr", "frankenphp",
+       "surreal", "python3", "bash", "sh", "taskset", "timeout", "valgrind", "flock", "llvm-profdata",
        # the process name is cut to 15 characters
        "grd-worker-0", "grd-worker-1", "grd-worker-2", "grd-worker-3", "tokio-rt-worker"}
 TICK = os.sysconf("SC_CLK_TCK")
@@ -73,7 +73,7 @@ def main():
         dt = t1 - t0
         stamp = time.strftime("%H:%M:%S")
         for pid, (name, ticks) in p1.items():
-            if pid == me or name in OWN or name.startswith(("grd-worker", "php-fpm", "postgres", "surreal", "tokio")):
+            if pid == me or name in OWN or name.startswith(("grd-worker", "php-fpm", "surreal", "tokio")):
                 continue
             used = 100 * (ticks - p0.get(pid, (name, ticks))[1]) / TICK / dt
             if used > a.threshold:

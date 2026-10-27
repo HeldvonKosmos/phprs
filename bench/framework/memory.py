@@ -8,9 +8,9 @@ Processes per target:
 - app: the server process and all its descendants (OpenGrid; nginx +
   PHP-FPM master and children; Octane's PHP master, RoadRunner and its PHP
   workers; FrankenPHP), including the start scripts;
-- database: PostgreSQL's postmaster and all its children (-pgsql), the
-  SurrealDB server (opengrid-server); embedded databases (surrealkv,
-  SQLite) live inside the app process, so there app + database = app.
+- database: the SurrealDB server (opengrid-server); embedded databases
+  (surrealkv, SQLite, D24) live inside the app process, so there app +
+  database = app.
 
 Phases: idle (after setup and seeding), under load (oha at --conc
 connections on --endpoint for --duration s, sampled every 0.25 s: peak and
@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
 
 TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core",
-           "opengrid-embedded-pgo", "opengrid-server", "laravel-frankenphp-pgsql", "laravel-octane-pgsql", "laravel-fpm-pgsql"]
+           "opengrid-embedded-pgo", "opengrid-server", "laravel-frankenphp", "laravel-octane", "laravel-fpm"]
 
 
 def children():
@@ -64,9 +64,6 @@ def pss_kib(pids):
 
 
 def db_root(t):
-    if t.name.endswith("-pgsql"):
-        pidfile = os.path.join(bm2.WS, ".pgdata", "postmaster.pid")
-        return int(open(pidfile).readline()) if os.path.exists(pidfile) else None
     if t.name.startswith("opengrid-server"):
         return t.procs[0].pid  # the SurrealDB server is started first
     return None
@@ -95,8 +92,6 @@ def main():
     a = ap.parse_args()
     a.app_cores, a.db_cores, a.load_cores = bm2.APP_CORES, bm2.DB_CORES, bm2.LOAD_CORES
     a.opengrid, a.opengrid_pgo = os.path.abspath(a.opengrid), os.path.abspath(a.opengrid_pgo)
-    if any(t.endswith("-pgsql") for t in a.targets.split(",")) and "PGHOST" not in os.environ:
-        subprocess.run([os.path.join(bm2.HERE, "pg.sh"), "start"], check=True, capture_output=True)
     res = {}
     for name in a.targets.split(","):
         with tempfile.TemporaryDirectory(prefix=f"mem-{name}-") as work:
@@ -142,8 +137,7 @@ def main():
         emb = "" if r["db_separate"] else " (DB eingebettet)"
         print(f"| {name}{emb} | {mib(r['idle'][0])} | {mib(r['load_app_peak'])} | {mib(r['load_app_mean'])} | {mib(r['after'][0])} | "
               f"{mib(sum(r['idle']))} | {mib(r['load_all_peak'])} | {mib(r['load_all_mean'])} | {mib(sum(r['after']))} |")
-    print("\nPostgreSQL zählt mit allen Prozessen des Servers (Postmaster, Hintergrundprozesse, eine Verbindung je Worker); SurrealDB-Server als eigener Prozess; "
-          "SurrealKV und SQLite laufen im App-Prozess (App + DB = App).\n")
+    print("\nSurrealDB-Server als eigener Prozess; SurrealKV und SQLite laufen im App-Prozess (App + DB = App).\n")
     if a.json:
         json.dump(res, open(a.json, "w"), indent=1)
 

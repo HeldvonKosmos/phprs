@@ -7,23 +7,22 @@ Targets (each started fresh, data created over the API, no seeds):
   opengrid-embedded  OpenGrid with the embedded surrealkv database
   opengrid-embedded-pgo  the same with the PGO binary (--opengrid-pgo, PGO1;
                      trained on api.sh, never on this load)
-  laravel-fpm        Laravel + Sanctum, nginx + PHP-FPM (opcache on, JIT off)
-  laravel-octane     Laravel + Sanctum, Octane on RoadRunner
-  laravel-fpm-pgsql, laravel-octane-pgsql
-                     the same on PostgreSQL (LV2, "Vergleich der Standard-Setups"):
-                     the in-container server of pg.sh (started when needed;
-                     another server only through PGHOST), a fresh database
-                     per run, connection only through PG* variables
+  laravel-fpm        Laravel + Eloquent + Sanctum, nginx + PHP-FPM (opcache on, JIT off)
+  laravel-octane     the same on Octane with RoadRunner
+  laravel-frankenphp the same on Octane with FrankenPHP (worker mode)
+                     Laravel's standard setups run on SQLite (D24: a fresh
+                     file per run, WAL, synchronous FULL, busy_timeout 5000,
+                     the SQLite 3.45.2 of the core targets)
   <target>-core      framework core (D23): opengrid-embedded-core,
-                     opengrid-embedded-pgo-core, laravel-octane-core,
-                     laravel-fpm-core run the same raw SQL on a fresh SQLite
+                     opengrid-embedded-pgo-core, laravel-frankenphp-core,
+                     laravel-octane-core, laravel-fpm-core run the same raw SQL on a fresh SQLite
                      database (bench/framework/sqlite/), endpoints
                      /api/bench/sql/…, the token check in both apps the same
   <opengrid target>-touchN
                      any OpenGrid target with auth.token_touch_seconds = N:
                      touch1 writes the token's last use at most once a second,
                      as Sanctum does in effect (Eloquent saves last_used_at
-                     only when it changed, to the second; querylog.py, D11
+                     only when it changed, to the second; found in the database log, D11
                      2026-10-27); touch0 writes on every request, stricter
                      than Laravel. E.g. opengrid-embedded-touch1.
 
@@ -170,21 +169,7 @@ def patch_config(app, workers, touch=None):
     open(p, "w").write(s)
 
 
-PG_TCP = "127.0.0.1"
 SQLITE_LIB = os.path.join(os.path.expanduser("~"), ".local/opt/sqlite-3.45.2/lib")
-PG_SOCKET = os.path.join(WS, ".pgdata")
-# --pg socket (default): Laravel's best case, no network stack; --pg tcp: 127.0.0.1:5432
-PG_MODE = {"mode": "socket"}
-
-
-def pg_env():
-    # the in-container server of pg.sh, by default over its Unix socket
-    # (Laravel's best case, DECISIONS 27.10.), with --pg tcp over 127.0.0.1;
-    # another server only through an explicit PGHOST; credentials only
-    # through the environment
-    user = os.environ.get("PGUSER", os.environ.get("USER", "dev"))
-    local = PG_TCP if PG_MODE["mode"] == "tcp" else PG_SOCKET
-    return {"PGHOST": os.environ.get("PGHOST", local), "PGPORT": os.environ.get("PGPORT", "5432"), "PGUSER": user, "PGPASSWORD": os.environ.get("PGPASSWORD", "")}
 
 
 class Target:
@@ -199,7 +184,6 @@ class Target:
         # PERF4 d: the JIT in OpenGrid's workers, measured once (D9: off by default)
         if getattr(a, "opengrid_jit", False) and name.startswith("opengrid"):
             self.env["OPENGRID_JIT"] = "on"
-        self.pg_db = None
         # D23 (DBR1): the framework core with the same raw SQL on SQLite
         self.core = name.endswith("-core")
 
@@ -221,8 +205,10 @@ class Target:
             db = os.path.join(self.work, "bench.sqlite")
             subprocess.run(["python3", os.path.join(HERE, "sqlite", "seed.py"), db, str(self.a.notes)], check=True, capture_output=True)
             self.env.update(OPENGRID_DB_BENCH_SQLITE_URL=f"sqlite://{db}", BENCH_SQLITE_DATABASE=db)
+        if self.core or self.name.startswith("laravel"):
             # the SQLite FrankenPHP ships (3.45.2, same compile options) for
-            # OpenGrid, PHP-FPM and RoadRunner too (sqlite/build_sqlite.sh)
+            # OpenGrid, PHP-FPM and RoadRunner too (sqlite/build_sqlite.sh);
+            # Laravel's standard setups use it as well (D24)
             self.env["LD_LIBRARY_PATH"] = SQLITE_LIB + (":" + self.env["LD_LIBRARY_PATH"] if self.env.get("LD_LIBRARY_PATH") else "")
         if self.name.startswith("opengrid"):
             app = os.path.join(self.work, "app")
@@ -238,11 +224,6 @@ class Target:
             if r.returncode != 0:
                 sys.exit(f"migrate_push failed: {r.stdout[-800:]}{r.stderr[-800:]}")
             p = start([binary, "start", "--no-banner", "--binding", "127.0.0.1", "--port", str(self.port)], self.a.app_cores, self.env, f"{self.work}/server.log", cwd=app)
-        elif self.name.endswith("-pgsql"):
-            pg = pg_env()
-            self.pg_db = f"bm2_{os.getpid()}_{secrets.token_hex(4)}"
-            subprocess.run(["psql", "-q", "-d", "postgres", "-c", f"CREATE DATABASE {self.pg_db}"], env=dict(self.env, **pg), check=True)
-            self.env.update(pg, DB_CONNECTION="pgsql", DB_HOST=pg["PGHOST"], DB_PORT=pg["PGPORT"], DB_DATABASE=self.pg_db, DB_USERNAME=pg["PGUSER"], DB_PASSWORD=pg["PGPASSWORD"])
         else:
             db = os.path.join(self.work, "db.sqlite")
             open(db, "w").close()
@@ -310,8 +291,6 @@ class Target:
     def close(self):
         for p in reversed(self.procs):
             stop(p)
-        if self.pg_db:
-            subprocess.run(["psql", "-q", "-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {self.pg_db} WITH (FORCE)"], env=dict(self.env, **pg_env()), capture_output=True)
 
 
 def main():
@@ -329,27 +308,17 @@ def main():
     ap.add_argument("--opengrid", default=os.path.join(WS, "target/profiling/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
-    ap.add_argument("--pg", choices=["socket", "tcp"], default="socket", help="how Laravel reaches the in-container PostgreSQL")
     ap.add_argument("--opengrid-jit", action="store_true", help="OPENGRID_JIT=on for the OpenGrid targets (PERF4 d; default off, D9)")
     ap.add_argument("--label", default="", help="heading of the result, e.g. 'Vergleich der Standard-Setups'")
     a = ap.parse_args()
-    PG_MODE["mode"] = a.pg
     a.opengrid = os.path.abspath(a.opengrid)
     a.opengrid_pgo = os.path.abspath(a.opengrid_pgo)
     sh = lambda c, cwd=None: subprocess.run(c, capture_output=True, text=True, cwd=cwd).stdout.strip()
     laravel = sh(["php", "artisan", "--version"], LARAVEL_APP) if os.path.isdir(LARAVEL_APP) else "–"
     platform_db = os.path.isdir(os.path.join(LARAVEL_APP, "app/Database"))
-    if any(t.endswith("-pgsql") for t in a.targets.split(",")) and "PGHOST" not in os.environ:
-        # the in-container server (data on the volume); start it when needed
-        subprocess.run([os.path.join(HERE, "pg.sh"), "start"], check=True, capture_output=True)
     if a.label:
         print(f"### {a.label}\n")
-    pg_version = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "SHOW server_version"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip() if any(t.endswith("-pgsql") for t in a.targets.split(",")) else ""
-    if pg_version:
-        where = {PG_TCP: "im Workbench-Container (pg.sh), TCP 127.0.0.1:5432, Kerne der DB-Server", PG_SOCKET: "im Workbench-Container (pg.sh), Unix-Socket, Kerne der DB-Server"}.get(pg_env()["PGHOST"], f"Server {pg_env()['PGHOST']}, nicht gepinnt")
-        pg_dur = subprocess.run(["psql", "-At", "-d", "postgres", "-c", "select string_agg(name || '=' || setting, ', ' order by name) from pg_settings where name in ('fsync','synchronous_commit','full_page_writes','wal_sync_method')"], capture_output=True, text=True, env=dict(os.environ, **pg_env())).stdout.strip()
-        print(f"PostgreSQL {pg_version} ({where}; {pg_dur}) · ", end="")
-    if any(t.endswith("-core") for t in a.targets.split(",")):
+    if any(t.endswith("-core") or t.startswith("laravel") for t in a.targets.split(",")):
         if not os.path.exists(os.path.join(SQLITE_LIB, "libsqlite3.so.0")):
             subprocess.run([os.path.join(HERE, "sqlite", "build_sqlite.sh")], check=True)
         lib_env = dict(os.environ, LD_LIBRARY_PATH=SQLITE_LIB)
@@ -363,7 +332,7 @@ def main():
                 f.write("<?php " + version_php)
             fp_sqlite = sh([fp, "php-cli", f.name])
             os.unlink(f.name)
-        print(f"SQLite der Kern-Ziele: PHP-FPM/RoadRunner {php_sqlite}, OpenGrid {og_lib}, FrankenPHP {fp_sqlite} eingebaut (gleiche Compile-Optionen; WAL, synchronous FULL, busy_timeout 5000, je Worker eine Verbindung) · ", end="")
+        print(f"SQLite der Kern-Ziele und von Laravel (D24): PHP-FPM/RoadRunner {php_sqlite}, OpenGrid {og_lib}, FrankenPHP {fp_sqlite} eingebaut (gleiche Compile-Optionen; WAL, synchronous FULL, busy_timeout 5000, je Worker eine Verbindung) · ", end="")
     fp_bin = os.path.join(LARAVEL_APP, "frankenphp")
     if any("frankenphp" in t for t in a.targets.split(",")) and os.path.exists(fp_bin):
         print(f"{sh([fp_bin, 'version']).split(' Caddy')[0]} (Worker-Modus, eigenes PHP) · ", end="")
@@ -375,7 +344,7 @@ def main():
     print(f"Governor {gov} · ", end="")
     print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on, PERF4 d)' if a.opengrid_jit else 'aus (Standard, D9)'} · ", end="")
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
-          f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else ('PostgreSQL für *-pgsql, sonst SQLite' if pg_version else 'SQLite, Vorstufe')}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
+          f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else 'SQLite'}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({topology(a.app_cores)}), DB-Server {a.db_cores} ({topology(a.db_cores)}), Last {a.load_cores} ({topology(a.load_cores)})"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
     results = {}

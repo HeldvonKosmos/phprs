@@ -69,8 +69,6 @@ def main():
     a.app_cores, a.db_cores, a.load_cores, a.workers_list = bm2.APP_CORES, bm2.DB_CORES, bm2.LOAD_CORES, [int(w) for w in a.workers.split(",")]
     a.workers = a.workers_list[0]
     a.opengrid, a.opengrid_pgo = os.path.abspath(a.opengrid), os.path.abspath(a.opengrid_pgo)
-    if any(t.endswith("-pgsql") for t in a.targets.split(",")) and "PGHOST" not in os.environ:
-        subprocess.run([os.path.join(bm2.HERE, "pg.sh"), "start"], check=True, capture_output=True)
     res = {}
     # remember how bm2 starts the application server, to start it again
     calls = []

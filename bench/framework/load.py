@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
 
 TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core",
-           "opengrid-embedded-pgo", "laravel-frankenphp-pgsql", "laravel-octane-pgsql", "laravel-fpm-pgsql"]
+           "opengrid-embedded-pgo", "laravel-frankenphp", "laravel-octane", "laravel-fpm"]
 
 
 def busy(cores):
@@ -91,8 +91,6 @@ def main():
     a = ap.parse_args()
     a.app_cores, a.db_cores, a.load_cores = bm2.APP_CORES, bm2.DB_CORES, bm2.LOAD_CORES
     a.opengrid, a.opengrid_pgo = os.path.abspath(a.opengrid), os.path.abspath(a.opengrid_pgo)
-    if any(t.endswith("-pgsql") for t in a.targets.split(",")) and "PGHOST" not in os.environ:
-        subprocess.run([os.path.join(bm2.HERE, "pg.sh"), "start"], check=True, capture_output=True)
     conc = [int(c) for c in a.conc.split(",")]
     levels = [int(x) for x in a.levels.split(",")]
     res = {}
