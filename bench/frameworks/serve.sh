@@ -18,6 +18,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 BENCH=$(cd "$HERE/.." && pwd)
 OPT=$HOME/.local/opt
 mkdir -p "$W"
+# no telemetry to Microsoft or Vercel from any run
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 NEXT_TELEMETRY_DISABLED=1
 export PATH=$OPT/node-24.22.1/bin:$OPT/ruby-4.0.9/bin:$OPT/python-3.15.2/bin:$OPT/jdk-25.0.5+8/bin:$OPT/otp-29.1.2/bin:$OPT/elixir-1.20.4/bin:$PATH
 LOG=$W/server.log
 
@@ -35,6 +37,12 @@ case "$APP" in
     # Express is Nest's default adapter; Fastify a marked variant
     case "${VARIANT:-express}" in express) unset NEST_ADAPTER;; fastify) export NEST_ADAPTER=fastify;; *) echo "serve: nest variant express or fastify" >&2; exit 2;; esac
     export NODE_ENV=production PORT WORKERS=$N
+    node cluster.mjs >"$LOG" 2>&1 &
+    ;;
+  next)
+    cd "$BENCH/next-app"
+    [ -f .next/BUILD_ID ] || { echo "serve: build the app first (bench/frameworks/setup.sh next)" >&2; exit 2; }
+    export NODE_ENV=production PORT WORKERS=$N NEXT_TELEMETRY_DISABLED=1
     node cluster.mjs >"$LOG" 2>&1 &
     ;;
   fastapi)
