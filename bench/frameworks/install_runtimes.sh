@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Runtimes of the comparison frameworks (BENCH3), pinned and checked:
 # Node (AdonisJS), Ruby with YJIT (Rails), CPython (Django), Java/Temurin
-# (Spring Boot), Erlang/OTP and Elixir (Phoenix), into ~/.local/opt/<name>.
+# (Spring Boot), the .NET SDK (ASP.NET Core), Erlang/OTP and Elixir
+# (Phoenix), into ~/.local/opt/<name>.
 # CPython is built against the system's libsqlite3 (dynamically), so that it
 # loads SQLite 3.45.2 through LD_LIBRARY_PATH like every other target.
-#   bench/frameworks/install_runtimes.sh [node|ruby|python|java|erlang|elixir ...]
+#   bench/frameworks/install_runtimes.sh [node|ruby|python|java|dotnet|erlang|elixir ...]
 # Builds run on cores 0-7 with 2 jobs (the container's limit). Idempotent:
 # an installed runtime with the right version is skipped.
 set -euo pipefail
@@ -19,6 +20,8 @@ PYTHON=3.15.2     PYTHON_SHA=8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0c
 JDK=25.0.5+8      JDK_SHA=68982529869257d0ee6b824ec5aa270ff8b118bb438670da0b97ebdab178d7fb
 OTP=29.1.2        OTP_SHA=c79966661e35fe4aff8ec003db63682e3b33b10b672220d51bf93c0a9244b049
 ELIXIR=1.20.4     ELIXIR_SHA=7863c546cda13fecc949e562e326042451dacf8fd8698a36783cb71eeb223b46
+# .NET 10 LTS: runtime 10.0.14 in SDK 10.0.403 (Microsoft publishes SHA-512)
+DOTNET_SDK=10.0.403 DOTNET_SHA512=b7b3d8461cf98b07d2552ce9199702fa3ad010ac2671a5f8cd5136f7534e50f6855ba7bbb02b11494563f1d04156276a31cda1103b900e5eecd0d9473dc7b9c5
 
 fetch() {  # fetch <url> <file> <sha256>
   local f=$DL/$2
@@ -26,6 +29,11 @@ fetch() {  # fetch <url> <file> <sha256>
   echo "$3  $f" | sha256sum -c --quiet - || { echo "checksum of $2 does not match" >&2; rm -f "$f"; exit 1; }
 }
 build() { taskset -c 0-7 "$@"; }
+fetch512() {  # fetch512 <url> <file> <sha512>
+  local f=$DL/$2
+  [ -f "$f" ] || curl -fsSL -A "$UA" -o "$f.part" "$1" && { [ -f "$f" ] || mv "$f.part" "$f"; }
+  echo "$3  $f" | sha512sum -c --quiet - || { echo "checksum of $2 does not match" >&2; rm -f "$f"; exit 1; }
+}
 
 node() {
   [ -x "$OPT/node-$NODE/bin/node" ] && return
@@ -53,6 +61,12 @@ java() {
   fetch "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-${JDK/+/%2B}/$f" "$f" "$JDK_SHA"
   rm -rf "$OPT/jdk-$JDK" && mkdir -p "$OPT/jdk-$JDK" && tar -xzf "$DL/$f" -C "$OPT/jdk-$JDK" --strip-components=1
 }
+dotnet() {
+  [ -x "$OPT/dotnet-$DOTNET_SDK/dotnet" ] && return
+  local f="dotnet-sdk-$DOTNET_SDK-linux-x64.tar.gz"
+  fetch512 "https://builds.dotnet.microsoft.com/dotnet/Sdk/$DOTNET_SDK/$f" "$f" "$DOTNET_SHA512"
+  rm -rf "$OPT/dotnet-$DOTNET_SDK" && mkdir -p "$OPT/dotnet-$DOTNET_SDK" && tar -xzf "$DL/$f" -C "$OPT/dotnet-$DOTNET_SDK"
+}
 erlang() {
   [ -x "$OPT/otp-$OTP/bin/erl" ] && return
   fetch "https://github.com/erlang/otp/releases/download/OTP-$OTP/otp_src_$OTP.tar.gz" "otp_src_$OTP.tar.gz" "$OTP_SHA"
@@ -65,8 +79,8 @@ elixir() {
   rm -rf "$OPT/elixir-$ELIXIR" && mkdir -p "$OPT/elixir-$ELIXIR" && (cd "$OPT/elixir-$ELIXIR" && unzip -q "$DL/elixir-otp-${OTP%%.*}.zip")
 }
 
-for r in "${@:-node ruby python java erlang elixir}"; do
+for r in "${@:-node ruby python java dotnet erlang elixir}"; do
   for x in $r; do echo "== $x"; "$x"; done
 done
 # the PATH entries for the benchmark (bench/frameworks/env.sh sources this list)
-echo "runtimes in $OPT: node-$NODE ruby-$RUBY python-$PYTHON jdk-$JDK otp-$OTP elixir-$ELIXIR"
+echo "runtimes in $OPT: node-$NODE ruby-$RUBY python-$PYTHON jdk-$JDK dotnet-$DOTNET_SDK otp-$OTP elixir-$ELIXIR"

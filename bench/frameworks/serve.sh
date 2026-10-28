@@ -29,6 +29,14 @@ case "$APP" in
     export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
     node cluster.mjs >"$LOG" 2>&1 &
     ;;
+  nest)
+    cd "$BENCH/nest-app"
+    [ -f dist/main.js ] || { echo "serve: build the app first (bench/frameworks/setup.sh nest)" >&2; exit 2; }
+    # Express is Nest's default adapter; Fastify a marked variant
+    case "${VARIANT:-express}" in express) unset NEST_ADAPTER;; fastify) export NEST_ADAPTER=fastify;; *) echo "serve: nest variant express or fastify" >&2; exit 2;; esac
+    export NODE_ENV=production PORT WORKERS=$N
+    node cluster.mjs >"$LOG" 2>&1 &
+    ;;
   fastapi)
     cd "$BENCH/fastapi-app"
     [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh fastapi)" >&2; exit 2; }
