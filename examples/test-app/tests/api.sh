@@ -13,6 +13,11 @@
 #   tests/api.sh --app laravel [--runtime fpm|octane|frankenphp]
 #                                         the Laravel comparison application (LV1,
 #                                         bench/framework/laravel; on SQLite, D24)
+#   tests/api.sh --app adonis|nest|next|rails|django|fastapi|spring|dotnet|phoenix
+#                                         a comparison app of BENCH3 (bench/<app>-app,
+#                                         started by bench/frameworks/serve.sh): only
+#                                         the benchmark sections (/api/bench/sql,
+#                                         /api/bench/logic), the rest is skipped
 set -u -o pipefail
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -27,12 +32,15 @@ while [ $# -gt 0 ]; do
 done
 BIN=${OPENGRID_BIN:-$HERE/../../../target/debug/opengrid}
 SERVE=$HERE/../../bench/framework/laravel/serve.sh
+FW_SERVE=$HERE/../../bench/frameworks/serve.sh
+COMPARE=0
 for tool in curl jq python3; do
   command -v "$tool" >/dev/null || { echo "FAIL setup: $tool is missing"; exit 2; }
 done
 case "$TARGET" in
   opengrid) [ -x "$BIN" ] || { echo "FAIL setup: no opengrid binary at $BIN (build it: cargo build -p opengrid-framework --bin opengrid)"; exit 2; };;
   laravel) [ -x "$SERVE" ] || { echo "FAIL setup: $SERVE is missing"; exit 2; };;
+  adonis|nest|next|rails|django|fastapi|spring|dotnet|phoenix) COMPARE=1;;
   *) echo "FAIL setup: unknown app $TARGET"; exit 2;;
 esac
 echo "app: $TARGET$([ "$TARGET" = laravel ] && echo " ($RUNTIME, sqlite)")"
@@ -64,11 +72,13 @@ trap cleanup EXIT INT TERM
 
 pass() { STEPS=$((STEPS + 1)); echo "PASS $1"; }
 fail() { STEPS=$((STEPS + 1)); FAILS=$((FAILS + 1)); echo "FAIL $1: $2"; }
-skip() { SKIPS=$((SKIPS + 1)); echo "SKIP $1 (only OpenGrid: $2)"; }
+skip() { SKIPS=$((SKIPS + 1)); echo "SKIP $1 (${3:-only OpenGrid}: $2)"; }
 
 start_server() {
   if [ "$TARGET" = opengrid ]; then
     (cd "$APP" && exec "$BIN" start --no-banner --binding 127.0.0.1 --port "$PORT" >>"$WORK/server.log" 2>&1) &
+  elif [ "$COMPARE" = 1 ]; then
+    "$FW_SERVE" "$TARGET" "$PORT" "$WORK/run" 2 >>"$WORK/server.log" 2>&1 &
   else
     # RoadRunner's RPC / FrankenPHP's admin port: one found free, not port + 1 (BENCH1)
     SIDE_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])') \
@@ -106,7 +116,9 @@ check() {
 }
 
 # ---- setup -----------------------------------------------------------------
-if [ "$TARGET" = opengrid ]; then
+if [ "$COMPARE" = 1 ]; then
+  pass "schema: seeded benchmark database"
+elif [ "$TARGET" = opengrid ]; then
   if (cd "$APP" && "$BIN" task migrate_push >"$WORK/migrate.log" 2>&1); then pass "schema: migrate_push"; else fail "schema: migrate_push" "$(grep -m1 -A3 'panicked' "$WORK/migrate.log" || tail -n 5 "$WORK/migrate.log")"; exit 1; fi
 else
   LARAVEL_APP=${LARAVEL_APP:-$(cd "$HERE/../../.." && pwd)/bench/laravel-app}
@@ -115,13 +127,25 @@ else
 fi
 if start_server; then pass "server starts, GET /health answers"; else fail "server start" "no answer on $BASE/health"; exit 1; fi
 req GET /health
-check "health: status ok" 200 '.status == "ok" and (.database.version | length > 0)'
+if [ "$COMPARE" = 1 ]; then
+  check "health: status ok" 200 '.status == "ok"'
+else
+  check "health: status ok" 200 '.status == "ok" and (.database.version | length > 0)'
+fi
 if [ "$TARGET" = opengrid ]; then
   check "health: embedded database" 200 '.database.mode == "embedded"'
 else
   skip "health: embedded database" "embedded SurrealDB"
 fi
 
+# the sections of the test app (registration to logout) exist only in
+# OpenGrid and the Laravel app; the comparison apps have the benchmark
+# endpoints only
+if [ "$COMPARE" = 1 ]; then
+  for name in "registration and login" "notes" "a second user sees nothing of the first" "delete, logout"; do
+    skip "$name" "the comparison apps have the benchmark endpoints only" "OpenGrid and Laravel only"
+  done
+else
 # ---- registration and login ------------------------------------------------
 ADA='{"name":"Ada","email":"ada@example.com","password":"secret-123","password_confirmation":"secret-123"}'
 req POST /api/register "$ADA"
@@ -205,6 +229,8 @@ req POST /api/logout "" "$TOKEN"
 check "logout" 204
 req GET /api/me "" "$TOKEN"
 check "me with the old token" 401
+
+fi
 
 # ---- framework-core benchmark endpoints (D23, measurement tool) -------------
 # the same raw SQL and the same answers in both apps. Left out when api.sh
