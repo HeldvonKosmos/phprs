@@ -64,7 +64,7 @@ def main():
     ap.add_argument("--endpoint", default="show")
     ap.add_argument("--warm", type=int, default=50)
     ap.add_argument("--notes", type=int, default=200)
-    ap.add_argument("--opengrid", default=os.path.join(bm2.WS, "target/profiling/opengrid"))
+    ap.add_argument("--opengrid", default=os.path.join(bm2.WS, "target/perf/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(bm2.WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
     a = ap.parse_args()
@@ -130,7 +130,8 @@ def main():
                 w = a.workers_list[0]
                 bm2.stop(t.procs.pop())
                 if laravel:
-                    c, e = cmd[:-1] + [str(w)], dict(env, SERVE_CACHES="build")
+                    # opcache with timestamp checks and no preload, so the changed file is seen (SERVE_PHP_DEV)
+                    c, e = cmd[:-1] + [str(w)], dict(env, SERVE_CACHES="build", SERVE_PHP_DEV="1")
                     path, old = os.path.join(bm2.LARAVEL_APP, LV_CONTROLLER), OK_LV
                 else:
                     app = os.path.join(work, "app")

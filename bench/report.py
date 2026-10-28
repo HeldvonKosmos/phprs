@@ -389,6 +389,7 @@ def thesis_all(d):
     if not any(fw.framework_of(x) not in ("opengrid", "laravel") for x in tg):
         return
     get = lambda e, x, c: t.get(f"{e}|{x}|{c}")
+    c1 = 1 if any(k.endswith("|1") for k in t) else 16
     print("**(e') Logic per request, all frameworks** (BENCH3) — as (e), requests per second at 16 connections; per framework its fastest variant from (a).\n")
     for w in WORKLOADS:
         print(f"*{w}*\n")
@@ -397,14 +398,14 @@ def thesis_all(d):
         for x in tg:
             print(f"| {mark(x)} | " + " | ".join(fmt(r[0]) if (r := get(f"{w}:{n}", x, 16)) else "–" for n in NS) + " |")
         print()
-    print("**(f') Fixed and per-element cost** — total time per request = G + n × k, a least-squares line through the 1-connection p50 at n = 0 (validate: json with n = 0), 1, 10, 100, 1000; G in ms, k in µs per element.\n")
+    print(f"**(f') Fixed and per-element cost** — total time per request = G + n × k, a least-squares line through the p50 at {c1} connection{'s' if c1 > 1 else ''} for n = 0 (validate: json with n = 0) and every measured n; G in ms, k in µs per element.\n")
     print("| Target | " + " | ".join(f"{w} G | {w} k" for w in WORKLOADS) + " |")
     print("|---|" + "---:|---:|" * len(WORKLOADS))
     for x in tg:
         cells = []
         for w in WORKLOADS:
-            pts = [(0, b[1])] if (b := get("json:0" if w == "validate" else f"{w}:0", x, 1)) else []
-            pts += [(n, r[1]) for n in NS if (r := get(f"{w}:{n}", x, 1))]
+            pts = [(0, b[1])] if (b := get("json:0" if w == "validate" else f"{w}:0", x, c1)) else []
+            pts += [(n, r[1]) for n in NS if (r := get(f"{w}:{n}", x, c1))]
             if len(pts) < 2:
                 cells += ["–", "–"]
                 continue
@@ -443,6 +444,8 @@ def thesis(d):
     t = json.load(open(path))
     get = lambda e, tg, c: t.get(f"{e}|{tg}|{c}")
     trng = ranges(d, "thesis.range.json")
+    # the connection count of the time split: 1 when measured (older runs), else 16 (compact plan, 28.10.)
+    c1 = 1 if any(k.endswith("|1") for k in t) else 16
     eps = [f"{w}:{x}" for w in WORKLOADS for x in NS]
     cols = og_cols(lambda e, tg: get(e, tg, 16), eps, "OpenGrid", "opengrid-embedded-pgo-core", "opengrid-embedded-core", False)
     lead = cols[0][1]
@@ -470,7 +473,7 @@ def thesis(d):
         print(f"\nCrossover with the best Octane: {cross or 'none up to n = 1000 (OpenGrid ahead at every point)'}.\n")
     if summary:
         print("**Crossover per workload:** " + "; ".join(f"{w}: {c or 'none up to 1000'}" for w, c in summary) + ".\n")
-    print("**(f) Time split per point** (1 connection, p50 in ms): *base* = the same endpoint with n = 0 (token check, routing, the query with no rows or none, empty answer; validate: json with n = 0); *grows with n* = the rest: application logic, output and the larger query. Both sides query the same SQLite, so the database part of the growth is the same library on both sides.\n")
+    print(f"**(f) Time split per point** ({c1} connection{'s' if c1 > 1 else ''}, p50 in ms): *base* = the same endpoint with n = 0 (token check, routing, the query with no rows or none, empty answer; validate: json with n = 0); *grows with n* = the rest: application logic, output and the larger query. Both sides query the same SQLite, so the database part of the growth is the same library on both sides.\n")
     print("| Workload | n | Target | total | base | grows with n |")
     print("|---|---:|---|---:|---:|---:|")
     for w in WORKLOADS:
@@ -479,7 +482,7 @@ def thesis(d):
             for label, tg in cols:
                 if tg.startswith("opengrid") and tg != lead:
                     continue
-                r, b = get(f"{w}:{x}", tg, 1), get(base_e, tg, 1)
+                r, b = get(f"{w}:{x}", tg, c1), get(base_e, tg, c1)
                 if not r or not b:
                     continue
                 print(f"| {w} | {x} | {label} | {r[1]:.2f} | {b[1]:.2f} | {r[1] - b[1]:.2f} |")

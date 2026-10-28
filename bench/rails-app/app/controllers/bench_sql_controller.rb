@@ -11,7 +11,8 @@ class BenchSqlController < ApplicationController
   # the SQLite this side runs and the runtime, for the header
   def sqlite
     render json: { version: sql("select sqlite_version() AS v").first["v"], compile_options: sql("pragma compile_options").map { |r| r["compile_options"] },
-                   runtime: { ruby: RUBY_VERSION, yjit: defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled?, rails: Rails.version, puma_threads: ENV.fetch("RAILS_MAX_THREADS", 3).to_i } }
+                   runtime: { ruby: RUBY_VERSION, yjit: defined?(RubyVM::YJIT) && RubyVM::YJIT.enabled?, rails: Rails.version, puma_threads: ENV.fetch("RAILS_MAX_THREADS", 3).to_i,
+                              jemalloc: File.read("/proc/self/maps").include?("jemalloc") } }
   end
 
   def login

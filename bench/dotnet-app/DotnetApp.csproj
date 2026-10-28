@@ -7,6 +7,12 @@
     <!-- BENCH3: every package version locked (packages.lock.json) -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- BENCH3 (Jonas, 28.10.): the code precompiled to native (ReadyToRun) for
+         a fast start; tiered compilation with PGO re-optimizes the hot paths -->
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TieredPGO>true</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>

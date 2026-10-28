@@ -20,10 +20,11 @@ from typing import Annotated, Optional
 import bcrypt
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, StrictStr
 
-app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+# orjson for every answer, as the FastAPI docs recommend for performance (BENCH3)
+app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None, default_response_class=ORJSONResponse)
 _local = threading.local()
 
 
@@ -65,7 +66,7 @@ class Unauthenticated(Exception):
 
 @app.exception_handler(Unauthenticated)
 def unauthenticated(_request, _exc):
-    return JSONResponse({"message": "Unauthenticated."}, status_code=401)
+    return ORJSONResponse({"message": "Unauthenticated."}, status_code=401)
 
 
 def note(row) -> dict:
@@ -96,11 +97,11 @@ async def login(request: Request):
     data = await request.json()
     email, password = data.get("email"), data.get("password")
     if not isinstance(email, str) or not isinstance(password, str):
-        return JSONResponse({"message": "The email and password fields are required."}, status_code=422)
+        return ORJSONResponse({"message": "The email and password fields are required."}, status_code=422)
     c = conn()
     row = c.execute("SELECT id, password FROM users WHERE email = ? LIMIT 1", (email,)).fetchone()
     if row is None or not bcrypt.checkpw(password.encode(), row["password"].encode()):
-        return JSONResponse({"message": "Invalid credentials."}, status_code=401)
+        return ORJSONResponse({"message": "Invalid credentials."}, status_code=401)
     token = secrets.token_hex(32)
     c.execute("INSERT INTO tokens (user_id, token_hash, last_used_at, created_at) VALUES (?, ?, ?, ?)", (row["id"], hashlib.sha256(token.encode()).hexdigest(), int(time.time()), now_text()))
     return {"token": token}
@@ -137,7 +138,7 @@ def index(request: Request, user: dict = Depends(bench_user)):
 def show(note_id: str, user: dict = Depends(bench_user)):
     row = conn().execute("SELECT id, title, body, done, priority, created_at, updated_at FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL LIMIT 1", (as_int(note_id, 0), user["id"])).fetchone()
     if row is None:
-        return JSONResponse({"message": "Not found."}, status_code=404)
+        return ORJSONResponse({"message": "Not found."}, status_code=404)
     return {"data": note(row)}
 
 
@@ -146,13 +147,13 @@ async def store(request: Request, user: dict = Depends(bench_user)):
     data = await request.json()
     title = data.get("title")
     if not isinstance(title, str) or title == "":
-        return JSONResponse({"message": "The title field is required."}, status_code=422)
+        return ORJSONResponse({"message": "The title field is required."}, status_code=422)
     body = data.get("body") if isinstance(data.get("body"), str) else None
     priority = data.get("priority", 3)
     priority = priority if isinstance(priority, int) and not isinstance(priority, bool) else 3
     now = now_text()
     new_id = conn().execute("INSERT INTO notes (user_id, title, body, done, priority, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?) RETURNING id", (user["id"], title, body, priority, now, now)).fetchone()["id"]
-    return JSONResponse({"data": {"id": new_id, "title": title, "body": body, "done": False, "priority": priority, "created_at": now, "updated_at": now}}, status_code=201)
+    return ORJSONResponse({"data": {"id": new_id, "title": title, "body": body, "done": False, "priority": priority, "created_at": now, "updated_at": now}}, status_code=201)
 
 
 # ---- THESIS1: logic per request --------------------------------------------
@@ -255,7 +256,7 @@ def validation_errors(_request, exc: RequestValidationError):
     first = next(iter(errors.values()))[0]
     more = sum(len(v) for v in errors.values()) - 1
     message = first + (f" (and {more} more {'error' if more == 1 else 'errors'})" if more > 0 else "")
-    return JSONResponse({"message": message, "errors": errors}, status_code=422)
+    return ORJSONResponse({"message": message, "errors": errors}, status_code=422)
 
 
 @app.post("/api/bench/logic/validate")

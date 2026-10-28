@@ -70,6 +70,7 @@ public class BenchSqlController {
         var rt = Runtime.getRuntime();
         var runtime = new java.util.LinkedHashMap<String, Object>();
         runtime.put("java", System.getProperty("java.version"));
+        runtime.put("aot_cache", java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments().stream().anyMatch(x -> x.startsWith("-XX:AOTCache=")));
         runtime.put("spring_boot", org.springframework.boot.SpringBootVersion.getVersion());
         runtime.put("available_processors", rt.availableProcessors());
         runtime.put("max_heap_mib", rt.maxMemory() / (1024 * 1024));

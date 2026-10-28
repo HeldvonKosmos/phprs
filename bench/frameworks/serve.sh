@@ -111,6 +111,8 @@ case "$APP" in
     # Puma with N workers; 3 threads per worker is the Rails default, 1 thread a marked variant
     case "${VARIANT:-threads3}" in threads3) export RAILS_MAX_THREADS=3;; threads1) export RAILS_MAX_THREADS=1;; *) echo "serve: rails variant threads3 or threads1" >&2; exit 2;; esac
     export RAILS_ENV=production WEB_CONCURRENCY=$N PORT RAILS_LOG_LEVEL=warn
+    # jemalloc, as Rails recommends for production (its Dockerfile builds Ruby with it)
+    export LD_PRELOAD=/usr/lib64/libjemalloc.so.2
     export SECRET_KEY_BASE=${SECRET_KEY_BASE:-$(python3 -c 'import secrets; print(secrets.token_hex(64))')}
     bundle exec puma -C config/puma.rb -b "tcp://127.0.0.1:$PORT" >"$LOG" 2>&1 &
     ;;
@@ -122,7 +124,11 @@ case "$APP" in
     case "${VARIANT:-platform}" in platform) VT=false;; vthreads) VT=true;; *) echo "serve: spring variant platform or vthreads" >&2; exit 2;; esac
     # the JVM limited to N cores, a fixed heap (otherwise a quarter of the RAM),
     # G1 (the default); sqlite-jdbc's JNI part built against SQLite 3.53.4
-    java -XX:ActiveProcessorCount="$N" -Xms512m -Xmx512m -XX:+UseG1GC \
+    # the JDK 25 AOT cache of the app's start (classes and profiles, written
+    # by setup.sh with the same options), the JVM's precomputed start
+    AOT=build/app-$VT.aot
+    [ -f "$AOT" ] && AOT_OPT="-XX:AOTCache=$AOT" || AOT_OPT=""
+    java -XX:ActiveProcessorCount="$N" -Xms512m -Xmx512m -XX:+UseG1GC $AOT_OPT \
       -Dorg.sqlite.lib.path="$PWD/native" -Dorg.sqlite.lib.name=libsqlitejdbc.so -Dspring.threads.virtual.enabled=$VT \
       -jar "$JAR" --server.port="$PORT" >"$LOG" 2>&1 &
     ;;

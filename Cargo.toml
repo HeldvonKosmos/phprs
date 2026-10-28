@@ -42,3 +42,15 @@ lto = "thin"
 codegen-units = 16
 strip = false
 debug = "line-tables-only"
+
+# BENCH3 (Jonas, 28.10.): the framework binary the benchmark measures, as
+# well optimized as the compiler allows: fat LTO over the whole crate graph,
+# one codegen unit, panic=abort; run_all.sh adds `-C target-cpu=native`
+# through RUSTFLAGS and trains it with PGO (bench/pgo.sh). The instrumented
+# PGO build stays on `profiling` (fat LTO of it did not fit into memory).
+[profile.perf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

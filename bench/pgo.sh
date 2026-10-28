@@ -17,9 +17,13 @@ cd "$(dirname "$0")/.."
 # test project's acceptance test (api.sh), never with BM2 traffic
 BINNAME=${PGO_BIN:-grd}
 PKG=$([ "$BINNAME" = opengrid ] && echo opengrid-framework || echo grd-jit)
-# opengrid with thin LTO (profiling profile, as BM2 uses it): fat LTO of the
-# instrumented framework binary does not fit into the container's memory
+# opengrid: the instrumented build with thin LTO (profiling profile; fat LTO
+# of the instrumented framework binary does not fit into the container's
+# memory), the optimized build with the `perf` profile BM2 measures (fat
+# LTO, one codegen unit; RUSTFLAGS such as -C target-cpu=native from the
+# caller apply to both)
 PROFILE=$([ "$BINNAME" = opengrid ] && echo profiling || echo release)
+FINAL_PROFILE=$([ "$BINNAME" = opengrid ] && echo perf || echo release)
 OUT=${1:-../target-pgo/$BINNAME-pgo}
 TD=${PGO_TARGET_DIR:-$(realpath -m ../target-pgo)}
 DATA=$TD/profiles
@@ -30,13 +34,14 @@ rm -rf "$DATA" && mkdir -p "$DATA"
 # build starts clean; otherwise LTO mixes modules optimized with old profiles
 rm -rf "$TD/$PROFILE"
 echo "== instrumented build"
-CARGO_TARGET_DIR=$TD RUSTFLAGS="-Cprofile-generate=$DATA" taskset -c 0-7 cargo build -q --profile "$PROFILE" -p "$PKG" --bin "$BINNAME"
+CARGO_TARGET_DIR=$TD RUSTFLAGS="${RUSTFLAGS:-} -Cprofile-generate=$DATA" taskset -c 0-7 cargo build -q --profile "$PROFILE" -p "$PKG" --bin "$BINNAME"
 BIN=$TD/$PROFILE/$BINNAME
 
 echo "== training"
 ROUNDS=${PGO_ROUNDS:-10}
 if [ "$BINNAME" = opengrid ]; then
     for _ in $(seq "$ROUNDS"); do
+        # OPENGRID_JIT from the caller (run_all.sh: on) applies to the training too
         API_PGO_TRAINING=1 OPENGRID_BIN="$BIN" examples/test-app/tests/api.sh > /dev/null || { echo "api.sh failed with the instrumented binary"; exit 1; }
     done
 else
@@ -63,7 +68,7 @@ echo "== merge"
 "$PROFDATA" merge -o "$DATA/merged.profdata" "$DATA"
 
 echo "== optimized build"
-rm -rf "$TD/$PROFILE"
-CARGO_TARGET_DIR=$TD RUSTFLAGS="-Cprofile-use=$DATA/merged.profdata" taskset -c 0-7 cargo build -q --profile "$PROFILE" -p "$PKG" --bin "$BINNAME"
-cp "$TD/$PROFILE/$BINNAME" "$OUT"
+rm -rf "$TD/$PROFILE" "$TD/$FINAL_PROFILE"
+CARGO_TARGET_DIR=$TD RUSTFLAGS="${RUSTFLAGS:-} -Cprofile-use=$DATA/merged.profdata" taskset -c 0-7 cargo build -q --profile "$FINAL_PROFILE" -p "$PKG" --bin "$BINNAME"
+cp "$TD/$FINAL_PROFILE/$BINNAME" "$OUT"
 echo "PGO binary: $OUT"

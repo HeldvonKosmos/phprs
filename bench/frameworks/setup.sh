@@ -29,7 +29,8 @@ adonis() {
 goravel() {
   # mattn/go-sqlite3 linked against the benchmark's SQLite (-tags libsqlite3)
   cd "$BENCH/goravel-app"
-  CGO_ENABLED=1 CGO_CFLAGS="-I$SQLITE/include" CGO_LDFLAGS="-L$SQLITE/lib -Wl,-rpath,$SQLITE/lib" GOTOOLCHAIN=local \
+  # GOAMD64=v3: the x86-64-v3 instruction set (AVX2 etc.), like target-cpu=native for OpenGrid
+  CGO_ENABLED=1 GOAMD64=v3 CGO_CFLAGS="-I$SQLITE/include" CGO_LDFLAGS="-L$SQLITE/lib -Wl,-rpath,$SQLITE/lib" GOTOOLCHAIN=local \
     b "$OPT/go-1.27.2/bin/go" build -trimpath -tags libsqlite3 -o build/server .
 }
 rails() {
@@ -51,10 +52,22 @@ spring() {
   cd "$BENCH/spring-app"
   bash scripts/build_sqlite_jni.sh
   b ./gradlew -q --no-daemon bootJar
+  # the JDK 25 AOT cache (JEP 514/515) of the app's start for both thread
+  # variants: one training run that boots the app on a seeded database and
+  # exits, with the options serve.sh starts it with
+  local jar; jar=$(ls build/libs/*.jar | grep -v plain | head -1)
+  local db; db=$(mktemp -d)/bench.sqlite
+  python3 "$BENCH/framework/sqlite/seed.py" "$db" 4 >/dev/null
+  for vt in false true; do
+    BENCH_SQLITE_DATABASE=$db b "$JAVA_HOME/bin/java" -XX:ActiveProcessorCount=4 -Xms512m -Xmx512m -XX:+UseG1GC -XX:AOTCacheOutput="build/app-$vt.aot" \
+      -Dorg.sqlite.lib.path="$PWD/native" -Dorg.sqlite.lib.name=libsqlitejdbc.so -Dspring.threads.virtual.enabled=$vt -Dspring.context.exit=onRefresh \
+      -jar "$jar" --server.port=0 >/dev/null 2>&1
+  done
+  rm -rf "$(dirname "$db")"
 }
 dotnet() {
   cd "$BENCH/dotnet-app"
-  b "$DOTNET_ROOT/dotnet" publish -c Release -o out --nologo --locked-mode
+  b "$DOTNET_ROOT/dotnet" publish -c Release -o out --nologo -p:RestoreLockedMode=true
 }
 phoenix() {
   cd "$BENCH/phoenix-app"

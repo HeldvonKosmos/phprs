@@ -20,15 +20,16 @@ import json, math, sys
 
 # framework: (label, [(target, variant label, serve.sh app, serve.sh variant)])
 FRAMEWORKS = {
-    "opengrid": ("OpenGrid", [("opengrid-embedded-pgo-core", "PGO", None, None), ("opengrid-embedded-core", "without PGO", None, None)]),
+    "opengrid": ("OpenGrid", [("opengrid-embedded-pgo-core", "PGO, JIT", None, None), ("opengrid-embedded-core", "without PGO, JIT", None, None)]),
     # Laravel on Octane with FrankenPHP only (Jonas, 28.10.: no PHP-FPM, no RoadRunner)
-    "laravel": ("Laravel", [("laravel-frankenphp-core", "Octane, FrankenPHP", None, None)]),
+    "laravel": ("Laravel", [("laravel-frankenphp-core", "Octane, FrankenPHP, opcache, JIT", None, None)]),
     "adonis": ("AdonisJS", [("adonis-core", "Bun, node:cluster", "adonis", "")]),
     "goravel": ("Goravel", [("goravel-core", "Go, Gin", "goravel", "")]),
-    "rails": ("Rails", [("rails-threads3-core", "Puma, 3 threads", "rails", "threads3"), ("rails-threads1-core", "Puma, 1 thread", "rails", "threads1")]),
-    "fastapi": ("FastAPI", [("fastapi-uvicorn-core", "Uvicorn, uvloop, httptools", "fastapi", "uvicorn")]),
-    "spring": ("Spring Boot", [("spring-platform-core", "platform threads", "spring", "platform"), ("spring-vthreads-core", "virtual threads", "spring", "vthreads")]),
-    "dotnet": ("ASP.NET Core", [("dotnet-core", "Kestrel", "dotnet", "")]),
+    # only the default server variants since 28.10. (compact run, Jonas); serve.sh keeps the others
+    "rails": ("Rails", [("rails-threads3-core", "Puma, 3 threads, YJIT, jemalloc", "rails", "threads3")]),
+    "fastapi": ("FastAPI", [("fastapi-uvicorn-core", "Uvicorn, uvloop, httptools, orjson", "fastapi", "uvicorn")]),
+    "spring": ("Spring Boot", [("spring-platform-core", "platform threads, AOT cache", "spring", "platform")]),
+    "dotnet": ("ASP.NET Core", [("dotnet-core", "Kestrel, ReadyToRun", "dotnet", "")]),
     "phoenix": ("Phoenix", [("phoenix-core", "Bandit, release", "phoenix", "")]),
 }
 # Spring Boot on the JVM: the upper reference for a mature JIT (Jonas, BENCH3)

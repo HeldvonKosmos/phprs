@@ -51,6 +51,8 @@ fi
 # the application: own files only, the skeleton's migrations and welcome page go
 rm -f database/migrations/*.php resources/views/welcome.blade.php
 cp -r "$HERE/overlay/." .
+# BENCH3: the classmap is complete and final (no autoload lookups at run time)
+composer dump-autoload --no-interaction --classmap-authoritative --quiet
 [ -f config/octane.php ] || php artisan vendor:publish --tag=octane-config --no-interaction >/dev/null
 [ -f .rr.yaml ] || cp vendor/laravel/octane/src/Commands/stubs/rr.yaml .rr.yaml 2>/dev/null || true
 

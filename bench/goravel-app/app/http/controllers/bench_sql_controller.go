@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"runtime"
+	"runtime/debug"
 
 	"github.com/goravel/framework/contracts/http"
 	"github.com/goravel/framework/support"
@@ -12,6 +13,18 @@ import (
 	"goravel/app/bench"
 	"goravel/app/facades"
 )
+
+// buildSetting reads a build setting (e.g. GOAMD64) from the binary's build info.
+func buildSetting(key string) string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == key {
+				return s.Value
+			}
+		}
+	}
+	return ""
+}
 
 // BenchSqlController is the framework-core benchmark with raw SQL on
 // SQLite (BENCH3). The Laravel app and OpenGrid have the same controller
@@ -38,7 +51,7 @@ func (r *BenchSqlController) Sqlite(ctx http.Context) http.Response {
 	}
 	v, _ := bench.Rows("select sqlite_version() AS v")
 	return ctx.Response().Json(http.StatusOK, bench.Obj{{K: "version", V: v[0]["v"]}, {K: "compile_options", V: options},
-		{K: "runtime", V: bench.Obj{{K: "go", V: runtime.Version()}, {K: "goravel", V: support.Version}, {K: "gomaxprocs", V: runtime.GOMAXPROCS(0)}, {K: "driver", V: "mattn/go-sqlite3 " + bench.SQLiteVersion()}, {K: "gogc", V: os.Getenv("GOGC")}}}})
+		{K: "runtime", V: bench.Obj{{K: "go", V: runtime.Version()}, {K: "goravel", V: support.Version}, {K: "gomaxprocs", V: runtime.GOMAXPROCS(0)}, {K: "driver", V: "mattn/go-sqlite3 " + bench.SQLiteVersion()}, {K: "gogc", V: os.Getenv("GOGC")}, {K: "goamd64", V: buildSetting("GOAMD64")}}}})
 }
 
 func (r *BenchSqlController) Login(ctx http.Context) http.Response {

@@ -36,6 +36,39 @@ case "${SERVE_CACHES:-build}" in
   *) echo "serve: SERVE_CACHES must be build, keep or none" >&2; exit 2;;
 esac
 
+# BENCH3 (Jonas, 28.10.): PHP in FrankenPHP with its best production
+# settings, through the `php_ini` directives of a Caddyfile made from
+# Octane's stub (PHP_INI_SCAN_DIR would also reach artisan's system PHP and
+# take its extension inis away): opcache with the whole classmap preloaded
+# (preload.php), no timestamp checks, a file cache for the start, the
+# tracing JIT. SERVE_PHP_DEV=1 (hot reload measurement): timestamp checks
+# on and no preload, so a changed file is seen after octane:reload.
+# opcache.preload (SERVE_PHP_PRELOAD=1) is off by default: with PHP 8.5.11
+# ZTS in FrankenPHP's worker mode it crashed the server at start
+# ("zend_mm_heap corrupted", 28.10.); Octane keeps the booted app in every
+# worker anyway, so every class is compiled once per worker and then reused.
+mkdir -p "$W/opcache"
+{
+  echo "php_ini opcache.enable 1"
+  echo "php_ini opcache.memory_consumption 256"
+  echo "php_ini opcache.interned_strings_buffer 32"
+  echo "php_ini opcache.max_accelerated_files 30000"
+  echo "php_ini opcache.jit tracing"
+  echo "php_ini opcache.jit_buffer_size 128M"
+  echo "php_ini realpath_cache_size 4096K"
+  echo "php_ini realpath_cache_ttl 600"
+  if [ "${SERVE_PHP_DEV:-0}" = 1 ]; then
+    echo "php_ini opcache.validate_timestamps 1"
+    echo "php_ini opcache.revalidate_freq 0"
+  else
+    echo "php_ini opcache.validate_timestamps 0"
+    [ "${SERVE_PHP_PRELOAD:-0}" = 1 ] && echo "php_ini opcache.preload $APP/preload.php"
+    [ "${SERVE_PHP_FILE_CACHE:-1}" = 1 ] && echo "php_ini opcache.file_cache $W/opcache"
+  fi
+} > "$W/php_ini.caddy"
+# the stub with the php_ini lines inside its `frankenphp { }` block
+awk -v ini="$W/php_ini.caddy" '{ print } /^\tfrankenphp \{/ { while ((getline l < ini) > 0) print "\t\t" l }' vendor/laravel/octane/src/Commands/stubs/Caddyfile > "$W/Caddyfile"
+
 pids=()
 stop() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null; exit 0; }
 trap stop TERM INT
@@ -91,7 +124,7 @@ CONF
     ;;
   frankenphp)
     # Octane on FrankenPHP in worker mode, the same workers and no recycling
-    php artisan octane:start --server=frankenphp --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --admin-port="${SIDE_PORT:-$((PORT + 1))}" \
+    php artisan octane:start --server=frankenphp --host=127.0.0.1 --port="$PORT" --workers="$N" --max-requests=1000000 --admin-port="${SIDE_PORT:-$((PORT + 1))}" --caddyfile="$W/Caddyfile" \
       >"$W/octane.log" 2>&1 & pids+=($!)
     ;;
   *) echo "serve: unknown mode $MODE" >&2; exit 2;;

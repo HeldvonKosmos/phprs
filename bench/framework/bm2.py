@@ -197,10 +197,12 @@ class Target:
         self.base = f"http://127.0.0.1:{self.port}"
         self.procs = []
         self.env = dict(os.environ)
+        # the JIT in OpenGrid's workers: --opengrid-jit or OPENGRID_JIT=on in
+        # the environment (run_all.sh; Jonas 28.10.: on for the benchmark)
+        jit = getattr(a, "opengrid_jit", False) or os.environ.get("OPENGRID_JIT") in ("on", "1")
         for k in ("OPENGRID_DB_URL", "SURREAL_DB_HOST", "GRD_JIT", "OPENGRID_JIT"):
             self.env.pop(k, None)
-        # PERF4 d: the JIT in OpenGrid's workers, measured once (D9: off by default)
-        if getattr(a, "opengrid_jit", False) and name.startswith("opengrid"):
+        if jit and name.startswith("opengrid"):
             self.env["OPENGRID_JIT"] = "on"
         # D23 (DBR1): the framework core with the same raw SQL on SQLite; the
         # SurrealDB targets and Laravel's standard setups are gone (D25)
@@ -314,12 +316,13 @@ def main():
     ap.add_argument("--app-cores", default=APP_CORES)
     ap.add_argument("--db-cores", default=DB_CORES)
     ap.add_argument("--load-cores", default=LOAD_CORES)
-    ap.add_argument("--opengrid", default=os.path.join(WS, "target/profiling/opengrid"))
+    ap.add_argument("--opengrid", default=os.path.join(WS, "target/perf/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
     ap.add_argument("--opengrid-jit", action="store_true", help="OPENGRID_JIT=on for the OpenGrid targets (PERF4 d; default off, D9)")
     ap.add_argument("--label", default="", help="heading of the result")
     a = ap.parse_args()
+    a.opengrid_jit = a.opengrid_jit or os.environ.get("OPENGRID_JIT") in ("on", "1")
     a.opengrid = os.path.abspath(a.opengrid)
     a.opengrid_pgo = os.path.abspath(a.opengrid_pgo)
     sh = lambda c, cwd=None: subprocess.run(c, capture_output=True, text=True, cwd=cwd).stdout.strip()
@@ -349,7 +352,7 @@ def main():
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
     gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
     print(f"Governor {gov} · ", end="")
-    print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on, PERF4 d)' if a.opengrid_jit else 'aus (Standard, D9)'} · ", end="")
+    print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on; Jonas 28.10.)' if a.opengrid_jit else 'aus (D9)'} · ", end="")
     # which PHP runs which target (FrankenPHP brings its own, newer PHP)
     fp_php = re.search(r"\bPHP (\d\S*)", sh([fp_bin, "version"])).group(1) if os.path.exists(fp_bin) else "–"
     print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {fp_php} in FrankenPHP (selbst gebaut, ZTS), PHP {sh(['php', '-r', 'echo PHP_VERSION;'])} für artisan"

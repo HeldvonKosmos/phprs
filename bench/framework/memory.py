@@ -83,7 +83,7 @@ def main():
     ap.add_argument("--requests", type=int, default=10000)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--notes", type=int, default=200)
-    ap.add_argument("--opengrid", default=os.path.join(bm2.WS, "target/profiling/opengrid"))
+    ap.add_argument("--opengrid", default=os.path.join(bm2.WS, "target/perf/opengrid"))
     ap.add_argument("--opengrid-pgo", default=os.path.join(bm2.WS, "target-pgo/opengrid-pgo"))
     ap.add_argument("--json", help="write the raw results here")
     a = ap.parse_args()

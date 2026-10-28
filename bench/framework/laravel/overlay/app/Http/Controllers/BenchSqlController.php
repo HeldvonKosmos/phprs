@@ -27,7 +27,7 @@ class BenchSqlController
     {
         $db = DB::connection('bench_sqlite');
         $options = array_map(fn ($row) => $row->compile_options, $db->select('PRAGMA compile_options'));
-        return response()->json(['version' => $db->select('SELECT sqlite_version() AS v')[0]->v, 'compile_options' => $options, 'runtime' => ['php' => PHP_VERSION, 'sapi' => PHP_SAPI, 'laravel' => app()->version()]]);
+        return response()->json(['version' => $db->select('SELECT sqlite_version() AS v')[0]->v, 'compile_options' => $options, 'runtime' => ['php' => PHP_VERSION, 'sapi' => PHP_SAPI, 'laravel' => app()->version(), 'opcache_jit' => ini_get('opcache.jit'), 'opcache_validate_timestamps' => ini_get('opcache.validate_timestamps'), 'opcache_preload' => ini_get('opcache.preload') !== '' && ini_get('opcache.preload') !== false]]);
     }
 
     public function login(): JsonResponse

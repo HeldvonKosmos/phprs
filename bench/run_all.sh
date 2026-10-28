@@ -178,18 +178,24 @@ stage() {
 # --smoke: short durations for every tool (BENCH2), the same targets and endpoints
 if [ "$SMOKE" = 1 ]; then
   LANG_ARGS=(--runs 1); BM2_ARGS=(--duration 1); LOAD_ARGS=(--duration 1 --spike-total 4 --spike-at 1 --spike-len 2)
-  MEM_ARGS=(--duration 2 --requests 1000); COLD_ARGS=(--runs 1 --warm 20); WARM_ARGS=(--window 1 --steps 1 --endpoints list); HOT_ARGS=(--runs 1); CURVE_ARGS=(--duration 5 --steady 2)
+  MEM_ARGS=(--duration 2 --requests 1000); COLD_ARGS=(--runs 1 --warm 20); WARM_ARGS=(--window 1 --steps 1); HOT_ARGS=(--runs 1); CURVE_ARGS=(--duration 5 --steady 2)
 else
-  LANG_ARGS=(--runs 7); BM2_ARGS=(); LOAD_ARGS=(); MEM_ARGS=(); COLD_ARGS=(); WARM_ARGS=(); HOT_ARGS=(); CURVE_ARGS=()
+  LANG_ARGS=(--runs 7); BM2_ARGS=(); LOAD_ARGS=(); MEM_ARGS=(); COLD_ARGS=(); WARM_ARGS=(); HOT_ARGS=(); CURVE_ARGS=(--duration 30)
 fi
 
+# OpenGrid with its best optimizations (Jonas, 28.10.): the `perf` profile
+# (fat LTO, one codegen unit, panic=abort) with the machine's instruction set,
+# PGO on top (bench/pgo.sh builds the final binary the same way), and the JIT
+# in the workers (OPENGRID_JIT=on for every tool and the PGO training)
+export OPENGRID_JIT=on
+export RUSTFLAGS="-C target-cpu=native"
 # binaries from HEAD (never in parallel: PGO builds need the memory)
 if [ "$SKIP_BUILD" = 0 ] && [ "$FRAMEWORK_ONLY" = 1 ]; then
-  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --bin opengrid
+  taskset -c 0-7 cargo build -q --profile perf -p opengrid-framework --bin opengrid
   PGO_BIN=opengrid bash bench/pgo.sh > "$OUT/pgo-opengrid.log" 2>&1
 elif [ "$SKIP_BUILD" = 0 ]; then
   taskset -c 0-7 cargo build -q --profile profiling -p grd-jit --bin grd
-  taskset -c 0-7 cargo build -q --profile profiling -p opengrid-framework --bin opengrid
+  taskset -c 0-7 cargo build -q --profile perf -p opengrid-framework --bin opengrid
   bash bench/pgo.sh > "$OUT/pgo-grd.log" 2>&1
   PGO_BIN=opengrid bash bench/pgo.sh > "$OUT/pgo-opengrid.log" 2>&1
 fi
@@ -201,7 +207,7 @@ gate_fw() {
   local fw=$1 bad=0 line v
   case $fw in
     opengrid)
-      for bin in "$WS/target/profiling/opengrid" "$WS/target-pgo/opengrid-pgo"; do
+      for bin in "$WS/target/perf/opengrid" "$WS/target-pgo/opengrid-pgo"; do
         line=$(OPENGRID_BIN=$bin examples/test-app/tests/api.sh 2>&1 | tail -1)
         echo "$bin: $line"; case "$line" in *"steps passed"*) ;; *) bad=1;; esac
       done;;
@@ -254,7 +260,8 @@ measure_run() {
     echo "runtimes: bun $("${BUN_BIN:-$OPT/bun-1.4.3/bun}" --version) (${BUN_BIN:-$OPT/bun-1.4.3/bun}), ruby $("$OPT/ruby-4.0.9/bin/ruby" -e 'print RUBY_VERSION, (RubyVM::YJIT.respond_to?(:enable) ? " (YJIT built in)" : "")'), python $("$OPT/python-3.15.2/bin/python3" -c 'import platform; print(platform.python_version())'), java $("$OPT/jdk-25.0.5+8/bin/java" -version 2>&1 | head -1 | cut -d'"' -f2), dotnet $("$OPT/dotnet-10.0.403/dotnet" --version), otp $(cat "$OPT"/otp-29.1.2/lib/erlang/releases/*/OTP_VERSION 2>/dev/null | head -1), elixir $("$OPT/elixir-1.20.4/bin/elixir" --short-version 2>/dev/null) (per target with server, threads, JVM options: bm2.md, Laufzeiten je Ziel)"
     echo "durability sqlite: journal_mode=WAL synchronous=FULL busy_timeout=5000 (all sides, D24, BENCH3)"
     echo "surrealdb: not measured (D25); the OpenGrid targets open their embedded one at start (job poller), no queries per request"
-    ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo 2>/dev/null || true
+    echo "opengrid: profile perf (fat LTO, codegen-units 1, panic=abort), RUSTFLAGS $RUSTFLAGS, PGO (bench/pgo.sh), OPENGRID_JIT=$OPENGRID_JIT"
+    ls -la ../target/profiling/grd ../target/perf/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo 2>/dev/null || true
   } > "$RUN/env.txt"
 
   # BENCH1: quiet check for the whole measurement (foreign processes, idle cores)
@@ -269,7 +276,7 @@ measure_run() {
   [ -z "$specs" ] || done_stage sqlite || stage sqlite python3 bench/frameworks/check_sqlite.py $specs > "$RUN/sqlite.txt" 2>&1 || { cat "$RUN/sqlite.txt"; fail "a side is not on the reference SQLite (see $RUN/sqlite.txt)"; }
   # BENCH3: the warm-up every side gets, checked once per series (3 × 10 s within 3 %)
   if [ ! -s "$OUT/warmup.txt" ]; then
-    done_stage warmcheck || stage warmcheck python3 bench/framework/warmcheck.py "${WARM_ARGS[@]}" --targets "$(for fw in $FRAMEWORKS; do python3 bench/framework/targets.py of "$fw"; done | paste -sd,)" \
+    done_stage warmcheck || stage warmcheck python3 bench/framework/warmcheck.py "${WARM_ARGS[@]}" --endpoints list --targets "$(for fw in $FRAMEWORKS; do python3 bench/framework/targets.py of "$fw"; done | paste -sd,)" \
       --out "$OUT/warmup.txt" --json "$OUT/warmcheck.json" > "$OUT/warmcheck.md" 2> "$OUT/warmcheck.err"
   fi
   local warm; warm=$(cat "$OUT/warmup.txt")
@@ -281,22 +288,23 @@ measure_run() {
   python3 bench/framework/merge_parts.py "$RUN" bm2
   # THESIS1: logic per request (n = 1…1000) on the framework core, with n = 0
   # as the base cost
-  THESIS_EP=$(python3 -c "print(','.join(['hydrate:0','collect:0','json:0'] + [f'{w}:{n}' for w in ('hydrate','collect','validate','json') for n in (1,10,100,1000)]))")
+  # compact (Jonas, 28.10.): n = 0/10/100/1000 at 16 connections (G and k from four points)
+  THESIS_EP=$(python3 -c "print(','.join(['hydrate:0','collect:0','json:0'] + [f'{w}:{n}' for w in ('hydrate','collect','validate','json') for n in (10,100,1000)]))")
   for fw in $FRAMEWORKS; do
     done_stage "thesis:$fw" || stage "thesis:$fw" python3 bench/framework/bm2.py "${BM2_ARGS[@]}" --warmup "$warm" --label "Stand $COMMIT: Logik je Anfrage (THESIS1), $fw" \
-      --targets "$(targets_of "$fw" thesis)" --endpoints "$THESIS_EP" --conc 1,16 --notes 1000 \
+      --targets "$(targets_of "$fw" thesis)" --endpoints "$THESIS_EP" --conc 16 --notes 1000 \
       --json "$RUN/parts/thesis-$fw.json" > "$RUN/parts/thesis-$fw.md" 2> "$RUN/parts/thesis-$fw.err"
   done
   python3 bench/framework/merge_parts.py "$RUN" thesis
   # BENCH1: many connections and open-loop load, memory (PSS), cold start;
   # hot reload in each framework's development mode (BENCH3)
   for fw in $FRAMEWORKS; do
-    done_stage "load:$fw" || stage "load:$fw" python3 bench/framework/load.py "${LOAD_ARGS[@]}" --warmup "$warm" --targets "$(targets_of "$fw" load)" --json "$RUN/parts/load-$fw.json" > "$RUN/parts/load-$fw.md" 2> "$RUN/parts/load-$fw.err"
+    done_stage "load:$fw" || stage "load:$fw" python3 bench/framework/load.py "${LOAD_ARGS[@]}" --warmup "$warm" --endpoints show --targets "$(targets_of "$fw" load)" --json "$RUN/parts/load-$fw.json" > "$RUN/parts/load-$fw.md" 2> "$RUN/parts/load-$fw.err"
   done
   # warm-up curve (Jonas, 28.10.): how each runtime gets faster after a cold
   # start, a fresh server under constant load without warm-up
   for fw in $FRAMEWORKS; do
-    done_stage "curve:$fw" || stage "curve:$fw" python3 bench/framework/warmcurve.py "${CURVE_ARGS[@]}" --targets "$(targets_of "$fw" load)" --json "$RUN/parts/warmcurve-$fw.json" > "$RUN/parts/warmcurve-$fw.md" 2> "$RUN/parts/warmcurve-$fw.err"
+    done_stage "curve:$fw" || stage "curve:$fw" python3 bench/framework/warmcurve.py "${CURVE_ARGS[@]}" --endpoints hydrate:100 --targets "$(targets_of "$fw" load)" --json "$RUN/parts/warmcurve-$fw.json" > "$RUN/parts/warmcurve-$fw.md" 2> "$RUN/parts/warmcurve-$fw.err"
   done
   for fw in $FRAMEWORKS; do
     done_stage "memory:$fw" || stage "memory:$fw" python3 bench/framework/memory.py "${MEM_ARGS[@]}" --targets "$(targets_of "$fw" memory)" --json "$RUN/parts/memory-$fw.json" > "$RUN/parts/memory-$fw.md" 2> "$RUN/parts/memory-$fw.err"

@@ -23,7 +23,7 @@ SETUP_S = 15  # start, schema, seed per target (earlier runs: 10-20 s)
 # per framework: start of one target in s (gates, sqlite check, cold start) and hot reload stage in s
 START_S = {"opengrid": 3, "laravel": 5, "adonis": 3, "goravel": 2, "rails": 4, "fastapi": 3, "spring": 6, "dotnet": 3, "phoenix": 4}
 HOT_S = {"adonis": 15, "goravel": 30, "rails": 15, "fastapi": 15, "spring": 120, "dotnet": 90, "phoenix": 60}
-THESIS_ENDPOINTS = 3 + 4 * 4
+THESIS_ENDPOINTS = 3 + 4 * 3  # n = 0 (3 bases) and 10/100/1000 per workload (compact, 28.10.)
 
 
 def stages(a, warm):
@@ -38,15 +38,15 @@ def stages(a, warm):
     apps = [f for f in fws if f not in ("opengrid", "laravel")]
     rows.append(("sqlite", f"SQLite 3.53.4 + Compile-Optionen: {sum(len(targets.FRAMEWORKS[f][1]) for f in apps)} App-Varianten (Abbruch bei Abweichung)", sum(len(targets.FRAMEWORKS[f][1]) * (START_S[f] + 4) for f in apps)))
     n = n_bm2 * len(bm2.ENDPOINTS) * 3
-    rows.append(("bm2", f"(a) BM2: {n_bm2} Ziele × {len(bm2.ENDPOINTS)} Endpunkte × 1/16/64 Verbindungen = {n} Punkte", n * point + n_bm2 * SETUP_S))
+    rows.append(("bm2", f"(a) BM2: {n_bm2} Ziele (Standardvarianten) × {len(bm2.ENDPOINTS)} Endpunkte × 1/16/64 Verbindungen = {n} Punkte", n * point + n_bm2 * SETUP_S))
     t = per("thesis")
-    n = t * THESIS_ENDPOINTS * 2
-    rows.append(("thesis", f"THESIS1: {t} Ziele (schnellste Variante je Framework) × {THESIS_ENDPOINTS} Logik-Endpunkte × 1/16 = {n} Punkte", n * point + t * 20))
-    lt, le = per("load"), 2
+    n = t * THESIS_ENDPOINTS
+    rows.append(("thesis", f"THESIS1: {t} Ziele × {THESIS_ENDPOINTS} Logik-Endpunkte (n = 0/10/100/1000) × 16 Verbindungen = {n} Punkte", n * point + t * 20))
+    lt, le = per("load"), 1
     one = 3 * point + 4 * point + (6 if a.smoke else 19)
-    rows.append(("load", f"(g/h) Gleichzeitigkeit/offene Last: {lt} Ziele × {le} Endpunkte × (3 geschlossen + 4 Stufen + Spitze)", lt * le * one + lt * SETUP_S))
+    rows.append(("load", f"(g/h) Gleichzeitigkeit/offene Last: {lt} Ziele × `show` × (3 geschlossen + 4 Stufen + Spitze)", lt * le * one + lt * SETUP_S))
     cv = per("load")
-    rows.append(("curve", f"Aufwärmkurve: {cv} Ziele × 2 Endpunkte, frischer Server, 60 s Last ohne Aufwärmen, Anfragen je Sekunde", cv * 2 * (SETUP_S + (5 if a.smoke else 60) + 2)))
+    rows.append(("curve", f"Aufwärmkurve: {cv} Ziele × hydrate:100, frischer Server, 30 s Last ohne Aufwärmen, Anfragen je Sekunde", cv * (SETUP_S + (5 if a.smoke else 30) + 2)))
     m = per("memory")
     rows.append(("memory", f"Speicher PSS: {m} Ziele (Ruhe, Last, nach 10 000 Anfragen; Spring mit festem Heap)", m * (SETUP_S + (8 if a.smoke else 25))))
     runs = 1 if a.smoke else 5
@@ -78,7 +78,7 @@ def main():
         warm, source = int(open(os.path.join(a.resume, "warmup.txt")).read().strip()), "aus warmcheck"
     build = 20 * 60 if a.framework_only else 35 * 60
     n_targets = sum(len(targets.FRAMEWORKS[f][1]) for f in a.frameworks)
-    warmcheck = n_targets * 2 * (SETUP_S + 3 + 30) + (0 if a.smoke else 6 * 2 * (SETUP_S + 10 + 30))  # 2 endpoints; ~6 targets need a longer step
+    warmcheck = n_targets * (SETUP_S + 3 + 30) + (0 if a.smoke else 5 * (SETUP_S + 10 + 30))  # one endpoint (list); ~5 targets need a longer step
 
     def total(w):
         rows = stages(a, w)
@@ -89,10 +89,10 @@ def main():
           f"(Schätzung; Build und Aufwärmprüfung einmal, jede Stufe je Lauf; Aufwärmen {warm} s je Punkt, {source})\n")
     print("| Stufe | Inhalt | geschätzt je Lauf |")
     print("|---|---|---:|")
-    what = "profiling opengrid, PGO opengrid" if a.framework_only else "profiling grd/opengrid, PGO grd und opengrid"
+    what = "perf opengrid (fat LTO, target-cpu=native), PGO opengrid" if a.framework_only else "profiling grd, perf opengrid, PGO grd und opengrid"
     print(f"| build | Binaries aus HEAD: {what} (bench/pgo.sh); einmal | {build / 60:.0f} min |")
     if not a.smoke:
-        print(f"| warmcheck | Aufwärmprüfung: {n_targets} Ziele × 2 Endpunkte, 3 × 10 s ≤ 3 %, längere Stufe wo nötig; einmal | {warmcheck / 60:.0f} min |")
+        print(f"| warmcheck | Aufwärmprüfung: {n_targets} Ziele × `list`, 3 × 10 s ≤ 3 %, längere Stufe wo nötig; einmal | {warmcheck / 60:.0f} min |")
     for name, what, sec in rows:
         print(f"| {name} | {what} | {sec / 60:.0f} min |")
     print(f"| **gesamt** | {a.runs} Läufe | **{total(warm) / 3600:.1f} h** |")
