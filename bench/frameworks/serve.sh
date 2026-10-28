@@ -40,6 +40,18 @@ case "$APP" in
       *) echo "serve: fastapi variant uvicorn or granian" >&2; exit 2;;
     esac
     ;;
+  django)
+    cd "$BENCH/django-app"
+    [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh django)" >&2; exit 2; }
+    export DJANGO_SETTINGS_MODULE=benchsite.settings DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')}
+    case "${VARIANT:-gunicorn}" in
+      # the standard server: Gunicorn with sync workers
+      gunicorn) .venv/bin/gunicorn benchsite.wsgi -w "$N" -b "127.0.0.1:$PORT" --log-level warning >"$LOG" 2>&1 & ;;
+      # marked variant: Granian (Rust), WSGI, the same number of workers
+      granian) .venv/bin/granian --interface wsgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning benchsite.wsgi:application >"$LOG" 2>&1 & ;;
+      *) echo "serve: django variant gunicorn or granian" >&2; exit 2;;
+    esac
+    ;;
   *) echo "serve: unknown or not yet available app $APP" >&2; exit 2;;
 esac
 pid=$!

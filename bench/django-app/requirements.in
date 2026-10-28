@@ -1,0 +1,7 @@
+# BENCH3: Django comparison app; pinned with hashes in requirements.txt
+# (uv pip compile --generate-hashes requirements.in -o requirements.txt)
+django==6.1.2
+djangorestframework==3.18.3
+gunicorn==26.2.0
+granian==2.8.5
+bcrypt==5.0.0
