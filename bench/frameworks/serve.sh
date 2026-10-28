@@ -80,6 +80,16 @@ case "$APP" in
     export DOTNET_ROOT=$OPT/dotnet-10.0.403 DOTNET_PROCESSOR_COUNT=$N DOTNET_NOLOGO=1 ASPNETCORE_URLS="http://127.0.0.1:$PORT" ASPNETCORE_ENVIRONMENT=Production
     "$DOTNET_ROOT/dotnet" out/DotnetApp.dll >"$LOG" 2>&1 &
     ;;
+  phoenix)
+    cd "$BENCH/phoenix-app"
+    REL=_build/prod/rel/phoenix_app/bin/phoenix_app
+    [ -x "$REL" ] || { echo "serve: build the release first (bench/frameworks/setup.sh phoenix)" >&2; exit 2; }
+    # the release (MIX_ENV=prod mix release) on Bandit, the BEAM with N
+    # schedulers; no code reloader in a release
+    export PHX_SERVER=true PORT RELEASE_TMP=$W/release-tmp ELIXIR_ERL_OPTIONS="+S $N:$N"
+    export SECRET_KEY_BASE=${SECRET_KEY_BASE:-$(python3 -c 'import secrets; print(secrets.token_hex(64))')}
+    "$REL" start >"$LOG" 2>&1 &
+    ;;
   fastapi)
     cd "$BENCH/fastapi-app"
     [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh fastapi)" >&2; exit 2; }
