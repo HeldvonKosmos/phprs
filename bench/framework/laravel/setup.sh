@@ -25,14 +25,15 @@ cd "$APP"
 composer require --no-interaction -W "laravel/framework:$LARAVEL_FRAMEWORK" laravel/sanctum:^4.3 laravel/octane:^2.22 \
   spiral/roadrunner-cli:^3.0 spiral/roadrunner-http:^4.2
 [ -x ./rr ] || vendor/bin/rr get-binary --no-interaction --location .
-# Octane on FrankenPHP (DECISIONS 27.10.): the official glibc build, pinned
-# with its checksum; it brings its own PHP (8.5) and SQLite (3.45.2)
-FRANKENPHP=v1.13.4
-FRANKENPHP_SHA=778f5e023f6a98ab1570a067c831813d978bfbb1d20b2c084c99a3047ffba023
-if [ ! -x ./frankenphp ] || ! ./frankenphp version | grep -q "FrankenPHP $FRANKENPHP "; then
-  curl -sSfL -A "OpenGrid-research (+https://github.com/HeldvonKosmos/phprs)" -o frankenphp.tmp "https://github.com/php/frankenphp/releases/download/$FRANKENPHP/frankenphp-linux-x86_64-gnu"
-  echo "$FRANKENPHP_SHA  frankenphp.tmp" | sha256sum -c - >/dev/null && chmod +x frankenphp.tmp && mv frankenphp.tmp frankenphp
-fi
+# Octane on FrankenPHP (DECISIONS 27.10.; BENCH3, Jonas 28.10.): FrankenPHP
+# built from its sources by bench/frameworks/install_runtimes.sh frankenphp
+# (the release binaries have SQLite 3.45.2 built in statically; the
+# benchmark runs Bun's SQLite 3.53.4 on every side): PHP 8.5 ZTS with the
+# embed SAPI and pdo_sqlite linked against ~/.local/opt/sqlite-3.53.4.
+# Laravel is not embedded; Octane starts it in the app directory as before.
+FRANKENPHP_BIN=${FRANKENPHP_BIN:-$HOME/.local/opt/frankenphp-1.13.0/frankenphp}
+[ -x "$FRANKENPHP_BIN" ] || bash "$(dirname "$0")/../../frameworks/install_runtimes.sh" frankenphp
+ln -sfn "$FRANKENPHP_BIN" ./frankenphp
 # Octane 2.x compares the RoadRunner version with 2023.3.0, but RoadRunner now
 # counts 3.x: Octane would call it too old and download it again on every
 # start (and an interrupted start leaves only rr.backup). A wrapper shows

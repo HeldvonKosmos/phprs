@@ -21,13 +21,12 @@ import json, math, sys
 # framework: (label, [(target, variant label, serve.sh app, serve.sh variant)])
 FRAMEWORKS = {
     "opengrid": ("OpenGrid", [("opengrid-embedded-pgo-core", "PGO", None, None), ("opengrid-embedded-core", "without PGO", None, None)]),
-    "laravel": ("Laravel", [("laravel-frankenphp-core", "Octane, FrankenPHP", None, None), ("laravel-octane-core", "Octane, RoadRunner", None, None), ("laravel-fpm-core", "PHP-FPM", None, None)]),
-    "adonis": ("AdonisJS", [("adonis-core", "Node cluster", "adonis", "")]),
-    "nest": ("NestJS", [("nest-express-core", "Express", "nest", "express"), ("nest-fastify-core", "Fastify", "nest", "fastify")]),
-    "next": ("Next.js", [("next-core", "next start, cluster", "next", "")]),
+    # Laravel on Octane with FrankenPHP only (Jonas, 28.10.: no PHP-FPM, no RoadRunner)
+    "laravel": ("Laravel", [("laravel-frankenphp-core", "Octane, FrankenPHP", None, None)]),
+    "adonis": ("AdonisJS", [("adonis-core", "Bun, node:cluster", "adonis", "")]),
+    "goravel": ("Goravel", [("goravel-core", "Go, Gin", "goravel", "")]),
     "rails": ("Rails", [("rails-threads3-core", "Puma, 3 threads", "rails", "threads3"), ("rails-threads1-core", "Puma, 1 thread", "rails", "threads1")]),
-    "django": ("Django", [("django-gunicorn-core", "Gunicorn", "django", "gunicorn"), ("django-granian-core", "Granian", "django", "granian")]),
-    "fastapi": ("FastAPI", [("fastapi-uvicorn-core", "Uvicorn", "fastapi", "uvicorn"), ("fastapi-granian-core", "Granian", "fastapi", "granian")]),
+    "fastapi": ("FastAPI", [("fastapi-uvicorn-core", "Uvicorn, uvloop, httptools", "fastapi", "uvicorn")]),
     "spring": ("Spring Boot", [("spring-platform-core", "platform threads", "spring", "platform"), ("spring-vthreads-core", "virtual threads", "spring", "vthreads")]),
     "dotnet": ("ASP.NET Core", [("dotnet-core", "Kestrel", "dotnet", "")]),
     "phoenix": ("Phoenix", [("phoenix-core", "Bandit, release", "phoenix", "")]),
@@ -35,12 +34,12 @@ FRAMEWORKS = {
 # Spring Boot on the JVM: the upper reference for a mature JIT (Jonas, BENCH3)
 JIT_REFERENCE = "spring"
 # the stages per framework; OpenGrid and Laravel keep the target sets of
-# 70ba137 there, the others measure their fastest variant from bm2
+# 70ba137 there (Laravel: FrankenPHP only since 28.10.), the others measure their fastest variant from bm2
 FIXED = {
-    "thesis": {"opengrid": ["opengrid-embedded-core", "opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]},
-    "load": {"opengrid": ["opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]},
-    "memory": {"opengrid": ["opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]},
-    "coldstart": {"opengrid": ["opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]},
+    "thesis": {"opengrid": ["opengrid-embedded-core", "opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core"]},
+    "load": {"opengrid": ["opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core"]},
+    "memory": {"opengrid": ["opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core"]},
+    "coldstart": {"opengrid": ["opengrid-embedded-pgo-core"], "laravel": ["laravel-frankenphp-core"]},
 }
 STAGES = ["bm2", "thesis", "load", "memory", "coldstart"]
 

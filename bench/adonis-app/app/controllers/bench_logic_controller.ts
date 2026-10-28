@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import db from '@adonisjs/lucid/services/db'
+import { rawQuery } from '#bench/db'
 import vine from '@vinejs/vine'
 import { NoteView } from '#bench/views'
 import { LaravelErrorReporter } from '#bench/laravel_errors'
@@ -32,7 +32,7 @@ export default class BenchLogicController {
   }
 
   private async rows(ctx: HttpContext, n: number): Promise<any[]> {
-    return (await db.connection('bench').rawQuery('SELECT n.id, n.title, n.body, n.done, n.priority, n.created_at, u.id AS user_id, u.name AS user_name, u.email AS user_email FROM notes n JOIN users u ON u.id = n.user_id WHERE n.user_id = ? AND n.deleted_at IS NULL ORDER BY n.id LIMIT ?', [(ctx as any).benchUser.id, n])) as any[]
+    return rawQuery('SELECT n.id, n.title, n.body, n.done, n.priority, n.created_at, u.id AS user_id, u.name AS user_name, u.email AS user_email FROM notes n JOIN users u ON u.id = n.user_id WHERE n.user_id = ? AND n.deleted_at IS NULL ORDER BY n.id LIMIT ?', [(ctx as any).benchUser.id, n])
   }
 
   /** n notes with their user, hydrated into objects and listed. */

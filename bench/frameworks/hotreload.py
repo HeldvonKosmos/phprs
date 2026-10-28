@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Hot reload of the comparison apps (BENCH3), each in its framework's own
-development mode (serve.sh variant dev: Adonis `node ace serve --hmr`, Nest
-`nest start --watch`, `next dev`, Rails development (reloading on the next
-request), Django `runserver`, `uvicorn --reload`, Spring Boot devtools with
+development mode (serve.sh variant dev: Adonis `bun --watch`, Goravel `air`, Rails
+development (reloading on the next request), `uvicorn --reload`, Spring Boot devtools with
 Gradle's continuous build, `dotnet watch`, Phoenix's code reloader). These
 are development modes, not the production setups measured elsewhere, and
 are marked so in the report. OpenGrid's and Laravel's reload is measured by
@@ -14,7 +13,7 @@ file ("ok" -> "ok<i>") and take the time until the server answers with the
 new code (polled every 20 ms); the file is restored and the original answer
 awaited before the next change and at the end.
 
-  hotreload.py [--apps adonis,nest,…] [--runs 3] [--timeout 120] [--json FILE]
+  hotreload.py [--apps adonis,rails,…] [--runs 3] [--timeout 120] [--json FILE]
 """
 
 import argparse, json, os, signal, socket, statistics, subprocess, sys, tempfile, time, urllib.request
@@ -27,11 +26,9 @@ import targets  # noqa: E402
 
 # app: (source file, the empty route's answer as written there, how the framework reloads)
 SOURCES = {
-    "adonis": ("adonis-app/app/controllers/bench_sql_controller.ts", "return response.json({ status: 'ok' })", "node ace serve --hmr (hot-hook)"),
-    "nest": ("nest-app/src/bench-sql.controller.ts", "return { status: 'ok' }", "nest start --watch (tsc, restart)"),
-    "next": ("next-app/app/api/bench/sql/health/route.ts", "return Response.json({ status: 'ok' })", "next dev (Turbopack)"),
+    "adonis": ("adonis-app/app/controllers/bench_sql_controller.ts", "return response.json({ status: 'ok' })", "bun --watch (restart; ace serve --hmr needs Node)"),
+    "goravel": ("goravel-app/app/http/controllers/bench_sql_controller.go", 'return ctx.Response().Json(http.StatusOK, http.Json{"status": "ok"})', "air (rebuild and restart, the skeleton's .air.toml)"),
     "rails": ("rails-app/app/controllers/bench_sql_controller.rb", 'render json: { status: "ok" }', "development, reloading per request (Zeitwerk)"),
-    "django": ("django-app/bench/views.py", 'def health(request):\n    return JsonResponse({"status": "ok"})', "runserver (autoreloader, restart)"),
     "fastapi": ("fastapi-app/app/main.py", 'def sql_health():\n    return {"status": "ok"}', "uvicorn --reload (restart)"),
     "spring": ("spring-app/src/main/java/bench/BenchSqlController.java", 'return new Status("ok");', "devtools + Gradle continuous build (restart)"),
     "dotnet": ("dotnet-app/Program.cs", 'app.MapGet("/api/bench/sql/health", () => Results.Json(new { status = "ok" }));', "dotnet watch (Hot Reload)"),

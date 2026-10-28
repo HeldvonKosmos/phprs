@@ -3,7 +3,7 @@
 // app's BenchSqlController/BenchLogicController and OpenGrid's benchsql
 // module, behind the same token check (its use written at most once a
 // second). Raw SQL through Microsoft.Data.Sqlite on the system's libsqlite3
-// (the benchmark's SQLite 3.45.2), WAL, synchronous FULL, busy_timeout 5000.
+// (the benchmark's SQLite 3.53.4), WAL, synchronous FULL, busy_timeout 5000.
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;

@@ -3,7 +3,7 @@ source "https://rubygems.org"
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 8.1.4"
 # Use sqlite3 as the database for Active Record
-# BENCH3: built from source against the benchmark's SQLite 3.45.2 (the
+# BENCH3: built from source against the benchmark's SQLite 3.53.4 (the
 # precompiled gem bundles its own SQLite); see .bundle/config
 gem "sqlite3", "2.10.2", force_ruby_platform: true
 # Use the Puma web server [https://github.com/puma/puma]

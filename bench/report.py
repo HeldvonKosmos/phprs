@@ -123,7 +123,8 @@ def main():
         # carries the ratio; the build without PGO keeps its own column
         if core:
             cols = og_cols(get, endpoints, "OpenGrid", "opengrid-embedded-pgo-core", "opengrid-embedded-core", a.short)
-            cols += [("Laravel Octane (FrankenPHP)", "laravel-frankenphp-core"), ("Laravel Octane (RoadRunner)", "laravel-octane-core"), ("Laravel FPM", "laravel-fpm-core")]
+            # Laravel on Octane with FrankenPHP only (Jonas, 28.10.); RoadRunner and FPM appear only in older results
+            cols += [(n, t) for n, t in LARAVEL_CORE if any(get(e, t) for e in endpoints)]
         else:
             cols = og_cols(get, endpoints, "OpenGrid embedded", f"opengrid-embedded-pgo{suffix}", f"opengrid-embedded{suffix}", a.short)
             cols += [("OpenGrid + SurrealDB server (without PGO)", f"opengrid-server{suffix}"), ("Laravel Octane (FrankenPHP)", "laravel-frankenphp"), ("Laravel Octane (RoadRunner)", "laravel-octane"), ("Laravel FPM", "laravel-fpm")]
@@ -271,7 +272,7 @@ def ranking(d, bm2, rng, c):
     if not other_best(bm2):
         return
     og = lead_og(lambda t: any(get(e, t) for e in ENDPOINTS))
-    lv = max(("laravel-frankenphp-core", "laravel-octane-core"), key=lambda t: fw.score(bm2, t))
+    lv = max((t for _, t in LARAVEL_CORE[:2] if fw.score(bm2, t)), key=lambda t: fw.score(bm2, t), default="laravel-frankenphp-core")
     cands = [og, lv] + other_best(bm2)
     print(f"**(a') All frameworks per endpoint** (BENCH3) — raw SQL on SQLite as (a), {c} connections; per framework its fastest server variant over all endpoints (Laravel: the faster Octane server); rank by requests per second; *OpenGrid / it* is {fw.label(og)} against that framework. Spring Boot is the upper reference for a mature JIT (the JVM).\n")
     for e in ENDPOINTS:
@@ -302,7 +303,7 @@ def runtimes(bm2):
     rt = {k.split("|", 1)[1]: v for k, v in bm2.items() if k.startswith("runtime|")}
     if not rt:
         return
-    print("**Runtimes per target** (BENCH3) — as each side reports them (`/api/bench/sql/sqlite`); every side checked against the reference SQLite 3.45.2 and its compile options before measuring.\n")
+    print("**Runtimes per target** (BENCH3) — as each side reports them (`/api/bench/sql/sqlite`); every side checked against the reference SQLite 3.53.4 and its compile options before measuring.\n")
     print("| Target | SQLite | runtime |")
     print("|---|---|---|")
     for t, r in rt.items():

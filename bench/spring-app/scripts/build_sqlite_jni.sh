@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # sqlite-jdbc's JNI library against the benchmark's SQLite (BENCH3). The
 # driver loads its own libsqlitejdbc.so with SQLite compiled in; this builds
-# that JNI part (NativeDB.c of the driver's tag 3.45.2.0, the version made
-# for SQLite 3.45.2) linked dynamically against ~/.local/opt/sqlite-3.45.2,
+# that JNI part (NativeDB.c of the driver's tag 3.53.4.0, the version made
+# for SQLite 3.53.4) linked dynamically against ~/.local/opt/sqlite-3.53.4,
 # so the JVM runs the same libsqlite3.so.0 as PHP, Python and Ruby. The JVM
 # loads it through -Dorg.sqlite.lib.path / -Dorg.sqlite.lib.name (serve.sh).
 #   bench/spring-app/scripts/build_sqlite_jni.sh  -> bench/spring-app/native/libsqlitejdbc.so
@@ -10,10 +10,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OPT=$HOME/.local/opt
 JAVA_HOME=$OPT/jdk-25.0.5+8
-SQLITE=$OPT/sqlite-3.45.2
+SQLITE=$OPT/sqlite-3.53.4
 DL=${RUNTIME_DL:-$(cd ../../.. && pwd)/target/runtime-dl}
 UA="OpenGrid-research (+https://github.com/HeldvonKosmos/phprs)"
-VER=3.45.2.0 SRC_SHA=18509e47e12dd18d78fe17931e7c8de4cb7b8f81e72c16a8eb4768e4f111e8ef
+VER=3.53.4.0 SRC_SHA=9dded7305b4f3bab596d6a40eaab0cf0d3afad60006eb80073492103b06b081c
 SLF4J=1.7.36 SLF4J_SHA=d3ef575e3e4979678dc01bf1dcce51021493b4d11fb7f1be8ad982877c16a1c0
 mkdir -p "$DL" native
 fetch() { [ -f "$DL/$2" ] || curl -fsSL -A "$UA" -o "$DL/$2" "$1"; echo "$3  $DL/$2" | sha256sum -c --quiet -; }

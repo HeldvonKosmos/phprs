@@ -24,7 +24,7 @@ import argparse, json, os, statistics, subprocess, sys, tempfile, threading, tim
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
 
-TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]  # D25: core only
+TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core"]  # D25: core only
 
 
 def children():

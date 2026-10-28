@@ -8,29 +8,8 @@ const dbConfig = defineConfig({
   connection: 'sqlite',
 
   connections: {
-    /**
-     * BENCH3: the benchmark's database (bench/framework/sqlite/: schema and
-     * seed), raw SQL only; WAL, synchronous FULL, busy_timeout 5000 as on
-     * every side; one connection per worker process (the four cluster
-     * workers make the pool of four).
-     */
-    bench: {
-      client: 'better-sqlite3',
-      connection: {
-        filename: process.env.BENCH_SQLITE_DATABASE ?? app.tmpPath('bench.sqlite'),
-      },
-      useNullAsDefault: true,
-      pool: {
-        min: 1,
-        max: 1,
-        afterCreate: (conn: any, done: (err: Error | null, conn: any) => void) => {
-          conn.pragma('journal_mode = WAL')
-          conn.pragma('synchronous = FULL')
-          conn.pragma('busy_timeout = 5000')
-          done(null, conn)
-        },
-      },
-    },
+    // BENCH3: the benchmark's database goes through bun:sqlite on Bun
+    // (app/bench/db.ts); knex's better-sqlite3 client does not load there
 
     /**
      * SQLite connection (default).

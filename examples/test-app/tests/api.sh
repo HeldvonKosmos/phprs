@@ -13,7 +13,7 @@
 #   tests/api.sh --app laravel [--runtime fpm|octane|frankenphp]
 #                                         the Laravel comparison application (LV1,
 #                                         bench/framework/laravel; on SQLite, D24)
-#   tests/api.sh --app adonis|nest|next|rails|django|fastapi|spring|dotnet|phoenix
+#   tests/api.sh --app adonis|goravel|rails|fastapi|spring|dotnet|phoenix
 #                                         a comparison app of BENCH3 (bench/<app>-app,
 #                                         started by bench/frameworks/serve.sh): only
 #                                         the benchmark sections (/api/bench/sql,
@@ -40,7 +40,7 @@ done
 case "$TARGET" in
   opengrid) [ -x "$BIN" ] || { echo "FAIL setup: no opengrid binary at $BIN (build it: cargo build -p opengrid-framework --bin opengrid)"; exit 2; };;
   laravel) [ -x "$SERVE" ] || { echo "FAIL setup: $SERVE is missing"; exit 2; };;
-  adonis|nest|next|rails|django|fastapi|spring|dotnet|phoenix) COMPARE=1;;
+  adonis|goravel|rails|fastapi|spring|dotnet|phoenix) COMPARE=1;;
   *) echo "FAIL setup: unknown app $TARGET"; exit 2;;
 esac
 echo "app: $TARGET$([ "$TARGET" = laravel ] && echo " ($RUNTIME, sqlite)")"
@@ -78,7 +78,7 @@ start_server() {
   if [ "$TARGET" = opengrid ]; then
     (cd "$APP" && exec "$BIN" start --no-banner --binding 127.0.0.1 --port "$PORT" >>"$WORK/server.log" 2>&1) &
   elif [ "$COMPARE" = 1 ]; then
-    # API_VARIANT: a marked server variant (e.g. nest fastify, fastapi granian)
+    # API_VARIANT: a marked server variant (e.g. rails threads1, spring vthreads)
     "$FW_SERVE" "$TARGET" "$PORT" "$WORK/run" 2 "${API_VARIANT:-}" >>"$WORK/server.log" 2>&1 &
   else
     # RoadRunner's RPC / FrankenPHP's admin port: one found free, not port + 1 (BENCH1)

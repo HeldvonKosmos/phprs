@@ -5,11 +5,12 @@ application (LV1), method D11 (BENCHMARKS.md section 4).
 Targets: the framework core only (D23, D25): opengrid-embedded-core,
 opengrid-embedded-pgo-core (the PGO binary, --opengrid-pgo, PGO1; trained on
 api.sh without the benchmark endpoints, D14), laravel-frankenphp-core
-(Octane on FrankenPHP), laravel-octane-core (Octane on RoadRunner),
-laravel-fpm-core (nginx + PHP-FPM, opcache on, JIT off). Both apps run the
+(Octane on FrankenPHP; RoadRunner and PHP-FPM are no longer measured, Jonas
+28.10.), and the comparison apps of BENCH3 (bench/framework/targets.py,
+started through bench/frameworks/serve.sh). All apps run the
 same raw SQL on a fresh SQLite database per target (bench/framework/sqlite/:
-schema, seed; WAL, synchronous FULL, busy_timeout 5000; the SQLite 3.45.2
-of FrankenPHP for all targets), endpoints /api/bench/sql/…, the same token
+schema, seed; WAL, synchronous FULL, busy_timeout 5000; the SQLite 3.53.4
+of Bun for all targets, sqlite/build_sqlite.sh; FrankenPHP built against it), endpoints /api/bench/sql/…, the same token
 check in both apps (its use written at most once a second, as Sanctum does
 in effect). SurrealDB is not measured (D25): the OpenGrid targets still open
 their embedded SurrealDB at start (job poller), with no queries per request.
@@ -42,7 +43,7 @@ TEST_APP = os.path.join(REPO, "examples/test-app")
 SERVE = os.path.join(HERE, "laravel/serve.sh")
 SERVE_FW = os.path.join(HERE, "../frameworks/serve.sh")
 LARAVEL_APP = os.environ.get("LARAVEL_APP", os.path.join(WS, "bench/laravel-app"))
-ALL_TARGETS = ["opengrid-embedded-core", "opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]
+ALL_TARGETS = ["opengrid-embedded-core", "opengrid-embedded-pgo-core", "laravel-frankenphp-core"]
 ENDPOINTS = ["health", "list", "show", "create", "login"]
 # Cores (D11, Jonas 2026-10-27): the application on four physical cores, one
 # SMT thread each (8, 10, 12, 14; their siblings 9, 11, 13, 15 stay idle), the
@@ -158,7 +159,7 @@ def patch_config(app, workers):
     open(p, "w").write(s)
 
 
-SQLITE_LIB = os.path.join(os.path.expanduser("~"), ".local/opt/sqlite-3.45.2/lib")
+SQLITE_LIB = os.path.join(os.path.expanduser("~"), ".local/opt/sqlite-3.53.4/lib")
 
 
 _REF = None
@@ -217,8 +218,8 @@ class Target:
         db = os.path.join(self.work, "bench.sqlite")
         subprocess.run(["python3", os.path.join(HERE, "sqlite", "seed.py"), db, str(self.a.notes)], check=True, capture_output=True)
         self.env.update(OPENGRID_DB_BENCH_SQLITE_URL=f"sqlite://{db}", BENCH_SQLITE_DATABASE=db)
-        # the SQLite FrankenPHP ships (3.45.2, same compile options) for
-        # OpenGrid, PHP-FPM and RoadRunner too (sqlite/build_sqlite.sh)
+        # the benchmark's SQLite (Bun's 3.53.4 with its compile options,
+        # sqlite/build_sqlite.sh) for every side that loads a shared libsqlite3
         self.env["LD_LIBRARY_PATH"] = SQLITE_LIB + (":" + self.env["LD_LIBRARY_PATH"] if self.env.get("LD_LIBRARY_PATH") else "")
         if self.name.startswith("opengrid"):
             app = os.path.join(self.work, "app")
@@ -338,7 +339,7 @@ def main():
             f.write("<?php " + version_php)
         fp_sqlite = sh([fp, "php-cli", f.name])
         os.unlink(f.name)
-    print(f"SQLite aller Ziele (D23, D25): PHP-FPM/RoadRunner {php_sqlite}, OpenGrid {og_lib}, FrankenPHP {fp_sqlite} eingebaut (gleiche Compile-Optionen; WAL, synchronous FULL, busy_timeout 5000, je Worker eine Verbindung) · ", end="")
+    print(f"SQLite aller Seiten (D23, BENCH3): Referenz {php_sqlite} (Buns SQLite mit Buns Compile-Optionen, {SQLITE_LIB}), OpenGrid lädt {og_lib}, FrankenPHP (selbst gebaut) {fp_sqlite}; jede Seite vor dem Messen gegen die Referenz geprüft (Laufzeiten je Ziel unten); WAL, synchronous FULL, busy_timeout 5000 · ", end="")
     fp_bin = os.path.join(LARAVEL_APP, "frankenphp")
     if any("frankenphp" in t for t in a.targets.split(",")) and os.path.exists(fp_bin):
         print(f"{sh([fp_bin, 'version']).split(' Caddy')[0]} (Worker-Modus, eigenes PHP) · ", end="")
@@ -351,7 +352,7 @@ def main():
     print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on, PERF4 d)' if a.opengrid_jit else 'aus (Standard, D9)'} · ", end="")
     # which PHP runs which target (FrankenPHP brings its own, newer PHP)
     fp_php = re.search(r"\bPHP (\d\S*)", sh([fp_bin, "version"])).group(1) if os.path.exists(fp_bin) else "–"
-    print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])} für FPM und RoadRunner, PHP {fp_php} in FrankenPHP (eigener Build)"
+    print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {fp_php} in FrankenPHP (selbst gebaut, ZTS), PHP {sh(['php', '-r', 'echo PHP_VERSION;'])} für artisan"
           f" · {laravel} (Datenbank: SQLite)"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({topology(a.app_cores)}), DB-Server {a.db_cores} ({topology(a.db_cores)}), Last {a.load_cores} ({topology(a.load_cores)})"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
@@ -385,7 +386,12 @@ def main():
                         inflight = rps * (r["summary"]["average"] or 0)
                         if c > 1 and inflight < 0.8 * c:
                             print(f"WARNING {name} {e} c={c}: only {inflight:.1f} requests in flight on average", file=sys.stderr)
-                        results[(e, name, c)] = (rps, lat["p50"] * 1000, lat["p99"] * 1000, bad, sum(codes.values()), inflight)
+                        # no finished request at all (oha reports no percentiles): latency
+                        # counts as the whole measurement, and it is warned about
+                        if lat.get("p50") is None:
+                            print(f"WARNING {name} {e} c={c}: no request finished within {a.duration} s", file=sys.stderr)
+                        p50, p99 = ((lat.get(q) or float(a.duration)) * 1000 for q in ("p50", "p99"))
+                        results[(e, name, c)] = (rps, p50, p99, bad, sum(codes.values()), inflight)
                         print(f"  {name:<18} {e:<7} c={c:<3} {results[(e, name, c)][0]:>9.0f} req/s  p50 {results[(e, name, c)][1]:7.2f} ms  p99 {results[(e, name, c)][2]:7.2f} ms  non-2xx {bad}", file=sys.stderr)
             finally:
                 t.close()

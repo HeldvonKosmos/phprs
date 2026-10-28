@@ -11,7 +11,7 @@
 
   <ItemGroup>
     <!-- the ADO.NET provider without a bundled SQLite; the provider loads the
-         system's libsqlite3 (the benchmark's 3.45.2 through LD_LIBRARY_PATH) -->
+         system's libsqlite3 (the benchmark's 3.53.4 through LD_LIBRARY_PATH) -->
     <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.14" />
     <PackageReference Include="SQLitePCLRaw.provider.sqlite3" Version="3.0.5" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.1" />

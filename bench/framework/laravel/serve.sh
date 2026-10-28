@@ -6,7 +6,7 @@
 #
 #   fpm     nginx (1 worker process) + PHP-FPM (pm=static, <workers> children), opcache on, JIT off
 #   octane  Laravel Octane on RoadRunner with <workers> PHP workers
-#   frankenphp  Laravel Octane on FrankenPHP (worker mode, its own PHP 8.5 and SQLite) with <workers> workers
+#   frankenphp  Laravel Octane on FrankenPHP (worker mode; the self-built FrankenPHP with PHP 8.5 ZTS and the benchmark's SQLite) with <workers> workers
 #
 # SIDE_PORT: RoadRunner's RPC or FrankenPHP's admin port (default port + 1;
 # bm2.py passes a port it found free, BENCH1: port + 1 could be held by a

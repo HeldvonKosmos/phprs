@@ -1,41 +1,36 @@
 #!/usr/bin/env bash
 # Builds the comparison apps of BENCH3 from their lockfiles, reproducibly:
 # dependencies, the SQLite parts (every side on the benchmark's SQLite
-# 3.45.2), the production build. Needs the runtimes of
+# 3.53.4), the production build. Needs the runtimes of
 # bench/frameworks/install_runtimes.sh and the SQLite of
 # bench/framework/sqlite/build_sqlite.sh. Builds on cores 0-7.
 #   bench/frameworks/setup.sh [app ...]     (default: all)
-#   app: adonis | nest | next | rails | django | fastapi | spring | dotnet | phoenix
+#   app: adonis | goravel | rails | fastapi | spring | dotnet | phoenix
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 BENCH=$(cd "$HERE/.." && pwd)
 OPT=$HOME/.local/opt
-SQLITE=$OPT/sqlite-3.45.2
+SQLITE=$OPT/sqlite-3.53.4
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 NEXT_TELEMETRY_DISABLED=1 DOTNET_NOLOGO=1
-export PATH=$OPT/node-24.22.1/bin:$OPT/ruby-4.0.9/bin:$OPT/python-3.15.2/bin:$OPT/jdk-25.0.5+8/bin:$OPT/dotnet-10.0.403:$OPT/otp-29.1.2/bin:$OPT/elixir-1.20.4/bin:$PATH
+export PATH=$OPT/bun-1.4.3:$OPT/go-1.27.2/bin:$OPT/ruby-4.0.9/bin:$OPT/python-3.15.2/bin:$OPT/jdk-25.0.5+8/bin:$OPT/dotnet-10.0.403:$OPT/otp-29.1.2/bin:$OPT/elixir-1.20.4/bin:$PATH
 export JAVA_HOME=$OPT/jdk-25.0.5+8 DOTNET_ROOT=$OPT/dotnet-10.0.403 MIX_HOME=$OPT/mix HEX_HOME=$OPT/hex
 UV=$OPT/uv-tool/bin/uv
 b() { taskset -c 0-7 "$@"; }
 [ -f "$SQLITE/src/sqlite3.c" ] || "$BENCH/framework/sqlite/build_sqlite.sh"
 
 adonis() {
+  # on Bun: ace's TypeScript hooks need Node's module loader, Bun runs the
+  # TypeScript entry itself
   cd "$BENCH/adonis-app"
-  b npm ci --no-audit --no-fund
-  bash "$HERE/node_sqlite_addon.sh" .
-  b node ace build
+  b "$OPT/bun-1.4.3/bun" install --frozen-lockfile
+  PATH=$OPT/bun-1.4.3:$PATH b "$OPT/bun-1.4.3/bun" bin/console.ts build
   ln -sfn ../node_modules build/node_modules
 }
-nest() {
-  cd "$BENCH/nest-app"
-  b npm ci --no-audit --no-fund
-  bash "$HERE/node_sqlite_addon.sh" .
-  rm -rf dist && b npx nest build
-}
-next() {
-  cd "$BENCH/next-app"
-  b npm ci --no-audit --no-fund
-  bash "$HERE/node_sqlite_addon.sh" .
-  b npx next build
+goravel() {
+  # mattn/go-sqlite3 linked against the benchmark's SQLite (-tags libsqlite3)
+  cd "$BENCH/goravel-app"
+  CGO_ENABLED=1 CGO_CFLAGS="-I$SQLITE/include" CGO_LDFLAGS="-L$SQLITE/lib -Wl,-rpath,$SQLITE/lib" GOTOOLCHAIN=local \
+    b "$OPT/go-1.27.2/bin/go" build -trimpath -tags libsqlite3 -o build/server .
 }
 rails() {
   cd "$BENCH/rails-app"
@@ -51,7 +46,6 @@ python_app() {
   [ -x .venv/bin/python ] || "$UV" venv -q --python "$OPT/python-3.15.2/bin/python3" .venv
   VIRTUAL_ENV=$PWD/.venv b "$UV" pip sync -q --require-hashes requirements.txt
 }
-django() { python_app django-app; }
 fastapi() { python_app fastapi-app; }
 spring() {
   cd "$BENCH/spring-app"
@@ -74,7 +68,7 @@ phoenix() {
   MIX_ENV=dev b mix compile
 }
 
-for app in "${@:-adonis nest next rails django fastapi spring dotnet phoenix}"; do
+for app in "${@:-adonis goravel rails fastapi spring dotnet phoenix}"; do
   for a in $app; do
     echo "== $a"
     ( "$a" )

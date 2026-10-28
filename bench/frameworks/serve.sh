@@ -5,12 +5,12 @@
 # application cores with taskset; every app is set to that many workers.
 #
 #   serve.sh <app> <port> <workdir> [workers] [variant]
-#   app: adonis | nest | next | rails | django | fastapi | spring | dotnet | phoenix
+#   app: adonis | goravel | rails | fastapi | spring | dotnet | phoenix
 #   variant dev: the framework's own development mode with its code
 #   reloading (for bench/frameworks/hotreload.py; workers ignored)
 #
 # Database: BENCH_SQLITE_DATABASE (the seeded benchmark file); the SQLite
-# 3.45.2 of all targets comes through LD_LIBRARY_PATH (bm2.py) or, for
+# 3.53.4 of all targets comes through LD_LIBRARY_PATH (bm2.py) or, for
 # drivers that compile SQLite in, from the same amalgamation. Logging:
 # warnings and errors only, no request logs. Exits with the server's exit
 # code and shows the end of its log on failure.
@@ -22,43 +22,39 @@ OPT=$HOME/.local/opt
 mkdir -p "$W"
 # no telemetry to Microsoft or Vercel from any run
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 NEXT_TELEMETRY_DISABLED=1
-export PATH=$OPT/node-24.22.1/bin:$OPT/ruby-4.0.9/bin:$OPT/python-3.15.2/bin:$OPT/jdk-25.0.5+8/bin:$OPT/otp-29.1.2/bin:$OPT/elixir-1.20.4/bin:$PATH
+export PATH=$OPT/bun-1.4.3:$OPT/ruby-4.0.9/bin:$OPT/python-3.15.2/bin:$OPT/jdk-25.0.5+8/bin:$OPT/otp-29.1.2/bin:$OPT/elixir-1.20.4/bin:$PATH
 LOG=$W/server.log
 # the app's database is BENCH_SQLITE_DATABASE only; the container's
 # DATABASE_URL (Loco's) would override e.g. Rails' database.yml
 unset DATABASE_URL DATABASE_URL_PG
-# every side runs the benchmark's SQLite 3.45.2: drivers that load the
-# system's libsqlite3 (CPython, .NET) find it here first; the others have it
-# compiled in from the same source (Node) or linked with an rpath (Ruby, Java)
-export LD_LIBRARY_PATH=$OPT/sqlite-3.45.2/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# every side runs the benchmark's SQLite 3.53.4: drivers that load the
+# system's libsqlite3 (OpenGrid, CPython, .NET) find it here first; Bun has the
+# same version built in; the
+# others are linked against it with an rpath (Ruby, Java, Phoenix)
+export LD_LIBRARY_PATH=$OPT/sqlite-3.53.4/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
 if [ "$VARIANT" = dev ]; then
   # BENCH3: the development mode each framework documents, with its reloading
   case "$APP" in
     adonis)
+      # Bun in watch mode on the TypeScript entry (ace's `serve --hmr` hooks
+      # into Node's module loader, which Bun does not have)
       cd "$BENCH/adonis-app"
       export NODE_ENV=development PORT HOST=127.0.0.1 LOG_LEVEL=warn SESSION_DRIVER=cookie APP_URL=http://127.0.0.1:$PORT
       export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
-      node ace serve --hmr >"$LOG" 2>&1 & ;;
-    nest)
-      # tsc in watch mode into its own directory (dist-dev, the production
-      # build in dist stays), the app restarted on change
-      cd "$BENCH/nest-app"
-      export NODE_ENV=development PORT
-      node node_modules/@nestjs/cli/bin/nest.js start --watch --preserveWatchOutput --path tsconfig.dev.json >"$LOG" 2>&1 & ;;
-    next)
-      cd "$BENCH/next-app"
-      export NODE_ENV=development
-      node node_modules/next/dist/bin/next dev -p "$PORT" -H 127.0.0.1 >"$LOG" 2>&1 & ;;
+      "$OPT/bun-1.4.3/bun" --watch bin/server.ts >"$LOG" 2>&1 & ;;
+    goravel)
+      # air, as the Goravel skeleton sets it up (.air.toml): rebuild and restart on change
+      cd "$BENCH/goravel-app"
+      export APP_ENV=local APP_DEBUG=false APP_HOST=127.0.0.1 APP_PORT=$PORT LOG_CHANNEL=single LOG_LEVEL=error GOTOOLCHAIN=local
+      export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
+      export PATH=$OPT/go-1.27.2/bin:$PATH CGO_ENABLED=1 CGO_CFLAGS="-I$OPT/sqlite-3.53.4/include" CGO_LDFLAGS="-L$OPT/sqlite-3.53.4/lib -Wl,-rpath,$OPT/sqlite-3.53.4/lib"
+      "$OPT/go-1.27.2/tools/air" >"$LOG" 2>&1 & ;;
     rails)
       # development: classes reloaded on the next request after a change; one Puma process
       cd "$BENCH/rails-app"
       export RAILS_ENV=development WEB_CONCURRENCY=0 PORT
       bundle exec puma -C config/puma.rb -b "tcp://127.0.0.1:$PORT" >"$LOG" 2>&1 & ;;
-    django)
-      cd "$BENCH/django-app"
-      export DJANGO_SETTINGS_MODULE=benchsite.settings DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')}
-      .venv/bin/python manage.py runserver "127.0.0.1:$PORT" >"$LOG" 2>&1 & ;;
     fastapi)
       cd "$BENCH/fastapi-app"
       .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port "$PORT" --log-level warning >"$LOG" 2>&1 & ;;
@@ -76,7 +72,7 @@ if [ "$VARIANT" = dev ]; then
       "$DOTNET_ROOT/dotnet" watch run --non-interactive --no-launch-profile >"$LOG" 2>&1 & ;;
     phoenix)
       cd "$BENCH/phoenix-app"
-      export MIX_ENV=dev PORT MIX_HOME=$OPT/mix HEX_HOME=$OPT/hex EXQLITE_USE_SYSTEM=1 EXQLITE_SYSTEM_CFLAGS="-I$OPT/sqlite-3.45.2/include" EXQLITE_SYSTEM_LDFLAGS="-L$OPT/sqlite-3.45.2/lib -Wl,-rpath,$OPT/sqlite-3.45.2/lib -lsqlite3"
+      export MIX_ENV=dev PORT MIX_HOME=$OPT/mix HEX_HOME=$OPT/hex EXQLITE_USE_SYSTEM=1 EXQLITE_SYSTEM_CFLAGS="-I$OPT/sqlite-3.53.4/include" EXQLITE_SYSTEM_LDFLAGS="-L$OPT/sqlite-3.53.4/lib -Wl,-rpath,$OPT/sqlite-3.53.4/lib -lsqlite3"
       mix phx.server >"$LOG" 2>&1 & ;;
     *) echo "serve: no development mode for $APP" >&2; exit 2;;
   esac
@@ -91,25 +87,23 @@ fi
 
 case "$APP" in
   adonis)
+    # the built app (bench/frameworks/setup.sh adonis) on Bun, N workers
+    # through node:cluster (SO_REUSEPORT on Linux); bun:sqlite with Bun's
+    # built-in SQLite 3.53.4, the benchmark's version on every side
     cd "$BENCH/adonis-app"
     [ -f build/bin/server.js ] || { echo "serve: build the app first (bench/frameworks/setup.sh adonis)" >&2; exit 2; }
     export NODE_ENV=production PORT HOST=127.0.0.1 LOG_LEVEL=warn SESSION_DRIVER=cookie APP_URL=http://127.0.0.1:$PORT WORKERS=$N
     export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
-    node cluster.mjs >"$LOG" 2>&1 &
+    "$OPT/bun-1.4.3/bun" cluster.mjs >"$LOG" 2>&1 &
     ;;
-  nest)
-    cd "$BENCH/nest-app"
-    [ -f dist/main.js ] || { echo "serve: build the app first (bench/frameworks/setup.sh nest)" >&2; exit 2; }
-    # Express is Nest's default adapter; Fastify a marked variant
-    case "${VARIANT:-express}" in express) unset NEST_ADAPTER;; fastify) export NEST_ADAPTER=fastify;; *) echo "serve: nest variant express or fastify" >&2; exit 2;; esac
-    export NODE_ENV=production PORT WORKERS=$N
-    node cluster.mjs >"$LOG" 2>&1 &
-    ;;
-  next)
-    cd "$BENCH/next-app"
-    [ -f .next/BUILD_ID ] || { echo "serve: build the app first (bench/frameworks/setup.sh next)" >&2; exit 2; }
-    export NODE_ENV=production PORT WORKERS=$N NEXT_TELEMETRY_DISABLED=1
-    node cluster.mjs >"$LOG" 2>&1 &
+  goravel)
+    # the built binary (bench/frameworks/setup.sh goravel): one process, the
+    # Go runtime on N cores (GOMAXPROCS), Gin in release mode (APP_DEBUG false)
+    cd "$BENCH/goravel-app"
+    [ -x build/server ] || { echo "serve: build the app first (bench/frameworks/setup.sh goravel)" >&2; exit 2; }
+    export APP_ENV=production APP_DEBUG=false APP_HOST=127.0.0.1 APP_PORT=$PORT LOG_CHANNEL=single LOG_LEVEL=error GOMAXPROCS=$N
+    export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
+    build/server >"$LOG" 2>&1 &
     ;;
   rails)
     cd "$BENCH/rails-app"
@@ -127,7 +121,7 @@ case "$APP" in
     # Tomcat's default thread pool; virtual threads a marked variant
     case "${VARIANT:-platform}" in platform) VT=false;; vthreads) VT=true;; *) echo "serve: spring variant platform or vthreads" >&2; exit 2;; esac
     # the JVM limited to N cores, a fixed heap (otherwise a quarter of the RAM),
-    # G1 (the default); sqlite-jdbc's JNI part built against SQLite 3.45.2
+    # G1 (the default); sqlite-jdbc's JNI part built against SQLite 3.53.4
     java -XX:ActiveProcessorCount="$N" -Xms512m -Xmx512m -XX:+UseG1GC \
       -Dorg.sqlite.lib.path="$PWD/native" -Dorg.sqlite.lib.name=libsqlitejdbc.so -Dspring.threads.virtual.enabled=$VT \
       -jar "$JAR" --server.port="$PORT" >"$LOG" 2>&1 &
@@ -135,7 +129,7 @@ case "$APP" in
   dotnet)
     cd "$BENCH/dotnet-app"
     [ -f out/DotnetApp.dll ] || { echo "serve: build the app first (bench/frameworks/setup.sh dotnet)" >&2; exit 2; }
-    # Kestrel, one process limited to N cores; the system's libsqlite3 (3.45.2)
+    # Kestrel, one process limited to N cores; the system's libsqlite3 (3.53.4)
     export DOTNET_ROOT=$OPT/dotnet-10.0.403 DOTNET_PROCESSOR_COUNT=$N DOTNET_NOLOGO=1 ASPNETCORE_URLS="http://127.0.0.1:$PORT" ASPNETCORE_ENVIRONMENT=Production
     "$DOTNET_ROOT/dotnet" out/DotnetApp.dll >"$LOG" 2>&1 &
     ;;
@@ -152,25 +146,11 @@ case "$APP" in
   fastapi)
     cd "$BENCH/fastapi-app"
     [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh fastapi)" >&2; exit 2; }
-    case "${VARIANT:-uvicorn}" in
-      # the standard server: Uvicorn with its process manager, uvloop and httptools
-      uvicorn) export BENCH_SERVER=uvicorn; .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning --no-access-log >"$LOG" 2>&1 & ;;
-      # marked variant: Granian (Rust), ASGI, the same number of workers
-      granian) export BENCH_SERVER=granian; .venv/bin/granian --interface asgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning app.main:app >"$LOG" 2>&1 & ;;
-      *) echo "serve: fastapi variant uvicorn or granian" >&2; exit 2;;
-    esac
-    ;;
-  django)
-    cd "$BENCH/django-app"
-    [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh django)" >&2; exit 2; }
-    export DJANGO_SETTINGS_MODULE=benchsite.settings DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')}
-    case "${VARIANT:-gunicorn}" in
-      # the standard server: Gunicorn with sync workers
-      gunicorn) export BENCH_SERVER=gunicorn; .venv/bin/gunicorn benchsite.wsgi -w "$N" -b "127.0.0.1:$PORT" --log-level warning >"$LOG" 2>&1 & ;;
-      # marked variant: Granian (Rust), WSGI, the same number of workers
-      granian) export BENCH_SERVER=granian; .venv/bin/granian --interface wsgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning benchsite.wsgi:application >"$LOG" 2>&1 & ;;
-      *) echo "serve: django variant gunicorn or granian" >&2; exit 2;;
-    esac
+    # Uvicorn with its process manager and the fastest event loop and HTTP
+    # parser it supports (uvloop, httptools), set explicitly (Jonas, 28.10.)
+    [ "${VARIANT:-uvicorn}" = uvicorn ] || { echo "serve: fastapi variant uvicorn" >&2; exit 2; }
+    export BENCH_SERVER=uvicorn
+    .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --workers "$N" --loop uvloop --http httptools --log-level warning --no-access-log >"$LOG" 2>&1 &
     ;;
   *) echo "serve: unknown or not yet available app $APP" >&2; exit 2;;
 esac

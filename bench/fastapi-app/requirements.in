@@ -2,6 +2,5 @@
 # (uv pip compile --generate-hashes requirements.in -o requirements.txt)
 fastapi==0.162.0
 uvicorn[standard]==0.54.0
-granian==2.8.5
 pydantic==2.14.1
 bcrypt==5.0.0

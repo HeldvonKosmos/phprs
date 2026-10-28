@@ -26,7 +26,7 @@ import argparse, json, os, re, statistics, subprocess, sys, tempfile, time, urll
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
 
-TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]
+TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core"]
 OG_CONTROLLER = "modules/benchsql/app/Controllers/BenchSqlController.grd"
 LV_CONTROLLER = "app/Http/Controllers/BenchSqlController.php"
 OK = "return Response::json(['status' => 'ok']);"

@@ -13,7 +13,7 @@ import json, os, signal, socket, subprocess, sys, tempfile, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.dirname(HERE)
-LIB = os.path.expanduser("~/.local/opt/sqlite-3.45.2/lib")
+LIB = os.path.expanduser("~/.local/opt/sqlite-3.53.4/lib")
 
 
 def reference():

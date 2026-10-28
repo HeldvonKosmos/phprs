@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Runtimes of the comparison frameworks (BENCH3), pinned and checked:
-# Node (AdonisJS), Ruby with YJIT (Rails), CPython (Django), Java/Temurin
+# Bun (AdonisJS), Ruby with YJIT (Rails), CPython (FastAPI), Java/Temurin
 # (Spring Boot), the .NET SDK (ASP.NET Core), Erlang/OTP and Elixir
-# (Phoenix), into ~/.local/opt/<name>.
+# (Phoenix), Go (Goravel), and FrankenPHP (Laravel) built from its sources
+# against a ZTS PHP with the benchmark's SQLite, into ~/.local/opt/<name>.
+# FrankenPHP's release binaries have SQLite 3.45.2 built in statically; the
+# benchmark runs Bun's SQLite 3.53.4 on every side (Jonas, 28.10.), so
+# FrankenPHP is built here: PHP with --enable-embed --enable-zts and
+# pdo_sqlite linked against ~/.local/opt/sqlite-3.53.4, then FrankenPHP's
+# Caddy module with `go build` against that libphp.
 # CPython is built against the system's libsqlite3 (dynamically), so that it
-# loads SQLite 3.45.2 through LD_LIBRARY_PATH like every other target.
-#   bench/frameworks/install_runtimes.sh [node|ruby|python|java|dotnet|erlang|elixir ...]
+# loads SQLite 3.53.4 through LD_LIBRARY_PATH like every other target.
+#   bench/frameworks/install_runtimes.sh [bun|ruby|python|java|dotnet|erlang|elixir|go|air|php|frankenphp ...]
 # Builds run on cores 0-7 with 2 jobs (the container's limit). Idempotent:
 # an installed runtime with the right version is skipped.
 set -euo pipefail
@@ -14,7 +20,12 @@ DL=${RUNTIME_DL:-$(cd "$(dirname "$0")/../../.." && pwd)/target/runtime-dl}
 UA="OpenGrid-research (+https://github.com/HeldvonKosmos/phprs)"
 mkdir -p "$OPT" "$DL"
 
-NODE=24.22.1      NODE_SHA=6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6
+AIR=1.67.4
+GO=1.27.2         GO_SHA=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+PHP=8.5.11        PHP_SHA=d9be75c08e8c316f4c8f4194d8fbe1750a15f6a6d9d4e3fe72082abeeb800360
+FRANKENPHP=1.13.0 FRANKENPHP_SHA=6bcb8fdb414899cfb74e712c552771ec31cbe14d07ec767ce6a3aa671b54ab36
+SQLITE=$OPT/sqlite-3.53.4
+BUN=1.4.3         BUN_SHA=3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18
 RUBY=4.0.9        RUBY_SHA=c35350682ff050b79702d57ade4516e7336063f510155d19fb2fb5b3f3909511
 PYTHON=3.15.2     PYTHON_SHA=8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de
 JDK=25.0.5+8      JDK_SHA=68982529869257d0ee6b824ec5aa270ff8b118bb438670da0b97ebdab178d7fb
@@ -35,11 +46,11 @@ fetch512() {  # fetch512 <url> <file> <sha512>
   echo "$3  $f" | sha512sum -c --quiet - || { echo "checksum of $2 does not match" >&2; rm -f "$f"; exit 1; }
 }
 
-node() {
-  [ -x "$OPT/node-$NODE/bin/node" ] && return
-  fetch "https://nodejs.org/dist/v$NODE/node-v$NODE-linux-x64.tar.xz" "node-v$NODE-linux-x64.tar.xz" "$NODE_SHA"
-  rm -rf "$OPT/node-$NODE" && mkdir -p "$OPT/node-$NODE"
-  tar -xJf "$DL/node-v$NODE-linux-x64.tar.xz" -C "$OPT/node-$NODE" --strip-components=1
+bun() {
+  [ -x "$OPT/bun-$BUN/bun" ] && return
+  fetch "https://github.com/oven-sh/bun/releases/download/bun-v$BUN/bun-linux-x64.zip" "bun-$BUN-linux-x64.zip" "$BUN_SHA"
+  rm -rf "$OPT/bun-$BUN" && mkdir -p "$OPT/bun-$BUN"
+  (cd "$OPT/bun-$BUN" && unzip -q -j "$DL/bun-$BUN-linux-x64.zip")
 }
 ruby() {
   [ -x "$OPT/ruby-$RUBY/bin/ruby" ] && return
@@ -76,11 +87,53 @@ erlang() {
 elixir() {
   [ -x "$OPT/elixir-$ELIXIR/bin/elixir" ] && return
   fetch "https://github.com/elixir-lang/elixir/releases/download/v$ELIXIR/elixir-otp-${OTP%%.*}.zip" "elixir-otp-${OTP%%.*}.zip" "$ELIXIR_SHA"
-  rm -rf "$OPT/elixir-$ELIXIR" && mkdir -p "$OPT/elixir-$ELIXIR" && (cd "$OPT/elixir-$ELIXIR" && unzip -q "$DL/elixir-otp-${OTP%%.*}.zip")
+  rm -rf "$OPT/elixir-$ELIXIR go-$GO php-$PHP-zts frankenphp-$FRANKENPHP" && mkdir -p "$OPT/elixir-$ELIXIR" && (cd "$OPT/elixir-$ELIXIR" && unzip -q "$DL/elixir-otp-${OTP%%.*}.zip")
+}
+go() {
+  [ -x "$OPT/go-$GO/bin/go" ] && return
+  fetch "https://go.dev/dl/go$GO.linux-amd64.tar.gz" "go$GO.linux-amd64.tar.gz" "$GO_SHA"
+  rm -rf "$OPT/go-$GO" && mkdir -p "$OPT/go-$GO"
+  tar -xzf "$DL/go$GO.linux-amd64.tar.gz" -C "$OPT/go-$GO" --strip-components=1
+}
+air() {
+  # Goravel's development mode (the skeleton's .air.toml): rebuild and restart on change
+  [ -x "$OPT/go-$GO/tools/air" ] && return
+  go
+  GOBIN=$OPT/go-$GO/tools GOTOOLCHAIN=local build "$OPT/go-$GO/bin/go" install "github.com/air-verse/air@v$AIR"
+}
+php() {
+  # ZTS with the embed SAPI (libphp.so) and without Zend signals, as
+  # FrankenPHP requires; the extensions a
+  # Laravel app needs; pdo_sqlite and sqlite3 against the benchmark's SQLite;
+  # opcache is part of PHP 8.5; no php.ini (the defaults, as in the release)
+  [ -x "$OPT/php-$PHP-zts/bin/php-config" ] && return
+  [ -f "$SQLITE/lib/libsqlite3.so.0" ] || bash "$(dirname "$0")/../framework/sqlite/build_sqlite.sh"
+  fetch "https://www.php.net/distributions/php-$PHP.tar.xz" "php-$PHP.tar.xz" "$PHP_SHA"
+  local src=$DL/php-$PHP && rm -rf "$src" && tar -xJf "$DL/php-$PHP.tar.xz" -C "$DL"
+  (cd "$src" && PKG_CONFIG_PATH=$SQLITE/lib/pkgconfig LDFLAGS="-Wl,-rpath,$SQLITE/lib" build ./configure --prefix="$OPT/php-$PHP-zts" --enable-zts --enable-embed --disable-zend-signals \
+      --disable-cgi --disable-phpdbg --with-pdo-sqlite --with-sqlite3 --enable-mbstring --with-openssl --with-zlib --with-curl \
+      --enable-pcntl --enable-posix --enable-sockets --enable-bcmath >/dev/null \
+    && build make -j2 >/dev/null && make install >/dev/null)
+}
+frankenphp() {
+  [ -x "$OPT/frankenphp-$FRANKENPHP/frankenphp" ] && return
+  go && php
+  fetch "https://github.com/php/frankenphp/archive/refs/tags/v$FRANKENPHP.tar.gz" "frankenphp-$FRANKENPHP.tar.gz" "$FRANKENPHP_SHA"
+  local src=$DL/frankenphp-$FRANKENPHP && rm -rf "$src" && tar -xzf "$DL/frankenphp-$FRANKENPHP.tar.gz" -C "$DL"
+  local pc=$OPT/php-$PHP-zts/bin/php-config
+  mkdir -p "$OPT/frankenphp-$FRANKENPHP"
+  # as FrankenPHP's docs build it from source (caddy/frankenphp), without the
+  # optional Caddy modules (badger, MySQL, PostgreSQL storage) and without the
+  # file watcher (a C library; Octane reloads through octane:reload); the module
+  # downloads are checked against go.sum; -a: the cgo part depends on the
+  # PHP headers outside the module, which the build cache does not track
+  (cd "$src/caddy/frankenphp" && CGO_ENABLED=1 GOTOOLCHAIN=local GOFLAGS=-trimpath \
+    CGO_CFLAGS="$("$pc" --includes)" CGO_LDFLAGS="$("$pc" --ldflags) -L$SQLITE/lib -Wl,-rpath,$SQLITE/lib -L$OPT/php-$PHP-zts/lib -Wl,-rpath,$OPT/php-$PHP-zts/lib -lphp $("$pc" --libs)" \
+    build "$OPT/go-$GO/bin/go" build -a -tags=nobadger,nomysql,nopgx,nowatcher -ldflags "-X 'github.com/caddyserver/caddy/v2.CustomVersion=FrankenPHP v$FRANKENPHP PHP $PHP Caddy'" -o "$OPT/frankenphp-$FRANKENPHP/frankenphp")
 }
 
-for r in "${@:-node ruby python java dotnet erlang elixir}"; do
+for r in "${@:-bun ruby python java dotnet erlang elixir go air php frankenphp}"; do
   for x in $r; do echo "== $x"; "$x"; done
 done
 # the PATH entries for the benchmark (bench/frameworks/env.sh sources this list)
-echo "runtimes in $OPT: node-$NODE ruby-$RUBY python-$PYTHON jdk-$JDK dotnet-$DOTNET_SDK otp-$OTP elixir-$ELIXIR"
+echo "runtimes in $OPT: bun-$BUN ruby-$RUBY python-$PYTHON jdk-$JDK dotnet-$DOTNET_SDK otp-$OTP elixir-$ELIXIR go-$GO php-$PHP-zts frankenphp-$FRANKENPHP"

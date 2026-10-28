@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The full benchmark state of one commit (BENCHMARKS §0): language (c1-c3,
+# The full benchmark state of one commit (BENCHMARKS §0): with --with-lang the language (c1-c3,
 # comparisons A/B/C, with and without PGO) and framework over HTTP (BM2:
 # all endpoints at 1/16/64 connections, standard settings and the same
 # semantics as Sanctum; THESIS1: logic per request on the framework core,
@@ -7,14 +7,17 @@
 # CPU governor `performance`, one clock cap on all cores (recorded), a
 # clean working tree, no other build or
 # benchmark running, binaries built from HEAD.
-#   bench/run_all.sh [--runs N] [--skip-build] [--framework-only] [--smoke] [--plan]
+#   bench/run_all.sh [--runs N] [--skip-build] [--with-lang] [--smoke] [--plan]
 #                    [--resume <result dir>] [--redo <stage pattern>]... [--frameworks a,b]
 #   --runs N: N measurement runs of the same binaries one after another
 #            (default 3; --smoke: 2); every run in its own directory run-<i>/
 #            with all its logs, raw data, gates and quiet check; the result
 #            directory itself holds the merged series (median of every value,
 #            range of the request rates; bench/series.py) and report.md
-#   --framework-only: everything but c1-c3 (and no grd builds)
+#   --with-lang: also the interpreter benchmark c1-c3 (comparisons A/B/C)
+#            and the grd builds it needs; skipped by default since 28.10.
+#            (Jonas: only the frameworks against each other); --framework-only
+#            is accepted and is the default
 #   --smoke: the same pipeline with very short durations, to check that every
 #            stage runs before a long measurement (BENCH2); results under
 #            ../target/bench-tmp/smoke-<commit>-<time>/, numbers meaningless;
@@ -38,8 +41,8 @@
 # (best-<fw>.txt; OpenGrid and Laravel keep their target sets of 70ba137).
 # Last step: bench/local/after-run <result dir>, when that local file exists.
 # Before measuring: prerequisites (tools, Laravel app in sync with the
-# overlay, FrankenPHP, SQLite 3.45.2) and the api.sh gates (OpenGrid with
-# and without PGO, Laravel on FPM, RoadRunner and FrankenPHP).
+# overlay, FrankenPHP, SQLite 3.53.4) and the api.sh gates (OpenGrid with
+# and without PGO, Laravel on FrankenPHP, every comparison app and variant).
 # Results: ../target/bench-tmp/<commit>-<UTC time>/ (env.txt, lang.md,
 # bm2.md, bm2.json, thesis.md, thesis.json, report.md, quiet.txt,
 # quiet.log, load.md/json, memory.md/json, coldstart.md/json); databases on the mounted volume (TMPDIR there).
@@ -48,11 +51,12 @@ cd "$(dirname "$0")/.."
 WS=$(cd .. && pwd)
 fail() { echo "run_all: $*" >&2; exit 1; }
 
-SKIP_BUILD=0; FRAMEWORK_ONLY=0; SMOKE=0; PLAN=0; RUNS=""; RESUME=""; REDO=(); FRAMEWORKS=""
+SKIP_BUILD=0; FRAMEWORK_ONLY=1; SMOKE=0; PLAN=0; RUNS=""; RESUME=""; REDO=(); FRAMEWORKS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1;;
     --framework-only) FRAMEWORK_ONLY=1;;
+    --with-lang) FRAMEWORK_ONLY=0;;
     --smoke) SMOKE=1;;
     --plan) PLAN=1;;
     --runs) RUNS=${2:?--runs needs a number}; shift;;
@@ -71,7 +75,7 @@ case "$(basename "${RESUME:-x}")" in smoke-*) SMOKE=1;; esac
 RUNS=${RUNS:-$([ "$SMOKE" = 1 ] && echo 2 || echo 3)}
 case "$RUNS" in ''|*[!0-9]*|0) fail "--runs must be a positive number";; esac
 if [ "$PLAN" = 1 ]; then
-  exec python3 bench/plan.py --runs "$RUNS" $([ "$FRAMEWORK_ONLY" = 1 ] && echo --framework-only) $([ "$SMOKE" = 1 ] && echo --smoke) ${FRAMEWORKS:+--frameworks "$FRAMEWORKS"} ${RESUME:+--resume "$RESUME"}
+  exec python3 bench/plan.py --runs "$RUNS" $([ "$FRAMEWORK_ONLY" = 1 ] || echo --with-lang) $([ "$SMOKE" = 1 ] && echo --smoke) ${FRAMEWORKS:+--frameworks "$FRAMEWORKS"} ${RESUME:+--resume "$RESUME"}
 fi
 
 # conditions
@@ -90,7 +94,7 @@ busy=$(pgrep -fa 'cargo |rustc|cargo-mutants|bench.py|bm2.py|load.py|memory.py|c
 
 # prerequisites (BENCH2): everything the stages need, checked before an hour of building
 LARAVEL_APP=${LARAVEL_APP:-$WS/bench/laravel-app}
-for tool in oha surreal php php-fpm nginx curl jq taskset lscpu cmp; do
+for tool in oha surreal php curl jq taskset lscpu cmp; do
   command -v "$tool" >/dev/null || fail "missing tool: $tool"
 done
 FRAMEWORKS=${FRAMEWORKS:-$(python3 bench/framework/targets.py list)}
@@ -101,10 +105,8 @@ for fw in $FRAMEWORKS; do
   case $fw in
     opengrid|laravel) continue;;
     adonis) f=bench/adonis-app/build/bin/server.js;;
-    nest) f=bench/nest-app/dist/main.js;;
-    next) f=bench/next-app/.next/BUILD_ID;;
+    goravel) f=bench/goravel-app/build/server;;
     rails) f=bench/rails-app/vendor/bundle;;
-    django) f=bench/django-app/.venv/bin/python;;
     fastapi) f=bench/fastapi-app/.venv/bin/python;;
     spring) f=bench/spring-app/native/libsqlitejdbc.so;;
     dotnet) f=bench/dotnet-app/out/DotnetApp.dll;;
@@ -115,11 +117,10 @@ for fw in $FRAMEWORKS; do
 done
 [ -f "$LARAVEL_APP/artisan" ] || fail "no Laravel app at $LARAVEL_APP (bench/framework/laravel/setup.sh)"
 [ -x "$LARAVEL_APP/frankenphp" ] || fail "no FrankenPHP in $LARAVEL_APP (bench/framework/laravel/setup.sh)"
-[ -x "$LARAVEL_APP/rr" ] || fail "no RoadRunner in $LARAVEL_APP (bench/framework/laravel/setup.sh)"
 # the Laravel app must run exactly the overlay of this commit
 drift=$(cd bench/framework/laravel/overlay && find . -type f | while read -r f; do cmp -s "$f" "$LARAVEL_APP/$f" || echo "$f"; done)
 [ -z "$drift" ] || fail "the Laravel app differs from bench/framework/laravel/overlay (copy it with setup.sh): $drift"
-[ -e "$HOME/.local/opt/sqlite-3.45.2/lib/libsqlite3.so.0" ] || bench/framework/sqlite/build_sqlite.sh
+[ -e "$HOME/.local/opt/sqlite-3.53.4/lib/libsqlite3.so.0" ] || bench/framework/sqlite/build_sqlite.sh
 
 COMMIT=$(git rev-parse --short HEAD)
 if [ -n "$RESUME" ]; then
@@ -204,7 +205,8 @@ gate_fw() {
         echo "$bin: $line"; case "$line" in *"steps passed"*) ;; *) bad=1;; esac
       done;;
     laravel)
-      for rt in fpm octane frankenphp; do
+      # Laravel on Octane with FrankenPHP only (Jonas, 28.10.)
+      for rt in frankenphp; do
         line=$(examples/test-app/tests/api.sh --app laravel --runtime "$rt" 2>&1 | tail -1)
         echo "laravel $rt: $line"; case "$line" in *"steps passed"*) ;; *) bad=1;; esac
       done;;
@@ -246,12 +248,12 @@ measure_run() {
     echo "volume $(findmnt -no SOURCE,FSTYPE,OPTIONS -T "$TMPDIR" | cut -c1-120)"
     echo "fill $(df -h "$TMPDIR" | tail -1)"
     echo "php $(php -r 'echo PHP_VERSION;'), surreal $(surreal version | head -1), $(oha --version)"
-    echo "sqlite $(LD_LIBRARY_PATH=$HOME/.local/opt/sqlite-3.45.2/lib php -r "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();") for all sides, same compile options (checked per target, D23, D24, BENCH3), $("$LARAVEL_APP/frankenphp" version | cut -d' ' -f1-4)"
-    echo "php per target: $(php -r 'echo PHP_VERSION;') for PHP-FPM and RoadRunner, $("$LARAVEL_APP/frankenphp" version | sed -E 's/.*PHP ([0-9.]+).*/\1/') built into FrankenPHP"
-    echo "runtimes: node $("$OPT/node-24.22.1/bin/node" --version), ruby $("$OPT/ruby-4.0.9/bin/ruby" -e 'print RUBY_VERSION, (RubyVM::YJIT.respond_to?(:enable) ? " (YJIT built in)" : "")'), python $("$OPT/python-3.15.2/bin/python3" -c 'import platform; print(platform.python_version())'), java $("$OPT/jdk-25.0.5+8/bin/java" -version 2>&1 | head -1 | cut -d'"' -f2), dotnet $("$OPT/dotnet-10.0.403/dotnet" --version), otp $(cat "$OPT"/otp-29.1.2/lib/erlang/releases/*/OTP_VERSION 2>/dev/null | head -1), elixir $("$OPT/elixir-1.20.4/bin/elixir" --short-version 2>/dev/null) (per target with server, threads, JVM options: bm2.md, Laufzeiten je Ziel)"
+    echo "sqlite $(LD_LIBRARY_PATH=$HOME/.local/opt/sqlite-3.53.4/lib php -r "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();") for all sides, same compile options (checked per target, D23, D24, BENCH3), $("$LARAVEL_APP/frankenphp" version | cut -d' ' -f1-4)"
+    echo "php per target: $("$LARAVEL_APP/frankenphp" version | sed -E 's/.*PHP ([0-9.]+).*/\1/') built into FrankenPHP (Laravel's only target since 28.10.); php $(php -r 'echo PHP_VERSION;') for artisan"
+    echo "runtimes: bun $("${BUN_BIN:-$OPT/bun-1.4.3/bun}" --version) (${BUN_BIN:-$OPT/bun-1.4.3/bun}), ruby $("$OPT/ruby-4.0.9/bin/ruby" -e 'print RUBY_VERSION, (RubyVM::YJIT.respond_to?(:enable) ? " (YJIT built in)" : "")'), python $("$OPT/python-3.15.2/bin/python3" -c 'import platform; print(platform.python_version())'), java $("$OPT/jdk-25.0.5+8/bin/java" -version 2>&1 | head -1 | cut -d'"' -f2), dotnet $("$OPT/dotnet-10.0.403/dotnet" --version), otp $(cat "$OPT"/otp-29.1.2/lib/erlang/releases/*/OTP_VERSION 2>/dev/null | head -1), elixir $("$OPT/elixir-1.20.4/bin/elixir" --short-version 2>/dev/null) (per target with server, threads, JVM options: bm2.md, Laufzeiten je Ziel)"
     echo "durability sqlite: journal_mode=WAL synchronous=FULL busy_timeout=5000 (all sides, D24, BENCH3)"
     echo "surrealdb: not measured (D25); the OpenGrid targets open their embedded one at start (job poller), no queries per request"
-    ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
+    ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo 2>/dev/null || true
   } > "$RUN/env.txt"
 
   # BENCH1: quiet check for the whole measurement (foreign processes, idle cores)
