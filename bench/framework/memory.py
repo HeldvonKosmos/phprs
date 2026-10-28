@@ -8,9 +8,9 @@ Processes per target:
 - app: the server process and all its descendants (OpenGrid; nginx +
   PHP-FPM master and children; Octane's PHP master, RoadRunner and its PHP
   workers; FrankenPHP), including the start scripts;
-- database: the SurrealDB server (opengrid-server); embedded databases
-  (surrealkv, SQLite, D24) live inside the app process, so there app +
-  database = app.
+- database: SQLite lives inside the app process on both sides (and
+  OpenGrid's embedded SurrealDB, opened at start for the job poller, D25),
+  so app + database = app.
 
 Phases: idle (after setup and seeding), under load (oha at --conc
 connections on --endpoint for --duration s, sampled every 0.25 s: peak and
@@ -24,8 +24,7 @@ import argparse, json, os, statistics, subprocess, sys, tempfile, threading, tim
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
 
-TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core",
-           "opengrid-embedded-pgo", "opengrid-server", "laravel-frankenphp", "laravel-octane", "laravel-fpm"]
+TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]  # D25: core only
 
 
 def children():
@@ -64,8 +63,6 @@ def pss_kib(pids):
 
 
 def db_root(t):
-    if t.name.startswith("opengrid-server"):
-        return t.procs[0].pid  # the SurrealDB server is started first
     return None
 
 
@@ -137,7 +134,7 @@ def main():
         emb = "" if r["db_separate"] else " (DB eingebettet)"
         print(f"| {name}{emb} | {mib(r['idle'][0])} | {mib(r['load_app_peak'])} | {mib(r['load_app_mean'])} | {mib(r['after'][0])} | "
               f"{mib(sum(r['idle']))} | {mib(r['load_all_peak'])} | {mib(r['load_all_mean'])} | {mib(sum(r['after']))} |")
-    print("\nSurrealDB-Server als eigener Prozess; SurrealKV und SQLite laufen im App-Prozess (App + DB = App).\n")
+    print("\nSQLite läuft auf beiden Seiten im App-Prozess (App + DB = App); OpenGrid enthält zusätzlich seine beim Start geöffnete eingebettete SurrealDB (Job-Poller, D25).\n")
     if a.json:
         json.dump(res, open(a.json, "w"), indent=1)
 

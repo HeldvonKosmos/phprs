@@ -29,8 +29,7 @@ import argparse, json, os, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bm2  # noqa: E402
 
-TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core",
-           "opengrid-embedded-pgo", "laravel-frankenphp", "laravel-octane", "laravel-fpm"]
+TARGETS = ["opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]  # D25: core only
 
 
 def busy(cores):

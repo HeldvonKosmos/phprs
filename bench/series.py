@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""A series of runs of bench/run_all.sh as one result: the median of every
+"""The runs of bench/run_all.sh --runs N as one result: the median of every
 measured value over the runs and, for the request rates, their range.
 
-  bench/series.py <series dir> <run dir> <run dir> ...
+  bench/series.py <result dir> <run dir> ...   (run_all.sh: <result dir>/run-<i>)
 
 Writes into <series dir> the same files a single run has, so report.py reads
 it unchanged, with medians:

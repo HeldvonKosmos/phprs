@@ -5,15 +5,13 @@ the README), so that the documents never drift apart from the measurement.
   bench/report.py <result dir> [--conc 16] [--short]
 
 Reads bm2.json (bm2.py --json) from the result directory written by
-run_all.sh and prints Markdown: the framework core (a) and the standard
-setups (b) in three labelled versions (standard; same semantics: OpenGrid
-touch1, which is what Sanctum does in effect; stricter than Laravel:
-touch0). With thesis.json (bm2.py with the logic endpoints) also the
+run_all.sh and prints Markdown: the framework core (a), raw SQL on SQLite
+on both sides (D25: SurrealDB is not measured, no standard setups). With thesis.json (bm2.py with the logic endpoints) also the
 THESIS1 curves, their crossover with the best Octane and the time split per
 point (base cost at n = 0 against the part that grows with n); with
 load.json, memory.json, coldstart.json the BENCH1 tables (many connections,
-fixed rate, memory, cold start). Both sides run on SQLite (D24); the
-database overhead is not measured separately.
+fixed rate, memory, cold start). Both sides run on SQLite; the database
+overhead is not measured separately.
 OpenGrid's PGO build leads and carries the ratios (release default,
 PERF4 b); --short leaves out the column without PGO.
 """
@@ -36,6 +34,61 @@ def ranges(d, name):
 
 def fmt(x):
     return f"{x:,.0f}".replace(",", " ")
+
+
+def run_dirs(d):
+    """The run directories of a result directory (env.txt: "series N runs: …"), else [d]."""
+    envp = os.path.join(d, "env.txt")
+    line = next((l for l in open(envp) if l.startswith("series ") and "runs:" in l), None) if os.path.exists(envp) else None
+    if not line:
+        return [d]
+    return [os.path.join(d, x) if os.path.isdir(os.path.join(d, x)) else os.path.join(os.path.dirname(os.path.normpath(d)), x) for x in line.split("runs:", 1)[1].split()]
+
+
+def disturbances(d, bm2):
+    """Everything that disturbed or limits the measurement, per run and for
+    the whole result, so that it is shown with the numbers (Jonas, 2026-10-28)."""
+    import re, collections
+    runs = run_dirs(d)
+    print("**Disturbances** — recorded during the measurement and shown with the results.\n")
+    # non-2xx per side and where
+    for label, pre in (("OpenGrid", "opengrid"), ("Laravel", "laravel")):
+        vals = [(k, v) for k, v in bm2.items() if not k.startswith("answer|") and k.split("|")[1].startswith(pre)]
+        bad, total = sum(v[3] for _, v in vals), sum(v[4] for _, v in vals)
+        where = sorted(f"{k.split('|')[1]} {k.split('|')[0]} at {k.split('|')[2]} connections: {v[3]}" for k, v in vals if v[3])
+        note = " — accepted: SQLite's write lock was not free within busy_timeout (5 s) under sustained writes" if pre == "opengrid" and bad else ""
+        print(f"- Non-2xx responses, {label}: {bad} of {fmt(total)}" + (f" ({'; '.join(where)})" if where else "") + note + ".")
+        if pre == "laravel" and bad:
+            print("- **Warning: non-2xx responses on the Laravel side; the run is not accepted as it stands.**")
+    for i, r in enumerate(runs, 1):
+        tag = f"Run {i}" if len(runs) > 1 else "Run"
+        q = os.path.join(r, "quiet.txt")
+        qtxt = open(q).read().strip() if os.path.exists(q) else "no quiet check"
+        kinds = collections.Counter()
+        ql = os.path.join(r, "quiet.log")
+        if os.path.exists(ql):
+            for line in open(ql):
+                rest = re.sub(r"^\d\d:\d\d:\d\d ", "", line.strip())
+                rest = re.sub(r"process \d+ ", "process ", rest)
+                kinds[re.sub(r": \d+ %.*$", "", rest)] += 1
+        busy = ""
+        lp = os.path.join(r, "load.json")
+        if os.path.exists(lp):
+            sat = [f"{k} {c}" for k, v in json.load(open(lp)).items() for c, x in v["closed"].items() if x.get("load_busy", 0) > 90]
+            busy = f"; load generator above 90 % busy at {len(sat)} points" + (f" ({', '.join(sat)})" if sat else "")
+        warns = []
+        for err in ("bm2.err", "thesis.err"):
+            ep = os.path.join(r, err)
+            if os.path.exists(ep):
+                warns += [l.strip() for l in open(ep) if l.startswith("WARNING")]
+        gp = os.path.join(r, "gates.txt")
+        gates_bad = [l.strip() for l in open(gp) if "steps passed" not in l and l.strip() and not l.startswith("#")] if os.path.exists(gp) else []
+        kinds_txt = ", ".join(f"{k} × {n}" for k, n in kinds.most_common(6))
+        print(f"- {tag}: quiet check {qtxt.split(' (see')[0].replace('quiet: ', '')}" + (f" ({kinds_txt})" if kinds_txt else "") + busy
+              + (f"; {len(warns)} tool warnings ({'; '.join(warns[:3])}{' …' if len(warns) > 3 else ''})" if warns else "; no tool warnings")
+              + (f"; **failed gates: {'; '.join(gates_bad)}**" if gates_bad else "") + ".")
+    print("- Findings on idle cores without a thread inside the container come from outside it (host kernel threads or host processes, not visible in the container's PID namespace).")
+    print("- SurrealDB is not measured; the OpenGrid targets still open their embedded SurrealDB at start (job poller), with no queries per request: it is part of OpenGrid's start time and memory.\n")
 
 
 def og_cols(get, endpoints, label, pgo, plain, short):
@@ -93,16 +146,13 @@ def main():
         # FrankenPHP brings its own, newer PHP: rather an advantage for Laravel
         print(f"PHP: {php}.\n")
     runs = next((l.split()[1] for l in open(envp) if l.startswith("series ") and "runs:" in l), None) if os.path.exists(envp) else None
-    if runs:
+    if runs and runs != "1":
         print(f"Median of {runs} runs of the same binaries; the range of requests per second over the runs in square brackets. Non-2xx responses are summed over the runs.\n")
-    print(f"Requests per second at {c} connections (p99 in brackets); 0 non-2xx responses unless stated.\n")
+    disturbances(a.dir, bm2)
+    print(f"Requests per second at {c} connections (p99 in brackets).\n")
     section("(a) Framework core: raw SQL on SQLite", "", ENDPOINTS, "both frameworks run exactly the same SQL statements against the same SQLite database in their own process (same library, WAL, synchronous FULL); ORM and auth are replaced by these statements on both sides on purpose", core=True)
-    section("(b) Standard setups", "", ENDPOINTS, "both sides in their default settings (OpenGrid notes a token's use at most every 60 s, Sanctum at most once a second)")
-    section("(b) Same semantics", "-touch1", ["list", "show", "create"], "OpenGrid notes a token's use at most once a second, as Sanctum does in effect")
-    section("(b) Stricter than Laravel", "-touch0", ["list", "show", "create"], "OpenGrid writes the token's use on every request")
-    errors = sum(v[3] for v in bm2.values())
-    total = sum(v[4] for v in bm2.values())
-    print(f"Non-2xx responses: {errors} of {fmt(total)} requests.\n")
+    # D25: only the framework core is measured (SQLite on both sides); the
+    # standard setups with SurrealDB and Eloquent are no longer part of it
 
     thesis(a.dir)
     bench1(a.dir)
