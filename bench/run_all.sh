@@ -167,7 +167,7 @@ trap - EXIT
 # last step: a local hook (bench/local/after-run, not in the repository, see
 # .gitignore) may process the result, e.g. update local documents; the
 # measurement is complete at this point, so a failing hook only warns
-# (RUN_ALL_HOOK=0: skipped, run_series.sh calls it once for the whole series)
+# (RUN_ALL_HOOK=0: skipped)
 if [ "${RUN_ALL_HOOK:-1}" = 1 ] && [ -x bench/local/after-run ]; then
   bench/local/after-run "$OUT" > "$OUT/after-run.log" 2>&1 || echo "run_all: bench/local/after-run failed (see $OUT/after-run.log)" >&2
 fi

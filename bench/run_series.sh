@@ -4,8 +4,8 @@
 # runs measure the very same binaries (--skip-build); every run checks the
 # conditions, gates and quiet itself (bench/run_all.sh). Then bench/series.py
 # merges the runs into ../target/bench-tmp/series-<commit>-<UTC time>/ with
-# report.md, and the local hook bench/local/after-run (if present) gets that
-# series directory once.
+# report.md. The local hook bench/local/after-run (if present) gets every
+# run's directory (run_all.sh calls it) and at the end the series directory.
 #   bench/run_series.sh [runs, default 3] [--framework-only]
 # Duration: bench/run_all.sh --plan, times the number of runs, minus the
 # builds of runs 2 and later.
@@ -28,7 +28,7 @@ DIRS=()
 for i in $(seq "$N"); do
   build=(); [ "$i" -gt 1 ] && build=(--skip-build)
   echo "$(date -u +%T) run $i of $N" | tee -a "$SERIES/series.log"
-  out=$(RUN_ALL_HOOK=0 bash bench/run_all.sh "${build[@]}" "${EXTRA[@]}" 2>&1 | tee -a "$SERIES/series.log" | sed -n 's/^run_all: results in //p' | tail -1)  || true
+  out=$(bash bench/run_all.sh "${build[@]}" "${EXTRA[@]}" 2>&1 | tee -a "$SERIES/series.log" | sed -n 's/^run_all: results in //p' | tail -1)  || true
   [ -n "$out" ] && [ -d "$out" ] || { echo "run_series: run $i failed (see $SERIES/series.log)" >&2; exit 1; }
   # the same commit for every run (run_all refuses a dirty tree)
   [ "$(git rev-parse --short HEAD)" = "$COMMIT" ] || { echo "run_series: HEAD changed during the series" >&2; exit 1; }

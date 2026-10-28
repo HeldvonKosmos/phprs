@@ -244,6 +244,12 @@ req POST /api/bench/logic/validate '{"items":[{"title":"a","priority":1,"tags":[
 check "bench logic: validate" 200 '.valid == 2'
 req POST /api/bench/logic/validate '{"items":[{"title":"a","priority":9}]}' "$BT"
 check "bench logic: validate rejects" 422 '(.errors | keys) == ["items.0.priority"]'
+# every rule of the workload broken once, one element each: the same keys on both sides
+req POST /api/bench/logic/validate '{"items":[{"priority":3},{"title":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","priority":3},{"title":"a","priority":"x"},{"title":"a","priority":6},{"title":"a","priority":1,"tags":"no"},{"title":"a","priority":1,"tags":["ok","yyyyyyyyyyyyyyyyyyyyy"]},{"title":7,"priority":2}]}' "$BT"
+printf "%s" "$BODY" > "${VALIDATE_RULES_OUT:-/dev/null}"
+check "bench logic: validate checks every rule" 422 '(.errors | keys) == ["items.0.title", "items.1.title", "items.2.priority", "items.3.priority", "items.4.tags", "items.5.tags.1", "items.6.title"]'
+req POST /api/bench/logic/validate '{}' "$BT"
+check "bench logic: validate without items" 422 '(.errors | keys) == ["items"]'
 req GET "/api/bench/logic/json?n=2" "" "$BT"
 check "bench logic: json" 200 '.count == 2 and .items[1] == {"id": 1, "name": "item 1", "tags": ["a", "b", "c"], "meta": {"created": "2026-10-27", "score": 1.5, "flags": {"x": true, "y": false}}}'
 req GET "/api/bench/logic/json" "" ""

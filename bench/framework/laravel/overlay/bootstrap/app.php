@@ -4,9 +4,9 @@ use App\Http\Controllers\HealthController;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 // Error bodies as in OpenGrid: {"error":"HttpException","message":…}; validation
@@ -27,10 +27,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AuthenticationException $e) {
             return response()->json(['error' => 'HttpException', 'message' => 'Unauthenticated.'], 401);
         });
+        // JSON for every validation error, also without "Accept: application/json"
+        // (api.sh and oha send none), in exactly Laravel's own JSON form
+        // (Handler::invalidJson: the summarised message and the errors)
         $exceptions->render(function (ValidationException $e) {
-            $errors = $e->errors();
-
-            return response()->json(['message' => reset($errors)[0], 'errors' => $errors], 422);
+            return response()->json(['message' => $e->getMessage(), 'errors' => $e->errors()], $e->status);
         });
         $exceptions->render(function (HttpExceptionInterface $e) {
             return response()->json(['error' => 'HttpException', 'message' => $e->getMessage()], $e->getStatusCode(), $e->getHeaders());
