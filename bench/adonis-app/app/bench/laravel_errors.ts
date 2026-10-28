@@ -12,6 +12,8 @@ const ORDER = [/^items$/, /^items\.\d+\.title$/, /^items\.\d+\.priority$/, /^ite
 function laravelMessage(field: string, rule: string, meta: any): string {
   switch (rule) {
     case 'required':
+    case 'array.minLength':
+    case 'minLength':
       return `The ${field} field is required.`
     case 'string':
       return `The ${field} field must be a string.`

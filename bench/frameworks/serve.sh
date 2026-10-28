@@ -29,6 +29,17 @@ case "$APP" in
     export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
     node cluster.mjs >"$LOG" 2>&1 &
     ;;
+  fastapi)
+    cd "$BENCH/fastapi-app"
+    [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh fastapi)" >&2; exit 2; }
+    case "${VARIANT:-uvicorn}" in
+      # the standard server: Uvicorn with its process manager, uvloop and httptools
+      uvicorn) .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning --no-access-log >"$LOG" 2>&1 & ;;
+      # marked variant: Granian (Rust), ASGI, the same number of workers
+      granian) .venv/bin/granian --interface asgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning app.main:app >"$LOG" 2>&1 & ;;
+      *) echo "serve: fastapi variant uvicorn or granian" >&2; exit 2;;
+    esac
+    ;;
   *) echo "serve: unknown or not yet available app $APP" >&2; exit 2;;
 esac
 pid=$!

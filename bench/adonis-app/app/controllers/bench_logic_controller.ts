@@ -6,13 +6,17 @@ import { LaravelErrorReporter } from '#bench/laravel_errors'
 
 const validator = vine.create(
   vine.object({
-    items: vine.array(
-      vine.object({
-        title: vine.string().maxLength(120),
-        priority: vine.number().withoutDecimals().range([1, 5]),
-        tags: vine.array(vine.string().maxLength(20)).optional(),
-      })
-    ),
+    // Laravel's `required` fails on an empty list too (and on "", which the
+    // body parser turns into null)
+    items: vine
+      .array(
+        vine.object({
+          title: vine.string().maxLength(120),
+          priority: vine.number().withoutDecimals().range([1, 5]),
+          tags: vine.array(vine.string().maxLength(20)).optional(),
+        })
+      )
+      .minLength(1),
   })
 )
 
