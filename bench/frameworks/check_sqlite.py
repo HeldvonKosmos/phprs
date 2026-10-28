@@ -49,7 +49,9 @@ def check(app, variant="", ref=None):
         finally:
             os.killpg(p.pid, signal.SIGTERM)
             p.wait(15)
-    ok = info["version"] == ref["version"] and sorted(info["compile_options"]) == sorted(ref["compile_options"])
+    # COMPILER=… names the compiler version only; every other option must match
+    opts = lambda o: sorted(x for x in o if not x.startswith("COMPILER="))
+    ok = info["version"] == ref["version"] and opts(info["compile_options"]) == opts(ref["compile_options"])
     return ok, info
 
 

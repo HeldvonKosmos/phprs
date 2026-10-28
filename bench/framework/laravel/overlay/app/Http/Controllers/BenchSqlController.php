@@ -22,6 +22,14 @@ class BenchSqlController
         return response()->json(['status' => 'ok']);
     }
 
+    /** The SQLite this side runs and the runtime, for the measurement header (BENCH3). */
+    public function sqlite(): JsonResponse
+    {
+        $db = DB::connection('bench_sqlite');
+        $options = array_map(fn ($row) => $row->compile_options, $db->select('PRAGMA compile_options'));
+        return response()->json(['version' => $db->select('SELECT sqlite_version() AS v')[0]->v, 'compile_options' => $options, 'runtime' => ['php' => PHP_VERSION, 'sapi' => PHP_SAPI, 'laravel' => app()->version()]]);
+    }
+
     public function login(): JsonResponse
     {
         $email = $this->request->input('email');

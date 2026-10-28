@@ -1,6 +1,7 @@
 # build output and dependencies (the Nest CLI's usual .gitignore; the app
 # was generated with --skip-git, which writes none)
 /dist
+/dist-dev
 /node_modules
 /build
 /coverage

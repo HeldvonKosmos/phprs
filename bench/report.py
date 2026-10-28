@@ -16,7 +16,10 @@ OpenGrid's PGO build leads and carries the ratios (release default,
 PERF4 b); --short leaves out the column without PGO.
 """
 
-import argparse, json, os
+import argparse, json, os, sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "framework"))
+import targets as fw  # noqa: E402
 
 ENDPOINTS = ["health", "list", "show", "create", "login"]
 
@@ -52,11 +55,13 @@ def disturbances(d, bm2):
     runs = run_dirs(d)
     print("**Disturbances** — recorded during the measurement and shown with the results.\n")
     # non-2xx per side and where
-    for label, pre in (("OpenGrid", "opengrid"), ("Laravel", "laravel")):
-        vals = [(k, v) for k, v in bm2.items() if not k.startswith("answer|") and k.split("|")[1].startswith(pre)]
+    for pre, (label, _) in fw.FRAMEWORKS.items():
+        vals = [(k, v) for k, v in bm2.items() if k.count("|") == 2 and not k.startswith(("answer|", "runtime|")) and fw.framework_of(k.split("|")[1]) == pre]
+        if not vals:
+            continue
         bad, total = sum(v[3] for _, v in vals), sum(v[4] for _, v in vals)
         where = sorted(f"{k.split('|')[1]} {k.split('|')[0]} at {k.split('|')[2]} connections: {v[3]}" for k, v in vals if v[3])
-        note = " — accepted: SQLite's write lock was not free within busy_timeout (5 s) under sustained writes" if pre == "opengrid" and bad else ""
+        note = " — accepted: SQLite's write lock was not free within busy_timeout (5 s) under sustained writes" if pre != "laravel" and bad else ""
         print(f"- Non-2xx responses, {label}: {bad} of {fmt(total)}" + (f" ({'; '.join(where)})" if where else "") + note + ".")
         if pre == "laravel" and bad:
             print("- **Warning: non-2xx responses on the Laravel side; the run is not accepted as it stands.**")
@@ -77,12 +82,12 @@ def disturbances(d, bm2):
             sat = [f"{k} {c}" for k, v in json.load(open(lp)).items() for c, x in v["closed"].items() if x.get("load_busy", 0) > 90]
             busy = f"; load generator above 90 % busy at {len(sat)} points" + (f" ({', '.join(sat)})" if sat else "")
         warns = []
-        for err in ("bm2.err", "thesis.err"):
-            ep = os.path.join(r, err)
+        import glob
+        for ep in [os.path.join(r, "bm2.err"), os.path.join(r, "thesis.err")] + sorted(glob.glob(os.path.join(r, "parts", "*.err"))):
             if os.path.exists(ep):
                 warns += [l.strip() for l in open(ep) if l.startswith("WARNING")]
         gp = os.path.join(r, "gates.txt")
-        gates_bad = [l.strip() for l in open(gp) if "steps passed" not in l and l.strip() and not l.startswith("#")] if os.path.exists(gp) else []
+        gates_bad = [l.strip() for l in open(gp) if "steps passed" not in l and l.strip() and not l.startswith(("#", "run_all: "))] if os.path.exists(gp) else []
         kinds_txt = ", ".join(f"{k} × {n}" for k, n in kinds.most_common(6))
         print(f"- {tag}: quiet check {qtxt.split(' (see')[0].replace('quiet: ', '')}" + (f" ({kinds_txt})" if kinds_txt else "") + busy
               + (f"; {len(warns)} tool warnings ({'; '.join(warns[:3])}{' …' if len(warns) > 3 else ''})" if warns else "; no tool warnings")
@@ -125,8 +130,9 @@ def main():
         if not any(get(e, t) for e in endpoints for _, t in cols):
             return
         print(f"**{title}** — {note}\n")
-        print("| Endpoint | " + " | ".join(n for n, _ in cols) + " | OpenGrid / best Octane |")
-        print("|---|" + "---:|" * (len(cols) + 1))
+        others = other_best(bm2)
+        print("| Endpoint | " + " | ".join(n for n, _ in cols) + " | OpenGrid / best Octane |" + (" OpenGrid / best other framework |" if others else ""))
+        print("|---|" + "---:|" * (len(cols) + 1 + (1 if others else 0)))
         for e in endpoints:
             cells = []
             for _, t in cols:
@@ -137,7 +143,15 @@ def main():
             octanes = [r for r in (get(e, "laravel-frankenphp-core" if core else "laravel-frankenphp"), get(e, "laravel-octane-core" if core else "laravel-octane")) if r]
             best = max(octanes, key=lambda r: r[0]) if octanes else None
             ratio = f"{emb[0] / best[0]:.1f}×" if emb and best else "–"
-            print(f"| {e} | " + " | ".join(cells) + f" | {ratio} |")
+            extra = ""
+            if others:
+                cand = [(get(e, t), t) for t in others if get(e, t)]
+                if emb and cand:
+                    r, t = max(cand, key=lambda x: x[0][0])
+                    extra = f" {emb[0] / r[0]:.2f}× ({fw.FRAMEWORKS[fw.framework_of(t)][0]}) |"
+                else:
+                    extra = " – |"
+            print(f"| {e} | " + " | ".join(cells) + f" | {ratio} |" + extra)
         print()
 
     envp = os.path.join(a.dir, "env.txt")
@@ -154,8 +168,12 @@ def main():
     # D25: only the framework core is measured (SQLite on both sides); the
     # standard setups with SurrealDB and Eloquent are no longer part of it
 
+    ranking(a.dir, bm2, rng, c)
     thesis(a.dir)
+    thesis_all(a.dir)
     bench1(a.dir)
+    runtimes(bm2)
+    deviations()
 
 
 def bench1(d):
@@ -212,8 +230,132 @@ def bench1(d):
         print("\n| Target | hot reload | to the new answer, ms (median of 3) |")
         print("|---|---|---:|")
         for t, r in cold.items():
-            print(f"| {t} | {how.get(r['reload']['how'], r['reload']['how'])} | {statistics.median(r['reload']['ms']):.0f} |")
+            if r.get("reload"):
+                print(f"| {t} | {how.get(r['reload']['how'], r['reload']['how'])} | {statistics.median(r['reload']['ms']):.0f} |")
         print()
+    hp = os.path.join(d, "hotreload.json")
+    if os.path.exists(hp):
+        hot = json.load(open(hp))
+        print("**(k) Hot reload in each framework's development mode** (BENCH3) — **development mode, not the production setup measured above**; the empty route's answer changed in the source, time until the server answers with the new code (polled every 20 ms), median (min–max) of all changes of all runs.\n")
+        print("| Framework | development mode | to the new answer, ms | without new answer | dev server ready ms |")
+        print("|---|---|---:|---:|---:|")
+        for k, r in hot.items():
+            app = k.split("|")[1]
+            t = r["ms"]
+            cell = f"{statistics.median(t):.0f} ({min(t):.0f}–{max(t):.0f})" if t else "–"
+            boot = r["boot_ms"] if isinstance(r["boot_ms"], (int, float)) else statistics.median(r["boot_ms"])
+            print(f"| {fw.FRAMEWORKS[app][0]} | {r['how']} | {cell} | {r['failed']} | {boot:.0f} |")
+        print()
+
+
+def other_best(bm2):
+    """The fastest variant (over all of bm2) of every framework other than OpenGrid and Laravel."""
+    return [fw.fastest(bm2, f) for f in fw.FRAMEWORKS if f not in ("opengrid", "laravel") and any(fw.score(bm2, t) for t, *_ in fw.FRAMEWORKS[f][1])]
+
+
+def lead_og(get_any):
+    return "opengrid-embedded-pgo-core" if get_any("opengrid-embedded-pgo-core") else "opengrid-embedded-core"
+
+
+def mark(t):
+    """Label of a target with the marks of BENCH3."""
+    f = fw.framework_of(t)
+    return fw.label(t) + (" — JIT reference" if f == fw.JIT_REFERENCE else "")
+
+
+def ranking(d, bm2, rng, c):
+    """(a') every framework per endpoint (BENCH3): its fastest variant (over
+    all endpoints of bm2), ranked by requests/s; Laravel with its best Octane
+    server; the other variants in their own table."""
+    get = lambda e, t: bm2.get(f"{e}|{t}|{c}")
+    if not other_best(bm2):
+        return
+    og = lead_og(lambda t: any(get(e, t) for e in ENDPOINTS))
+    lv = max(("laravel-frankenphp-core", "laravel-octane-core"), key=lambda t: fw.score(bm2, t))
+    cands = [og, lv] + other_best(bm2)
+    print(f"**(a') All frameworks per endpoint** (BENCH3) — raw SQL on SQLite as (a), {c} connections; per framework its fastest server variant over all endpoints (Laravel: the faster Octane server); rank by requests per second; *OpenGrid / it* is {fw.label(og)} against that framework. Spring Boot is the upper reference for a mature JIT (the JVM).\n")
+    for e in ENDPOINTS:
+        rows = sorted([(get(e, t), t) for t in cands if get(e, t)], key=lambda x: -x[0][0])
+        if not rows:
+            continue
+        ogr = get(e, og)
+        print(f"*{e}*\n")
+        print("| Rank | Framework (variant) | requests/s | p99 ms | OpenGrid / it |")
+        print("|---:|---|---:|---:|---:|")
+        for i, (r, t) in enumerate(rows, 1):
+            print(f"| {i} | {mark(t)} | {fmt(r[0])}{span(rng, f'{e}|{t}|{c}')} | {r[2]:.1f} | {'–' if t == og or not ogr else f'{ogr[0] / r[0]:.2f}×'} |")
+        print()
+    multi = [f for f in fw.FRAMEWORKS if f not in ("opengrid", "laravel") and len(fw.FRAMEWORKS[f][1]) > 1]
+    if multi:
+        print(f"**Server variants** — requests per second at {c} connections per variant (geometric mean over the endpoints in the last column); the faster one (bold) is compared above and measured in (e)–(j).\n")
+        print("| Framework | variant | " + " | ".join(ENDPOINTS) + " | geometric mean |")
+        print("|---|---|" + "---:|" * (len(ENDPOINTS) + 1))
+        for f in multi:
+            best = fw.fastest(bm2, f)
+            for t, v, *_ in fw.FRAMEWORKS[f][1]:
+                name = f"**{v}**" if t == best else v
+                print(f"| {fw.FRAMEWORKS[f][0]} | {name} | " + " | ".join(fmt(get(e, t)[0]) if get(e, t) else "–" for e in ENDPOINTS) + f" | {fmt(fw.score(bm2, t))} |")
+        print()
+
+
+def runtimes(bm2):
+    rt = {k.split("|", 1)[1]: v for k, v in bm2.items() if k.startswith("runtime|")}
+    if not rt:
+        return
+    print("**Runtimes per target** (BENCH3) — as each side reports them (`/api/bench/sql/sqlite`); every side checked against the reference SQLite 3.45.2 and its compile options before measuring.\n")
+    print("| Target | SQLite | runtime |")
+    print("|---|---|---|")
+    for t, r in rt.items():
+        print(f"| {mark(t)} | {r.get('sqlite', '?')} | {', '.join(f'{k} {v}' for k, v in r.items() if k != 'sqlite')} |")
+    print()
+
+
+def deviations():
+    """The deviations of the comparison apps and the validate rule table (bench/frameworks/DEVIATIONS.md)."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frameworks", "DEVIATIONS.md")
+    if os.path.exists(p):
+        text = open(p).read()
+        # without the file's own title
+        print(text.split("\n", 1)[1].strip() + "\n" if text.startswith("# ") else text)
+
+
+def thesis_all(d):
+    """THESIS1 for every framework (BENCH3): requests/s at 16 connections
+    per workload and n, and the fixed and per-element cost (G, k) of the
+    model total time = G + n × k, fitted to the 1-connection p50."""
+    path = os.path.join(d, "thesis.json")
+    if not os.path.exists(path):
+        return
+    t = json.load(open(path))
+    tg = sorted({k.split("|")[1] for k in t if k.count("|") == 2 and not k.startswith(("answer|", "runtime|"))}, key=lambda x: list(fw.FRAMEWORKS).index(fw.framework_of(x) or "opengrid"))
+    if not any(fw.framework_of(x) not in ("opengrid", "laravel") for x in tg):
+        return
+    get = lambda e, x, c: t.get(f"{e}|{x}|{c}")
+    print("**(e') Logic per request, all frameworks** (BENCH3) — as (e), requests per second at 16 connections; per framework its fastest variant from (a).\n")
+    for w in WORKLOADS:
+        print(f"*{w}*\n")
+        print("| Target | " + " | ".join(f"n = {n}" for n in NS) + " |")
+        print("|---|" + "---:|" * len(NS))
+        for x in tg:
+            print(f"| {mark(x)} | " + " | ".join(fmt(r[0]) if (r := get(f"{w}:{n}", x, 16)) else "–" for n in NS) + " |")
+        print()
+    print("**(f') Fixed and per-element cost** — total time per request = G + n × k, a least-squares line through the 1-connection p50 at n = 0 (validate: json with n = 0), 1, 10, 100, 1000; G in ms, k in µs per element.\n")
+    print("| Target | " + " | ".join(f"{w} G | {w} k" for w in WORKLOADS) + " |")
+    print("|---|" + "---:|---:|" * len(WORKLOADS))
+    for x in tg:
+        cells = []
+        for w in WORKLOADS:
+            pts = [(0, b[1])] if (b := get("json:0" if w == "validate" else f"{w}:0", x, 1)) else []
+            pts += [(n, r[1]) for n in NS if (r := get(f"{w}:{n}", x, 1))]
+            if len(pts) < 2:
+                cells += ["–", "–"]
+                continue
+            mx = sum(p[0] for p in pts) / len(pts)
+            my = sum(p[1] for p in pts) / len(pts)
+            k = sum((p[0] - mx) * (p[1] - my) for p in pts) / sum((p[0] - mx) ** 2 for p in pts)
+            cells += [f"{my - k * mx:.3f}", f"{k * 1000:.2f}"]
+        print(f"| {mark(x)} | " + " | ".join(cells) + " |")
+    print()
 
 
 WORKLOADS = ["hydrate", "collect", "validate", "json"]

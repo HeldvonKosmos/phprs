@@ -28,6 +28,7 @@ Route::prefix('notes')->middleware(['auth:sanctum', JsonWrites::class])->group(f
 // auth are replaced by them on both sides on purpose.
 Route::prefix('bench/sql')->group(function () {
     Route::get('/health', [BenchSqlController::class, 'health']);
+    Route::get('/sqlite', [BenchSqlController::class, 'sqlite']);
     Route::post('/login', [BenchSqlController::class, 'login']);
 });
 Route::prefix('bench/sql/notes')->middleware(BenchToken::class)->group(function () {

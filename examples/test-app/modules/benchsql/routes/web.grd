@@ -9,6 +9,7 @@ use OpenGrid\Routing\Route;
 
 Route::group(['prefix' => '/api/bench/sql'], function () {
     Route::get('/health', [BenchSqlController::class, 'health']);
+    Route::get('/sqlite', [BenchSqlController::class, 'sqlite']);
     Route::post('/login', [BenchSqlController::class, 'login']);
 });
 Route::group(['prefix' => '/api/bench/sql/notes', 'middleware' => [BenchToken::class]], function () {

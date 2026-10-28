@@ -21,7 +21,7 @@ it unchanged, with medians:
 
 import json, os, shutil, statistics, sys
 
-SUM = {"bad", "total"}
+SUM = {"bad", "total", "failed"}
 
 
 def med(values):
@@ -33,7 +33,7 @@ def merge_points(runs):
     out, rng = {}, {}
     for k in runs[0]:
         vals = [r[k] for r in runs if k in r]
-        if k.startswith("answer|"):
+        if k.startswith(("answer|", "runtime|")):
             out[k] = vals[0]
             continue
         out[k] = [med([v[0] for v in vals]), med([v[1] for v in vals]), med([v[2] for v in vals]),
@@ -81,7 +81,7 @@ def main():
     if runs:
         json.dump(merge_tree(runs), open(os.path.join(out, "load.json"), "w"), indent=1)
         json.dump(load_range(runs), open(os.path.join(out, "load.range.json"), "w"), indent=1)
-    for name in ("memory.json", "coldstart.json"):
+    for name in ("memory.json", "coldstart.json", "hotreload.json"):
         runs = [x for x in (js(d, name) for d in dirs) if x is not None]
         if runs:
             json.dump(merge_tree(runs), open(os.path.join(out, name), "w"), indent=1)
@@ -104,7 +104,7 @@ def main():
             p = os.path.join(d, "lang.md")
             if os.path.exists(p):
                 f.write(f"#### Lauf {i} ({os.path.basename(os.path.normpath(d))}, Median aus 7)\n\n" + open(p).read().rstrip("\n") + "\n\n")
-    for name in ("bm2.md", "thesis.md", "load.md", "memory.md", "coldstart.md"):
+    for name in ("bm2.md", "thesis.md", "load.md", "memory.md", "coldstart.md", "hotreload.md"):
         # the per-run tables stay in the run directories; the series has the report
         if os.path.exists(os.path.join(out, name)):
             os.remove(os.path.join(out, name))

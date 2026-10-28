@@ -4,21 +4,39 @@ type ParamValue = string | number | bigint | boolean
 
 export type ScannedRoutes = {
   ALL: {
-    'auth.new_account.store': { paramsTuple?: []; params?: {} }
-    'auth.access_tokens.store': { paramsTuple?: []; params?: {} }
-    'profile.profile.show': { paramsTuple?: []; params?: {} }
-    'profile.access_tokens.destroy': { paramsTuple?: []; params?: {} }
+    'bench_sql.health': { paramsTuple?: []; params?: {} }
+    'bench_sql.sqlite': { paramsTuple?: []; params?: {} }
+    'bench_sql.login': { paramsTuple?: []; params?: {} }
+    'bench_sql.index': { paramsTuple?: []; params?: {} }
+    'bench_sql.store': { paramsTuple?: []; params?: {} }
+    'bench_sql.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'bench_logic.hydrate': { paramsTuple?: []; params?: {} }
+    'bench_logic.collect': { paramsTuple?: []; params?: {} }
+    'bench_logic.validate': { paramsTuple?: []; params?: {} }
+    'bench_logic.json': { paramsTuple?: []; params?: {} }
   }
   GET: {
-    'profile.profile.show': { paramsTuple?: []; params?: {} }
+    'bench_sql.health': { paramsTuple?: []; params?: {} }
+    'bench_sql.sqlite': { paramsTuple?: []; params?: {} }
+    'bench_sql.index': { paramsTuple?: []; params?: {} }
+    'bench_sql.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'bench_logic.hydrate': { paramsTuple?: []; params?: {} }
+    'bench_logic.collect': { paramsTuple?: []; params?: {} }
+    'bench_logic.json': { paramsTuple?: []; params?: {} }
   }
   HEAD: {
-    'profile.profile.show': { paramsTuple?: []; params?: {} }
+    'bench_sql.health': { paramsTuple?: []; params?: {} }
+    'bench_sql.sqlite': { paramsTuple?: []; params?: {} }
+    'bench_sql.index': { paramsTuple?: []; params?: {} }
+    'bench_sql.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
+    'bench_logic.hydrate': { paramsTuple?: []; params?: {} }
+    'bench_logic.collect': { paramsTuple?: []; params?: {} }
+    'bench_logic.json': { paramsTuple?: []; params?: {} }
   }
   POST: {
-    'auth.new_account.store': { paramsTuple?: []; params?: {} }
-    'auth.access_tokens.store': { paramsTuple?: []; params?: {} }
-    'profile.access_tokens.destroy': { paramsTuple?: []; params?: {} }
+    'bench_sql.login': { paramsTuple?: []; params?: {} }
+    'bench_sql.store': { paramsTuple?: []; params?: {} }
+    'bench_logic.validate': { paramsTuple?: []; params?: {} }
   }
 }
 declare module '@adonisjs/core/types/http' {

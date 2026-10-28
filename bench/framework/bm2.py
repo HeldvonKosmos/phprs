@@ -32,11 +32,15 @@ usage: bm2.py [--targets …] [--workers 4] [--conc 1,16,64] [--duration 10] [--
 """
 import argparse, datetime, hashlib, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, time, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import targets as fw_targets  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "../.."))
 WS = os.path.abspath(os.path.join(REPO, ".."))
 TEST_APP = os.path.join(REPO, "examples/test-app")
 SERVE = os.path.join(HERE, "laravel/serve.sh")
+SERVE_FW = os.path.join(HERE, "../frameworks/serve.sh")
 LARAVEL_APP = os.environ.get("LARAVEL_APP", os.path.join(WS, "bench/laravel-app"))
 ALL_TARGETS = ["opengrid-embedded-core", "opengrid-embedded-pgo-core", "laravel-frankenphp-core", "laravel-octane-core", "laravel-fpm-core"]
 ENDPOINTS = ["health", "list", "show", "create", "login"]
@@ -157,6 +161,34 @@ def patch_config(app, workers):
 SQLITE_LIB = os.path.join(os.path.expanduser("~"), ".local/opt/sqlite-3.45.2/lib")
 
 
+_REF = None
+
+
+def sqlite_reference():
+    """Version and compile options of the reference SQLite, read through
+    PHP's PDO as the Laravel side loads it (frameworks/check_sqlite.py)."""
+    global _REF
+    if _REF is None:
+        sys.path.insert(0, os.path.join(HERE, "../frameworks"))
+        import check_sqlite
+        _REF = check_sqlite.reference()
+    return _REF
+
+
+def canonical(raw):
+    """The answer as canonical JSON: sorted keys, and integral floats as
+    integers (JavaScript has no int/float distinction: 3.0 is 3 there)."""
+    def norm(x):
+        if isinstance(x, float) and x.is_integer():
+            return int(x)
+        if isinstance(x, dict):
+            return {k: norm(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [norm(v) for v in x]
+        return x
+    return json.dumps(norm(json.loads(raw)), sort_keys=True, separators=(",", ":"))
+
+
 class Target:
     def __init__(self, name, a, work):
         self.name, self.a, self.work = name, a, work
@@ -174,6 +206,10 @@ class Target:
         if not name.endswith("-core"):
             sys.exit(f"{name}: only -core targets are measured (D25: SQLite only, SurrealDB not measured)")
         self.core = True
+        i = fw_targets.info(name)
+        if i is None:
+            sys.exit(f"{name}: unknown target (bench/framework/targets.py)")
+        self.app, self.variant = i[3], i[4]
 
     def launch(self):
         w = self.a.workers
@@ -210,8 +246,27 @@ class Target:
             # RoadRunner's RPC / FrankenPHP's admin port: a port found free, not port + 1
             env = dict(self.env, SIDE_PORT=str(free_port()))
             p = start([SERVE, mode, str(self.port), os.path.join(self.work, "run"), str(w)], self.a.app_cores, env, f"{self.work}/server.log")
+        if self.app:
+            # BENCH3: the comparison apps, started as bench/frameworks/serve.sh does
+            p = start(["bash", SERVE_FW, self.app, str(self.port), os.path.join(self.work, "run"), str(w)] + ([self.variant] if self.variant else []), self.a.app_cores, self.env, f"{self.work}/server.log")
         self.procs.append(p)
-        wait_http(self.base + "/health", p, self.name, timeout=120, log=f"{self.work}/server.log")
+        wait_http(self.base + "/health", p, self.name, timeout=300, log=f"{self.work}/server.log")
+        self.check_sqlite()
+
+    def check_sqlite(self):
+        """BENCH3: every side on the reference SQLite (version and compile
+        options); the side's runtime goes into the result's header."""
+        st, info = http("GET", self.base + "/api/bench/sql/sqlite")
+        assert st == 200, (self.name, st, info)
+        ref = sqlite_reference()
+        # COMPILER=… names the compiler version only (FrankenPHP builds its own
+        # SQLite with a newer gcc); every other option must match
+        opts = lambda o: sorted(x for x in o if not x.startswith("COMPILER="))
+        if info["version"] != ref["version"] or opts(info["compile_options"]) != opts(ref["compile_options"]):
+            diff = sorted(set(opts(info["compile_options"])) ^ set(opts(ref["compile_options"])))
+            sys.exit(f"{self.name}: SQLite {info['version']} with other compile options than the reference {ref['version']} ({diff[:6]})")
+        self.info = info
+        self.info.setdefault("runtime", {})["sqlite compiler"] = next((x[9:] for x in info["compile_options"] if x.startswith("COMPILER=")), "?")
 
     def seed(self):
         # the data comes from seed.py; the token from the core's login
@@ -301,6 +356,7 @@ def main():
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({topology(a.app_cores)}), DB-Server {a.db_cores} ({topology(a.db_cores)}), Last {a.load_cores} ({topology(a.load_cores)})"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
     results = {}
+    runtimes = {}
     answers = {}
     conc = [int(c) for c in a.conc.split(",")]
     for name in a.targets.split(","):
@@ -309,11 +365,12 @@ def main():
             try:
                 t.launch()
                 t.seed()
+                runtimes[name] = {"sqlite": t.info["version"], **t.info.get("runtime", {})}
                 for e in a.endpoints.split(","):
                     url, method, body, token = t.endpoint(e)
                     if ":" in e:
                         st, raw = http_raw(method, url, body, token)
-                        canon = json.dumps(json.loads(raw), sort_keys=True, separators=(",", ":"))
+                        canon = canonical(raw)
                         answers[(e, name)] = (st, len(raw), hashlib.sha256(canon.encode()).hexdigest()[:12])
                     for c in conc:
                         oha(url, c, a.warmup, a.load_cores, method, body, token)
@@ -341,6 +398,12 @@ def main():
                 rps, p50, p99, bad, total, inflight = results[(e, name, c)]
                 print(f"| {name} | {c} | {rps:.0f} | {p50:.2f} | {p99:.2f} | {bad} von {total} | {inflight:.1f} |")
         print()
+    print("#### Laufzeiten je Ziel (BENCH3; SQLite je Seite gegen die Referenz geprüft)\n")
+    print("| Ziel | SQLite | Laufzeit |")
+    print("|---|---|---|")
+    for name, r in runtimes.items():
+        print(f"| {name} | {r['sqlite']} | {', '.join(f'{k} {v}' for k, v in r.items() if k != 'sqlite')} |")
+    print()
     if answers:
         print("#### Antworten der Logik-Endpunkte (vor der Messung je einmal abgerufen)\n")
         print("| Endpunkt | Ziel | Status | Bytes | Hash (kanonisches JSON) |")
@@ -355,6 +418,7 @@ def main():
     if a.json:
         out = {f"{e}|{n}|{c}": v for (e, n, c), v in results.items()}
         out.update({f"answer|{e}|{n}": v for (e, n), v in answers.items()})
+        out.update({f"runtime|{n}": v for n, v in runtimes.items()})
         json.dump(out, open(a.json, "w"), indent=1)
 
 

@@ -5,7 +5,9 @@
 # application cores with taskset; every app is set to that many workers.
 #
 #   serve.sh <app> <port> <workdir> [workers] [variant]
-#   app: adonis | nest | next | rails | django | fastapi | spring | phoenix
+#   app: adonis | nest | next | rails | django | fastapi | spring | dotnet | phoenix
+#   variant dev: the framework's own development mode with its code
+#   reloading (for bench/frameworks/hotreload.py; workers ignored)
 #
 # Database: BENCH_SQLITE_DATABASE (the seeded benchmark file); the SQLite
 # 3.45.2 of all targets comes through LD_LIBRARY_PATH (bm2.py) or, for
@@ -29,6 +31,63 @@ unset DATABASE_URL DATABASE_URL_PG
 # system's libsqlite3 (CPython, .NET) find it here first; the others have it
 # compiled in from the same source (Node) or linked with an rpath (Ruby, Java)
 export LD_LIBRARY_PATH=$OPT/sqlite-3.45.2/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+if [ "$VARIANT" = dev ]; then
+  # BENCH3: the development mode each framework documents, with its reloading
+  case "$APP" in
+    adonis)
+      cd "$BENCH/adonis-app"
+      export NODE_ENV=development PORT HOST=127.0.0.1 LOG_LEVEL=warn SESSION_DRIVER=cookie APP_URL=http://127.0.0.1:$PORT
+      export APP_KEY=${APP_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}
+      node ace serve --hmr >"$LOG" 2>&1 & ;;
+    nest)
+      # tsc in watch mode into its own directory (dist-dev, the production
+      # build in dist stays), the app restarted on change
+      cd "$BENCH/nest-app"
+      export NODE_ENV=development PORT
+      node node_modules/@nestjs/cli/bin/nest.js start --watch --preserveWatchOutput --path tsconfig.dev.json >"$LOG" 2>&1 & ;;
+    next)
+      cd "$BENCH/next-app"
+      export NODE_ENV=development
+      node node_modules/next/dist/bin/next dev -p "$PORT" -H 127.0.0.1 >"$LOG" 2>&1 & ;;
+    rails)
+      # development: classes reloaded on the next request after a change; one Puma process
+      cd "$BENCH/rails-app"
+      export RAILS_ENV=development WEB_CONCURRENCY=0 PORT
+      bundle exec puma -C config/puma.rb -b "tcp://127.0.0.1:$PORT" >"$LOG" 2>&1 & ;;
+    django)
+      cd "$BENCH/django-app"
+      export DJANGO_SETTINGS_MODULE=benchsite.settings DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')}
+      .venv/bin/python manage.py runserver "127.0.0.1:$PORT" >"$LOG" 2>&1 & ;;
+    fastapi)
+      cd "$BENCH/fastapi-app"
+      .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port "$PORT" --log-level warning >"$LOG" 2>&1 & ;;
+    spring)
+      # Spring Boot devtools: restart when the classes change; Gradle's
+      # continuous build compiles a changed source (as the docs suggest for bootRun)
+      cd "$BENCH/spring-app"
+      export JAVA_HOME=$OPT/jdk-25.0.5+8
+      export JAVA_TOOL_OPTIONS="-Dorg.sqlite.lib.path=$PWD/native -Dorg.sqlite.lib.name=libsqlitejdbc.so"
+      ./gradlew -q --no-daemon --continuous classes >"$W/gradle-continuous.log" 2>&1 &
+      ./gradlew -q --no-daemon bootRun --args="--server.port=$PORT" >"$LOG" 2>&1 & ;;
+    dotnet)
+      cd "$BENCH/dotnet-app"
+      export DOTNET_ROOT=$OPT/dotnet-10.0.403 DOTNET_NOLOGO=1 DOTNET_WATCH_SUPPRESS_EMOJIS=1 DOTNET_WATCH_RESTART_ON_RUDE_EDIT=1 ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS="http://127.0.0.1:$PORT"
+      "$DOTNET_ROOT/dotnet" watch run --non-interactive --no-launch-profile >"$LOG" 2>&1 & ;;
+    phoenix)
+      cd "$BENCH/phoenix-app"
+      export MIX_ENV=dev PORT MIX_HOME=$OPT/mix HEX_HOME=$OPT/hex EXQLITE_USE_SYSTEM=1 EXQLITE_SYSTEM_CFLAGS="-I$OPT/sqlite-3.45.2/include" EXQLITE_SYSTEM_LDFLAGS="-L$OPT/sqlite-3.45.2/lib -Wl,-rpath,$OPT/sqlite-3.45.2/lib -lsqlite3"
+      mix phx.server >"$LOG" 2>&1 & ;;
+    *) echo "serve: no development mode for $APP" >&2; exit 2;;
+  esac
+  pid=$!
+  trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null; exit 0' TERM INT
+  rc=0
+  wait "$pid" || rc=$?
+  echo "serve: $APP (dev) ended with exit code $rc" >&2
+  [ -s "$LOG" ] && { echo "--- $LOG (end)" >&2; tail -n 20 "$LOG" >&2; }
+  exit $(( rc == 0 ? 1 : rc ))
+fi
 
 case "$APP" in
   adonis)

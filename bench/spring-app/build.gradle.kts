@@ -32,4 +32,6 @@ dependencies {
 	implementation("org.xerial:sqlite-jdbc:3.45.2.0")
 	// BCryptPasswordEncoder only (no Spring Security filter chain)
 	implementation("org.springframework.security:spring-security-crypto")
+	// development mode only (hot reload, bench/frameworks/hotreload.py); not in the boot jar
+	developmentOnly("org.springframework.boot:spring-boot-devtools")
 }

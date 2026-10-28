@@ -14,7 +14,9 @@ stays):
   opcache revalidation (opcache defaults: validate_timestamps=1,
   revalidate_freq=2), Octane (RoadRunner, FrankenPHP) through
   `php artisan octane:reload`, since they watch no files without --watch
-  and Node. The file is restored afterwards.
+  and Node. The file is restored afterwards. The comparison apps (BENCH3)
+  are measured in production mode here; their hot reload is measured in
+  each framework's development mode by bench/frameworks/hotreload.py.
 
   coldstart.py [--targets …] [--runs 5] [--workers 4,16] [--endpoint show] [--warm 50] [--json FILE]
 """
@@ -95,7 +97,10 @@ def main():
                         starts, firsts, warms = [], [], []
                         for _ in range(a.runs):
                             bm2.stop(t.procs.pop())
-                            if laravel:
+                            if t.app:
+                                # bench/frameworks/serve.sh <app> <port> <dir> <workers> [variant]
+                                c, e = cmd[:5] + [str(w)] + cmd[6:], env
+                            elif laravel:
                                 c = cmd[:-1] + [str(w)]
                                 e = dict(env, SERVE_CACHES=caches)
                             else:
@@ -119,6 +124,8 @@ def main():
                         key = f"{w}|{caches}"
                         r["start"][key], r["first"][key], r["warm"][key] = starts, firsts, warms
                         print(f"  {name:<26} workers {w:<2} caches {caches:<4} start {statistics.median(starts):6.0f} ms  first {statistics.median(firsts):6.2f} ms  warm {statistics.median(warms):5.2f} ms", file=sys.stderr)
+                if t.app:
+                    continue
                 # hot reload, with the first worker count; restore the caches first (Laravel)
                 w = a.workers_list[0]
                 bm2.stop(t.procs.pop())
@@ -172,6 +179,8 @@ def main():
     print("\n| Ziel | Hot-Reload | bis zur neuen Antwort ms (Median aus 3) |")
     print("|---|---|---:|")
     for name, r in res.items():
+        if not r["reload"]:
+            continue
         print(f"| {name} | {r['reload']['how']} | {med(r['reload']['ms'])} ({min(r['reload']['ms']):.0f}–{max(r['reload']['ms']):.0f}) |")
     print()
     if a.json:

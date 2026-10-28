@@ -2,20 +2,18 @@
 import type { routes } from './index.ts'
 
 export interface ApiDefinition {
-  auth: {
-    newAccount: {
-      store: typeof routes['auth.new_account.store']
-    }
-    accessTokens: {
-      store: typeof routes['auth.access_tokens.store']
-    }
+  benchSql: {
+    health: typeof routes['bench_sql.health']
+    sqlite: typeof routes['bench_sql.sqlite']
+    login: typeof routes['bench_sql.login']
+    index: typeof routes['bench_sql.index']
+    store: typeof routes['bench_sql.store']
+    show: typeof routes['bench_sql.show']
   }
-  profile: {
-    profile: {
-      show: typeof routes['profile.profile.show']
-    }
-    accessTokens: {
-      destroy: typeof routes['profile.access_tokens.destroy']
-    }
+  benchLogic: {
+    hydrate: typeof routes['bench_logic.hydrate']
+    collect: typeof routes['bench_logic.collect']
+    validate: typeof routes['bench_logic.validate']
+    json: typeof routes['bench_logic.json']
   }
 }
