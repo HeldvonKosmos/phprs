@@ -1,0 +1,16 @@
+# the usual Rails .gitignore (the app was generated with --skip-git)
+/.bundle
+/log/*
+!/log/.keep
+/tmp/*
+!/tmp/.keep
+/tmp/pids/*
+!/tmp/pids/.keep
+/storage/*
+!/storage/.keep
+/config/master.key
+/config/credentials/*.key
+/config/credentials.yml.enc
+.env*
+# BENCH3: installed gems
+/vendor/bundle

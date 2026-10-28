@@ -22,6 +22,9 @@ mkdir -p "$W"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 NEXT_TELEMETRY_DISABLED=1
 export PATH=$OPT/node-24.22.1/bin:$OPT/ruby-4.0.9/bin:$OPT/python-3.15.2/bin:$OPT/jdk-25.0.5+8/bin:$OPT/otp-29.1.2/bin:$OPT/elixir-1.20.4/bin:$PATH
 LOG=$W/server.log
+# the app's database is BENCH_SQLITE_DATABASE only; the container's
+# DATABASE_URL (Loco's) would override e.g. Rails' database.yml
+unset DATABASE_URL DATABASE_URL_PG
 
 case "$APP" in
   adonis)
@@ -44,6 +47,15 @@ case "$APP" in
     [ -f .next/BUILD_ID ] || { echo "serve: build the app first (bench/frameworks/setup.sh next)" >&2; exit 2; }
     export NODE_ENV=production PORT WORKERS=$N NEXT_TELEMETRY_DISABLED=1
     node cluster.mjs >"$LOG" 2>&1 &
+    ;;
+  rails)
+    cd "$BENCH/rails-app"
+    [ -d vendor/bundle ] || { echo "serve: set the app up first (bench/frameworks/setup.sh rails)" >&2; exit 2; }
+    # Puma with N workers; 3 threads per worker is the Rails default, 1 thread a marked variant
+    case "${VARIANT:-threads3}" in threads3) export RAILS_MAX_THREADS=3;; threads1) export RAILS_MAX_THREADS=1;; *) echo "serve: rails variant threads3 or threads1" >&2; exit 2;; esac
+    export RAILS_ENV=production WEB_CONCURRENCY=$N PORT RAILS_LOG_LEVEL=warn
+    export SECRET_KEY_BASE=${SECRET_KEY_BASE:-$(python3 -c 'import secrets; print(secrets.token_hex(64))')}
+    bundle exec puma -C config/puma.rb -b "tcp://127.0.0.1:$PORT" >"$LOG" 2>&1 &
     ;;
   fastapi)
     cd "$BENCH/fastapi-app"
