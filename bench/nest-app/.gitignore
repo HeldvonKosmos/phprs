@@ -1,0 +1,9 @@
+# build output and dependencies (the Nest CLI's usual .gitignore; the app
+# was generated with --skip-git, which writes none)
+/dist
+/node_modules
+/build
+/coverage
+.env
+npm-debug.log*
+*.tsbuildinfo
