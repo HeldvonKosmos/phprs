@@ -90,6 +90,16 @@ def health(request):
     return JsonResponse({"status": "ok"})
 
 
+def sqlite_info(request):
+    """The SQLite this side runs and the runtime, for the header."""
+    import os
+    import sys
+
+    import django
+    return JsonResponse({"version": rows("select sqlite_version() AS v", [])[0]["v"], "compile_options": [r["compile_options"] for r in rows("pragma compile_options", [])],
+                         "runtime": {"python": sys.version.split()[0], "django": django.get_version(), "server": os.environ.get("BENCH_SERVER", "gunicorn")}})
+
+
 @csrf_exempt
 def login(request):
     data = body(request)

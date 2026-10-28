@@ -82,6 +82,15 @@ def sql_health():
     return {"status": "ok"}
 
 
+@app.get("/api/bench/sql/sqlite")
+def sqlite_info():
+    """The SQLite this side runs and the runtime, for the header."""
+    import sys
+    c = conn()
+    return {"version": c.execute("select sqlite_version()").fetchone()[0], "compile_options": [r[0] for r in c.execute("pragma compile_options")],
+            "runtime": {"python": sys.version.split()[0], "server": os.environ.get("BENCH_SERVER", "uvicorn")}}
+
+
 @app.post("/api/bench/sql/login")
 async def login(request: Request):
     data = await request.json()

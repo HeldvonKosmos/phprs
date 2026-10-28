@@ -13,6 +13,14 @@ export default class BenchSqlController {
     return response.json({ status: 'ok' })
   }
 
+  /** The SQLite this side runs and the runtime, for the header. */
+  async sqlite({ response }: HttpContext) {
+    const conn = db.connection('bench')
+    const version = ((await conn.rawQuery('select sqlite_version() AS v')) as any[])[0].v
+    const options = ((await conn.rawQuery('pragma compile_options')) as any[]).map((r) => r.compile_options)
+    return response.json({ version, compile_options: options, runtime: { node: process.versions.node, workers: Number(process.env.WORKERS ?? 4) } })
+  }
+
   async login({ request, response }: HttpContext) {
     const email = request.input('email')
     const password = request.input('password')

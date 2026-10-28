@@ -7,6 +7,7 @@ from bench import views
 urlpatterns = [
     path("health", views.health),
     path("api/bench/sql/health", views.health),
+    path("api/bench/sql/sqlite", views.sqlite_info),
     path("api/bench/sql/login", views.login),
     path("api/bench/sql/notes", views.notes),
     path("api/bench/sql/notes/<str:note_id>", views.show),

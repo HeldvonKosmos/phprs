@@ -20,6 +20,7 @@ router.get('/health', () => ({ status: 'ok' }))
 router
   .group(() => {
     router.get('/health', [BenchSqlController, 'health'])
+    router.get('/sqlite', [BenchSqlController, 'sqlite'])
     router.post('/login', [BenchSqlController, 'login'])
   })
   .prefix('/api/bench/sql')

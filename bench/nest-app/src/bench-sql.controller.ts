@@ -21,6 +21,12 @@ export class BenchSqlController {
     return { status: 'ok' }
   }
 
+  /** The SQLite this side runs and the runtime, for the header. */
+  @Get('sqlite')
+  sqlite() {
+    return { version: this.db.select('select sqlite_version() AS v')[0].v, compile_options: this.db.select('pragma compile_options').map((r) => r.compile_options), runtime: { node: process.versions.node, adapter: process.env.NEST_ADAPTER ?? 'express' } }
+  }
+
   @Post('login')
   @HttpCode(200)
   async login(@Body() body: any) {

@@ -25,6 +25,10 @@ LOG=$W/server.log
 # the app's database is BENCH_SQLITE_DATABASE only; the container's
 # DATABASE_URL (Loco's) would override e.g. Rails' database.yml
 unset DATABASE_URL DATABASE_URL_PG
+# every side runs the benchmark's SQLite 3.45.2: drivers that load the
+# system's libsqlite3 (CPython, .NET) find it here first; the others have it
+# compiled in from the same source (Node) or linked with an rpath (Ruby, Java)
+export LD_LIBRARY_PATH=$OPT/sqlite-3.45.2/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
 case "$APP" in
   adonis)
@@ -69,14 +73,21 @@ case "$APP" in
       -Dorg.sqlite.lib.path="$PWD/native" -Dorg.sqlite.lib.name=libsqlitejdbc.so -Dspring.threads.virtual.enabled=$VT \
       -jar "$JAR" --server.port="$PORT" >"$LOG" 2>&1 &
     ;;
+  dotnet)
+    cd "$BENCH/dotnet-app"
+    [ -f out/DotnetApp.dll ] || { echo "serve: build the app first (bench/frameworks/setup.sh dotnet)" >&2; exit 2; }
+    # Kestrel, one process limited to N cores; the system's libsqlite3 (3.45.2)
+    export DOTNET_ROOT=$OPT/dotnet-10.0.403 DOTNET_PROCESSOR_COUNT=$N DOTNET_NOLOGO=1 ASPNETCORE_URLS="http://127.0.0.1:$PORT" ASPNETCORE_ENVIRONMENT=Production
+    "$DOTNET_ROOT/dotnet" out/DotnetApp.dll >"$LOG" 2>&1 &
+    ;;
   fastapi)
     cd "$BENCH/fastapi-app"
     [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh fastapi)" >&2; exit 2; }
     case "${VARIANT:-uvicorn}" in
       # the standard server: Uvicorn with its process manager, uvloop and httptools
-      uvicorn) .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning --no-access-log >"$LOG" 2>&1 & ;;
+      uvicorn) export BENCH_SERVER=uvicorn; .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning --no-access-log >"$LOG" 2>&1 & ;;
       # marked variant: Granian (Rust), ASGI, the same number of workers
-      granian) .venv/bin/granian --interface asgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning app.main:app >"$LOG" 2>&1 & ;;
+      granian) export BENCH_SERVER=granian; .venv/bin/granian --interface asgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning app.main:app >"$LOG" 2>&1 & ;;
       *) echo "serve: fastapi variant uvicorn or granian" >&2; exit 2;;
     esac
     ;;
@@ -86,9 +97,9 @@ case "$APP" in
     export DJANGO_SETTINGS_MODULE=benchsite.settings DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')}
     case "${VARIANT:-gunicorn}" in
       # the standard server: Gunicorn with sync workers
-      gunicorn) .venv/bin/gunicorn benchsite.wsgi -w "$N" -b "127.0.0.1:$PORT" --log-level warning >"$LOG" 2>&1 & ;;
+      gunicorn) export BENCH_SERVER=gunicorn; .venv/bin/gunicorn benchsite.wsgi -w "$N" -b "127.0.0.1:$PORT" --log-level warning >"$LOG" 2>&1 & ;;
       # marked variant: Granian (Rust), WSGI, the same number of workers
-      granian) .venv/bin/granian --interface wsgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning benchsite.wsgi:application >"$LOG" 2>&1 & ;;
+      granian) export BENCH_SERVER=granian; .venv/bin/granian --interface wsgi --host 127.0.0.1 --port "$PORT" --workers "$N" --log-level warning benchsite.wsgi:application >"$LOG" 2>&1 & ;;
       *) echo "serve: django variant gunicorn or granian" >&2; exit 2;;
     esac
     ;;

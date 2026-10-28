@@ -54,5 +54,5 @@ export function logicRows(user: BenchUser, n: number): any[] {
 
 export function sqliteInfo() {
   const c = conn()
-  return { version: (c.prepare('select sqlite_version() AS v').get() as any).v, compile_options: c.prepare('pragma compile_options').all().map((r: any) => r.compile_options) }
+  return { version: (c.prepare('select sqlite_version() AS v').get() as any).v, compile_options: c.prepare('pragma compile_options').all().map((r: any) => r.compile_options), runtime: { node: process.versions.node, workers: Number(process.env.WORKERS ?? 4) } }
 }
