@@ -343,7 +343,9 @@ def main():
     gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
     print(f"Governor {gov} · ", end="")
     print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on, PERF4 d)' if a.opengrid_jit else 'aus (Standard, D9)'} · ", end="")
-    print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}"
+    # which PHP runs which target (FrankenPHP brings its own, newer PHP)
+    fp_php = re.search(r"\bPHP (\d\S*)", sh([fp_bin, "version"])).group(1) if os.path.exists(fp_bin) else "–"
+    print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {sh(['php', '-r', 'echo PHP_VERSION;'])} für FPM und RoadRunner, PHP {fp_php} in FrankenPHP (eigener Build)"
           f" · {laravel} (Datenbank: {'Plattformschicht SurrealDB' if platform_db else 'SQLite'}) · SurrealDB {sh(['surreal', 'version']).split()[0]}"
           f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({topology(a.app_cores)}), DB-Server {a.db_cores} ({topology(a.db_cores)}), Last {a.load_cores} ({topology(a.load_cores)})"
           f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
