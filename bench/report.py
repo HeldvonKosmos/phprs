@@ -173,6 +173,7 @@ def main():
     thesis(a.dir)
     thesis_all(a.dir)
     bench1(a.dir)
+    warmcurve(a.dir)
     runtimes(bm2)
     deviations()
 
@@ -296,6 +297,62 @@ def ranking(d, bm2, rng, c):
             for t, v, *_ in fw.FRAMEWORKS[f][1]:
                 name = f"**{v}**" if t == best else v
                 print(f"| {fw.FRAMEWORKS[f][0]} | {name} | " + " | ".join(fmt(get(e, t)[0]) if get(e, t) else "–" for e in ENDPOINTS) + f" | {fmt(fw.score(bm2, t))} |")
+        print()
+
+
+CURVE_MARKS = [1, 2, 3, 5, 10, 20, 30, 45, 60]
+# one colour per framework, in the order of targets.FRAMEWORKS
+CURVE_COLORS = ["#d62728", "#7f7f7f", "#1f77b4", "#17becf", "#bcbd22", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2"]
+
+
+def curve_svg(path, title, series):
+    """A line chart of requests/s as a share of each target's steady rate over time."""
+    w, h, l, r, t, b = 760, 380, 56, 210, 34, 40
+    tmax = max(len(pts) for _, pts, _ in series)
+    ymax = max(110, max((p for _, pts, _ in series for p in pts), default=100))
+    X = lambda i: l + (w - l - r) * i / max(1, tmax)
+    Y = lambda v: t + (h - t - b) * (1 - v / ymax)
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" font-family="sans-serif" font-size="12">',
+           f'<rect width="{w}" height="{h}" fill="#ffffff"/>', f'<text x="{l}" y="20" font-size="14" font-weight="bold">{title}</text>']
+    for v in range(0, int(ymax) + 1, 20):
+        out.append(f'<line x1="{l}" x2="{w - r}" y1="{Y(v):.1f}" y2="{Y(v):.1f}" stroke="{"#999" if v == 100 else "#e5e5e5"}"/>')
+        out.append(f'<text x="{l - 6}" y="{Y(v) + 4:.1f}" text-anchor="end" fill="#555">{v} %</text>')
+    for sec in range(0, tmax + 1, 10):
+        out.append(f'<text x="{X(sec):.1f}" y="{h - b + 16}" text-anchor="middle" fill="#555">{sec} s</text>')
+    for k, (name, pts, color) in enumerate(series):
+        d = " ".join(f"{X(i + 1):.1f},{Y(v):.1f}" for i, v in enumerate(pts))
+        out.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{d}"/>')
+        out.append(f'<line x1="{w - r + 14}" x2="{w - r + 34}" y1="{t + 8 + k * 18}" y2="{t + 8 + k * 18}" stroke="{color}" stroke-width="3"/>')
+        out.append(f'<text x="{w - r + 40}" y="{t + 12 + k * 18}">{name}</text>')
+    out.append("</svg>")
+    open(path, "w").write("\n".join(out))
+
+
+def warmcurve(d):
+    """(l) Warm-up curves (warmcurve.py): requests/s over time after a cold start."""
+    p = os.path.join(d, "warmcurve.json")
+    if not os.path.exists(p):
+        return
+    cv = json.load(open(p))
+    order = list(fw.FRAMEWORKS)
+    tgs = sorted({k.split("|")[1] for k in cv}, key=lambda x: order.index(fw.framework_of(x) or "opengrid"))
+    for e in sorted({k.split("|")[0] for k in cv}):
+        rows = [(x, cv[f"{e}|{x}"]) for x in tgs if f"{e}|{x}" in cv]
+        n = min(len(r["points"]) for _, r in rows)
+        marks = [m for m in CURVE_MARKS if m <= n]
+        print(f"**(l) Warm-up curve, `{e}`** (BENCH3) — a freshly started server under constant load (16 connections, no warm-up); requests per second in each second as a share of the target's steady rate (median of the last 10 s), so a runtime that optimises while it runs (JIT) starts low and climbs; *warm from* = the first second from which the 3-s mean no longer falls below 90 % / 97 % of the steady rate. Spring Boot is the JIT reference.\n")
+        svg = f"warmcurve-{e.replace(':', '-')}.svg"
+        colors = {f: CURVE_COLORS[i % len(CURVE_COLORS)] for i, f in enumerate(order)}
+        curve_svg(os.path.join(d, svg), f"Warm-up after a cold start: {e} (share of steady requests/s)",
+                  [(fw.label(x), [100 * pt["rps"] / r["steady"] if r["steady"] else 0 for pt in r["points"]], colors[fw.framework_of(x) or "opengrid"]) for x, r in rows])
+        print(f"![Warm-up curve {e}]({svg})\n")
+        print("| Target | " + " | ".join(f"{m} s" for m in marks) + " | steady req/s | warm 90 % from | warm 97 % from |")
+        print("|---|" + "---:|" * (len(marks) + 3))
+        for x, r in rows:
+            share = lambda m: f"{100 * r['points'][m - 1]['rps'] / r['steady']:.0f} %" if r["steady"] else "–"
+            ws = lambda v: "–" if v is None else f"{v:g} s"
+            rng_s = f" [{fmt(r['range_steady'][0])}–{fmt(r['range_steady'][1])}]" if "range_steady" in r else ""
+            print(f"| {mark(x)} | " + " | ".join(share(m) for m in marks) + f" | {fmt(r['steady'])}{rng_s} | {ws(r['warm90'])} | {ws(r['warm97'])} |")
         print()
 
 

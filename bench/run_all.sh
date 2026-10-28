@@ -33,7 +33,8 @@
 #            default all: opengrid laravel adonis nest next rails django
 #            fastapi spring dotnet phoenix)
 # Stages per framework (BENCH3): gates:<fw>, bm2:<fw>, thesis:<fw>, load:<fw>,
-# memory:<fw>, coldstart:<fw>, plus lang, sqlite (every comparison app on the
+# curve:<fw> (warm-up curve after a cold start), memory:<fw>, coldstart:<fw>,
+# plus lang, sqlite (every comparison app on the
 # reference SQLite, else abort), warmcheck (once per series: the warm-up all
 # sides get, warmup.txt), hotreload (each framework's development mode) and
 # report. bm2 measures every server variant; thesis, load, memory and
@@ -177,9 +178,9 @@ stage() {
 # --smoke: short durations for every tool (BENCH2), the same targets and endpoints
 if [ "$SMOKE" = 1 ]; then
   LANG_ARGS=(--runs 1); BM2_ARGS=(--duration 1); LOAD_ARGS=(--duration 1 --spike-total 4 --spike-at 1 --spike-len 2)
-  MEM_ARGS=(--duration 2 --requests 1000); COLD_ARGS=(--runs 1 --warm 20); WARM_ARGS=(--window 1 --steps 1 --endpoints list); HOT_ARGS=(--runs 1)
+  MEM_ARGS=(--duration 2 --requests 1000); COLD_ARGS=(--runs 1 --warm 20); WARM_ARGS=(--window 1 --steps 1 --endpoints list); HOT_ARGS=(--runs 1); CURVE_ARGS=(--duration 5 --steady 2)
 else
-  LANG_ARGS=(--runs 7); BM2_ARGS=(); LOAD_ARGS=(); MEM_ARGS=(); COLD_ARGS=(); WARM_ARGS=(); HOT_ARGS=()
+  LANG_ARGS=(--runs 7); BM2_ARGS=(); LOAD_ARGS=(); MEM_ARGS=(); COLD_ARGS=(); WARM_ARGS=(); HOT_ARGS=(); CURVE_ARGS=()
 fi
 
 # binaries from HEAD (never in parallel: PGO builds need the memory)
@@ -292,6 +293,11 @@ measure_run() {
   for fw in $FRAMEWORKS; do
     done_stage "load:$fw" || stage "load:$fw" python3 bench/framework/load.py "${LOAD_ARGS[@]}" --warmup "$warm" --targets "$(targets_of "$fw" load)" --json "$RUN/parts/load-$fw.json" > "$RUN/parts/load-$fw.md" 2> "$RUN/parts/load-$fw.err"
   done
+  # warm-up curve (Jonas, 28.10.): how each runtime gets faster after a cold
+  # start, a fresh server under constant load without warm-up
+  for fw in $FRAMEWORKS; do
+    done_stage "curve:$fw" || stage "curve:$fw" python3 bench/framework/warmcurve.py "${CURVE_ARGS[@]}" --targets "$(targets_of "$fw" load)" --json "$RUN/parts/warmcurve-$fw.json" > "$RUN/parts/warmcurve-$fw.md" 2> "$RUN/parts/warmcurve-$fw.err"
+  done
   for fw in $FRAMEWORKS; do
     done_stage "memory:$fw" || stage "memory:$fw" python3 bench/framework/memory.py "${MEM_ARGS[@]}" --targets "$(targets_of "$fw" memory)" --json "$RUN/parts/memory-$fw.json" > "$RUN/parts/memory-$fw.md" 2> "$RUN/parts/memory-$fw.err"
   done
@@ -302,7 +308,7 @@ measure_run() {
     case $fw in opengrid|laravel) continue;; esac  # their reload is part of coldstart
     done_stage "hotreload:$fw" || stage "hotreload:$fw" python3 bench/frameworks/hotreload.py "${HOT_ARGS[@]}" --apps "$fw" --json "$RUN/parts/hotreload-$fw.json" > "$RUN/parts/hotreload-$fw.md" 2> "$RUN/parts/hotreload-$fw.err"
   done
-  python3 bench/framework/merge_parts.py "$RUN" load memory coldstart hotreload
+  python3 bench/framework/merge_parts.py "$RUN" load warmcurve memory coldstart hotreload
   cp "$OUT/warmcheck.md" "$OUT/warmup.txt" "$RUN/" 2>/dev/null || true
   done_stage report || stage report python3 bench/report.py "$RUN" > "$RUN/report.md"
   kill -TERM $QUIET; wait $QUIET || true

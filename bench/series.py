@@ -12,6 +12,8 @@ it unchanged, with medians:
 - load.json: median of every number (failures and requests summed);
   load.range.json: [min, max] of the closed-loop requests/s and capacity;
 - memory.json: median of every number;
+- warmcurve.json: per bin the median of requests/s, p50, p99 over the
+  runs, and the median of the steady rate and the times to warm;
 - coldstart.json: the start, first-request and warm times of all runs
   pooled (the report takes their median); hot reload likewise;
 - env.txt of the first run plus the list of runs, stages.txt and gates.txt
@@ -81,6 +83,19 @@ def main():
     if runs:
         json.dump(merge_tree(runs), open(os.path.join(out, "load.json"), "w"), indent=1)
         json.dump(load_range(runs), open(os.path.join(out, "load.range.json"), "w"), indent=1)
+    # warm-up curves: per bin the median over the runs; the derived values too
+    runs = [x for x in (js(d, "warmcurve.json") for d in dirs) if x is not None]
+    if runs:
+        out_c = {}
+        for k in runs[0]:
+            vals = [r[k] for r in runs if k in r]
+            n = min(len(v["points"]) for v in vals)
+            pts = [{q: (med([v["points"][i][q] for v in vals if v["points"][i][q] is not None]) if any(v["points"][i][q] is not None for v in vals) else None) for q in ("rps", "p50", "p99")} for i in range(n)]
+            nn = lambda q: [v[q] for v in vals if v[q] is not None]
+            out_c[k] = {"points": pts, "bad": sum(v["bad"] for v in vals), "steady": med([v["steady"] for v in vals]), "first": med([v["first"] for v in vals]),
+                        "warm90": med(nn("warm90")) if nn("warm90") else None, "warm97": med(nn("warm97")) if nn("warm97") else None,
+                        "range_steady": [min(v["steady"] for v in vals), max(v["steady"] for v in vals)]}
+        json.dump(out_c, open(os.path.join(out, "warmcurve.json"), "w"), indent=1)
     for name in ("memory.json", "coldstart.json", "hotreload.json"):
         runs = [x for x in (js(d, name) for d in dirs) if x is not None]
         if runs:
@@ -104,7 +119,7 @@ def main():
             p = os.path.join(d, "lang.md")
             if os.path.exists(p):
                 f.write(f"#### Lauf {i} ({os.path.basename(os.path.normpath(d))}, Median aus 7)\n\n" + open(p).read().rstrip("\n") + "\n\n")
-    for name in ("bm2.md", "thesis.md", "load.md", "memory.md", "coldstart.md", "hotreload.md"):
+    for name in ("bm2.md", "thesis.md", "load.md", "memory.md", "coldstart.md", "hotreload.md", "warmcurve.md"):
         # the per-run tables stay in the run directories; the series has the report
         if os.path.exists(os.path.join(out, name)):
             os.remove(os.path.join(out, name))

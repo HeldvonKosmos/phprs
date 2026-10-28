@@ -45,6 +45,8 @@ def stages(a, warm):
     lt, le = per("load"), 2
     one = 3 * point + 4 * point + (6 if a.smoke else 19)
     rows.append(("load", f"(g/h) Gleichzeitigkeit/offene Last: {lt} Ziele × {le} Endpunkte × (3 geschlossen + 4 Stufen + Spitze)", lt * le * one + lt * SETUP_S))
+    cv = per("load")
+    rows.append(("curve", f"Aufwärmkurve: {cv} Ziele × 2 Endpunkte, frischer Server, 60 s Last ohne Aufwärmen, Anfragen je Sekunde", cv * 2 * (SETUP_S + (5 if a.smoke else 60) + 2)))
     m = per("memory")
     rows.append(("memory", f"Speicher PSS: {m} Ziele (Ruhe, Last, nach 10 000 Anfragen; Spring mit festem Heap)", m * (SETUP_S + (8 if a.smoke else 25))))
     runs = 1 if a.smoke else 5
