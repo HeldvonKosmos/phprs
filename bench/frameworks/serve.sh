@@ -57,6 +57,18 @@ case "$APP" in
     export SECRET_KEY_BASE=${SECRET_KEY_BASE:-$(python3 -c 'import secrets; print(secrets.token_hex(64))')}
     bundle exec puma -C config/puma.rb -b "tcp://127.0.0.1:$PORT" >"$LOG" 2>&1 &
     ;;
+  spring)
+    cd "$BENCH/spring-app"
+    JAR=$(ls build/libs/*.jar 2>/dev/null | grep -v plain | head -1)
+    [ -n "$JAR" ] && [ -f native/libsqlitejdbc.so ] || { echo "serve: build the app first (bench/frameworks/setup.sh spring)" >&2; exit 2; }
+    # Tomcat's default thread pool; virtual threads a marked variant
+    case "${VARIANT:-platform}" in platform) VT=false;; vthreads) VT=true;; *) echo "serve: spring variant platform or vthreads" >&2; exit 2;; esac
+    # the JVM limited to N cores, a fixed heap (otherwise a quarter of the RAM),
+    # G1 (the default); sqlite-jdbc's JNI part built against SQLite 3.45.2
+    java -XX:ActiveProcessorCount="$N" -Xms512m -Xmx512m -XX:+UseG1GC \
+      -Dorg.sqlite.lib.path="$PWD/native" -Dorg.sqlite.lib.name=libsqlitejdbc.so -Dspring.threads.virtual.enabled=$VT \
+      -jar "$JAR" --server.port="$PORT" >"$LOG" 2>&1 &
+    ;;
   fastapi)
     cd "$BENCH/fastapi-app"
     [ -x .venv/bin/python ] || { echo "serve: set the app up first (bench/frameworks/setup.sh fastapi)" >&2; exit 2; }
