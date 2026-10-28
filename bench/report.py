@@ -23,6 +23,17 @@ import argparse, json, os
 ENDPOINTS = ["health", "list", "show", "create", "login"]
 
 
+def span(rng, key):
+    """' [min–max]' of a point's requests/s over the runs of a series, else ''."""
+    r = rng.get(key) if rng else None
+    return f" [{fmt(r[0])}–{fmt(r[1])}]" if r else ""
+
+
+def ranges(d, name):
+    p = os.path.join(d, name)
+    return json.load(open(p)) if os.path.exists(p) else {}
+
+
 def fmt(x):
     return f"{x:,.0f}".replace(",", " ")
 
@@ -43,6 +54,8 @@ def main():
     a = ap.parse_args()
     bm2 = json.load(open(os.path.join(a.dir, "bm2.json")))
     c = a.conc
+
+    rng = ranges(a.dir, "bm2.range.json")
 
     def get(e, t, conc=c):
         return bm2.get(f"{e}|{t}|{conc}")
@@ -65,7 +78,7 @@ def main():
             cells = []
             for _, t in cols:
                 r = get(e, t)
-                cells.append(f"{fmt(r[0])} (p99 {r[2]:.1f} ms)" if r else "–")
+                cells.append(f"{fmt(r[0])}{span(rng, f'{e}|{t}|{c}')} (p99 {r[2]:.1f} ms)" if r else "–")
             # against the faster of the two Octane servers (Laravel's best case)
             emb = get(e, cols[0][1])
             octanes = [r for r in (get(e, "laravel-frankenphp-core" if core else "laravel-frankenphp"), get(e, "laravel-octane-core" if core else "laravel-octane")) if r]
@@ -74,6 +87,14 @@ def main():
             print(f"| {e} | " + " | ".join(cells) + f" | {ratio} |")
         print()
 
+    envp = os.path.join(a.dir, "env.txt")
+    php = next((l.split("php per target: ", 1)[1].strip() for l in open(envp) if l.startswith("php per target: ")), None) if os.path.exists(envp) else None
+    if php:
+        # FrankenPHP brings its own, newer PHP: rather an advantage for Laravel
+        print(f"PHP: {php}.\n")
+    runs = next((l.split()[1] for l in open(envp) if l.startswith("series ") and "runs:" in l), None) if os.path.exists(envp) else None
+    if runs:
+        print(f"Median of {runs} runs of the same binaries; the range of requests per second over the runs in square brackets. Non-2xx responses are summed over the runs.\n")
     print(f"Requests per second at {c} connections (p99 in brackets); 0 non-2xx responses unless stated.\n")
     section("(a) Framework core: raw SQL on SQLite", "", ENDPOINTS, "both frameworks run exactly the same SQL statements against the same SQLite database in their own process (same library, WAL, synchronous FULL); ORM and auth are replaced by these statements on both sides on purpose", core=True)
     section("(b) Standard setups", "", ENDPOINTS, "both sides in their default settings (OpenGrid notes a token's use at most every 60 s, Sanctum at most once a second)")
@@ -93,6 +114,7 @@ def bench1(d):
     lp = os.path.join(d, "load.json")
     if os.path.exists(lp):
         load = json.load(open(lp))
+        lrng = ranges(d, "load.range.json")
         eps = sorted({k.split("|")[0] for k in load})
         for e in eps:
             rows = [(k.split("|")[1], v) for k, v in load.items() if k.split("|")[0] == e]
@@ -101,7 +123,8 @@ def bench1(d):
             print("| Target | " + " | ".join(f"{c} connections" for c in concs) + " | failures |")
             print("|---|" + "---:|" * (len(concs) + 1))
             for t, v in rows:
-                cells = [f"{fmt(x['rps'])} ({x['p99']:.1f} / {x['p999']:.1f})" + (" ‡" if x.get("load_busy", 0) > 90 else "") for c in concs for x in [v["closed"][str(c)]]]
+                lr = lrng.get(f"{e}|{t}", {}).get("closed", {})
+                cells = [f"{fmt(x['rps'])}" + (f" [{fmt(lr[str(c)][0])}–{fmt(lr[str(c)][1])}]" if str(c) in lr else "") + f" ({x['p99']:.1f} / {x['p999']:.1f})" + (" ‡" if x.get("load_busy", 0) > 90 else "") for c in concs for x in [v["closed"][str(c)]]]
                 print(f"| {t} | " + " | ".join(cells) + f" | {sum(v['closed'][str(c)]['bad'] for c in concs)} |")
             levels = sorted(int(x) for x in rows[0][1]["open"])
             print(f"\n**(h) Fixed request rate, `{e}`** — open loop (oha -q with latency correction) at a share of each target's own capacity (its rate at 256 connections); p99 in ms. Knee: the first level whose p99 is more than twice the p99 at {levels[0]} %. Spike: {levels[0]} % plus 65 % for 4 s.\n")
@@ -169,6 +192,7 @@ def thesis(d):
         return
     t = json.load(open(path))
     get = lambda e, tg, c: t.get(f"{e}|{tg}|{c}")
+    trng = ranges(d, "thesis.range.json")
     eps = [f"{w}:{x}" for w in WORKLOADS for x in NS]
     cols = og_cols(lambda e, tg: get(e, tg, 16), eps, "OpenGrid", "opengrid-embedded-pgo-core", "opengrid-embedded-core", False)
     lead = cols[0][1]
@@ -184,7 +208,7 @@ def thesis(d):
         points = []
         for x in NS:
             e = f"{w}:{x}"
-            cells = [f"{fmt(r[0])} (p99 {r[2]:.1f} ms)" if (r := get(e, tg, 16)) else "–" for _, tg in cols]
+            cells = [f"{fmt(r[0])}{span(trng, f'{e}|{tg}|16')} (p99 {r[2]:.1f} ms)" if (r := get(e, tg, 16)) else "–" for _, tg in cols]
             og = get(e, lead, 16)
             octanes = [r for r in (get(e, "laravel-frankenphp-core", 16), get(e, "laravel-octane-core", 16)) if r]
             ratio = og[0] / max(r[0] for r in octanes) if og and octanes else None

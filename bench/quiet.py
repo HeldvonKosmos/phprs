@@ -8,7 +8,8 @@ the benchmark.
   `--threshold` % of a core in a sample,
 - idle cores: the cores no part of the benchmark uses (by default the SMT
   siblings of the application cores) busy above `--threshold` %.
-Writes one line per finding to `--log`; at the end prints `quiet: ok` or
+Writes one line per finding to `--log` (for a busy idle core with the
+threads that ran there, process/thread and share of a core); at the end prints `quiet: ok` or
 `quiet: N findings (see <log>)`.
 
   bench/quiet.py --log FILE [--interval 2] [--threshold 5] [--idle-cores 9,11,13,15]
@@ -41,6 +42,23 @@ def procs():
     return out
 
 
+def threads():
+    """CPU ticks and last CPU of every thread: (pid, tid) -> (process name, thread name, ticks, cpu)."""
+    out = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            pname = open(f"/proc/{pid}/comm").read().strip()
+            for tid in os.listdir(f"/proc/{pid}/task"):
+                st = open(f"/proc/{pid}/task/{tid}/stat").read()
+                f = st[st.rindex(")") + 2:].split()
+                out[(pid, tid)] = (pname, st[st.index("(") + 1:st.rindex(")")], int(f[11]) + int(f[12]), int(f[36]))
+        except (OSError, ValueError, IndexError):
+            pass
+    return out
+
+
 def cpu_times():
     t = {}
     for line in open("/proc/stat"):
@@ -66,10 +84,10 @@ def main():
     me = os.getpid()
     findings = 0
     log = open(a.log, "a", buffering=1)
-    p0, c0, t0 = procs(), cpu_times(), time.monotonic()
+    p0, c0, h0, t0 = procs(), cpu_times(), threads(), time.monotonic()
     while not stop:
         time.sleep(a.interval)
-        p1, c1, t1 = procs(), cpu_times(), time.monotonic()
+        p1, c1, h1, t1 = procs(), cpu_times(), threads(), time.monotonic()
         dt = t1 - t0
         stamp = time.strftime("%H:%M:%S")
         for pid, (name, ticks) in p1.items():
@@ -84,8 +102,11 @@ def main():
                 busy = 100 * (c1[c][0] - c0[c][0]) / (c1[c][1] - c0[c][1])
                 if busy > a.threshold:
                     findings += 1
-                    log.write(f"{stamp} idle core {c}: {busy:.0f} % busy\n")
-        p0, c0, t0 = p1, c1, t1
+                    # who ran there: threads whose last CPU is this core and that used CPU in the sample
+                    who = sorted(((v[2] - h0[k][2], f"{v[0]}/{v[1]}") for k, v in h1.items() if v[3] == c and k in h0 and v[2] > h0[k][2]), reverse=True)[:3]
+                    names = ", ".join(f"{n} {100 * t / TICK / dt:.0f} %" for t, n in who) or "no thread found (interrupts or short-lived processes)"
+                    log.write(f"{stamp} idle core {c}: {busy:.0f} % busy ({names})\n")
+        p0, c0, h0, t0 = p1, c1, h1, t1
     print(f"quiet: ok (idle cores {a.idle_cores or '-'}, threshold {a.threshold:g} %)" if findings == 0 else f"quiet: {findings} findings (see {a.log})")
 
 

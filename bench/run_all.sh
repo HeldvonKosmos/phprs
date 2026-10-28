@@ -68,7 +68,7 @@ drift=$(cd bench/framework/laravel/overlay && find . -type f | while read -r f; 
 [ -e "$HOME/.local/opt/sqlite-3.45.2/lib/libsqlite3.so.0" ] || bench/framework/sqlite/build_sqlite.sh
 
 COMMIT=$(git rev-parse --short HEAD)
-OUT=$WS/target/bench-tmp/$([ "$SMOKE" = 1 ] && echo smoke-)$COMMIT-$(date -u +%Y%m%dT%H%M)
+OUT=$WS/target/bench-tmp/$([ "$SMOKE" = 1 ] && echo smoke-)$COMMIT-$(date -u +%Y%m%dT%H%M%S)
 mkdir -p "$OUT"
 export TMPDIR=$WS/target/bench-tmp/tmp
 mkdir -p "$TMPDIR"
@@ -133,7 +133,8 @@ stage gates gates > "$OUT/gates.txt" 2>&1 || { cat "$OUT/gates.txt"; fail "an ap
   echo "volume $(findmnt -no SOURCE,FSTYPE,OPTIONS -T "$TMPDIR" | cut -c1-120)"
   echo "fill $(df -h "$TMPDIR" | tail -1)"
   echo "php $(php -r 'echo PHP_VERSION;'), surreal $(surreal version | head -1), $(oha --version)"
-  echo "sqlite $(LD_LIBRARY_PATH=$HOME/.local/opt/sqlite-3.45.2/lib php -r "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();") for the core targets and Laravel (D23, D24), frankenphp $("$LARAVEL_APP/frankenphp" version | cut -d' ' -f1-2)"
+  echo "sqlite $(LD_LIBRARY_PATH=$HOME/.local/opt/sqlite-3.45.2/lib php -r "echo (new PDO('sqlite::memory:'))->query('select sqlite_version()')->fetchColumn();") for the core targets and Laravel (D23, D24), $("$LARAVEL_APP/frankenphp" version | cut -d' ' -f1-4)"
+  echo "php per target: $(php -r 'echo PHP_VERSION;') for PHP-FPM and RoadRunner, $("$LARAVEL_APP/frankenphp" version | sed -E 's/.*PHP ([0-9.]+).*/\1/') built into FrankenPHP"
   echo "durability sqlite: journal_mode=WAL synchronous=FULL busy_timeout=5000 (core targets and Laravel, D24)"
   echo "durability surrealkv: sync=${SURREAL_DATASTORE_SYNC:-every (default)}, commit after grouped WAL fsync (embedded and server)"
   ls -la ../target/profiling/grd ../target/profiling/opengrid ../target-pgo/grd-pgo ../target-pgo/opengrid-pgo
@@ -166,7 +167,8 @@ trap - EXIT
 # last step: a local hook (bench/local/after-run, not in the repository, see
 # .gitignore) may process the result, e.g. update local documents; the
 # measurement is complete at this point, so a failing hook only warns
-if [ -x bench/local/after-run ]; then
+# (RUN_ALL_HOOK=0: skipped, run_series.sh calls it once for the whole series)
+if [ "${RUN_ALL_HOOK:-1}" = 1 ] && [ -x bench/local/after-run ]; then
   bench/local/after-run "$OUT" > "$OUT/after-run.log" 2>&1 || echo "run_all: bench/local/after-run failed (see $OUT/after-run.log)" >&2
 fi
 echo "run_all: results in $OUT"
