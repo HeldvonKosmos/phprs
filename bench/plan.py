@@ -76,7 +76,7 @@ def main():
     warm, source = a.warmup, "angenommen (vor der Prüfung)"
     if a.resume and os.path.exists(os.path.join(a.resume, "warmup.txt")):
         warm, source = int(open(os.path.join(a.resume, "warmup.txt")).read().strip()), "aus warmcheck"
-    build = 20 * 60 if a.framework_only else 35 * 60
+    build = 45 * 60 if a.framework_only else 60 * 60  # perf build 17 min + PGO (instrumented build, training, perf build), measured 28.10.: 26-45 min
     n_targets = sum(len(targets.FRAMEWORKS[f][1]) for f in a.frameworks)
     warmcheck = n_targets * (SETUP_S + 3 + 30) + (0 if a.smoke else 5 * (SETUP_S + 10 + 30))  # one endpoint (list); ~5 targets need a longer step
 
