@@ -357,28 +357,54 @@ benchmark again. The roadmap with work packages and acceptance criteria is
 `.agents/ROADMAP.md`; decisions and their reasons are in
 `.agents/DECISIONS.md`; known gaps in `.agents/KNOWN_ISSUES.md`.
 
-## Help wanted
+## OpenGrid (.grd) — the next-generation web architecture
 
-This is one person's research project, and it has reached the point
-where it needs more hands and some funding to become a framework people
-can rely on.
+We are breaking a 30-year-old dogma in software engineering: instead of
+stacking heavy web frameworks as interpreted layers on top of sluggish
+runtimes, OpenGrid merges the framework mechanics directly into a
+compiled, high-performance native Rust core.
 
-**Contributors.** Good first areas: the JIT (Cranelift, Rust), the
-dialect's PHP compatibility (our probes compare against PHP 8.4, the long
-tail is in `.agents/PHPT_REPORT.md`), the database layer, the comparison
-apps of the benchmark (each is a small idiomatic app in its own
-framework; corrections from people who know those frameworks are very
-welcome), documentation and a frontend integration. Open an issue before
-a large change; `.agents/Tools.md` explains how the test suite and the
-commit gate work. Code and comments are in English; most project
-documents in `.agents/` are in German for now, and translating them is a
-contribution too.
+**The result, a Framework-Integrated Language (FIL):** OpenGrid delivers
+the developer experience of Laravel combined with native CPU speed, a
+minimal memory footprint and built-in guardrails for AI-generated code.
+The reproducible benchmarks above already show it: up to **18× higher
+throughput on health checks** and a **7.5× advantage on database list
+queries** compared with a Laravel/FrankenPHP setup.
 
-**Sponsors.** The benchmark machine, the time to review contributions
-and the remaining work on the JIT are the bottlenecks. If your company
-would benefit from a Laravel-shaped framework with these numbers, or you
-simply want to see where this goes, please get in touch through a GitHub
-issue or discussion. <!-- TODO: sponsoring link -->
+### Why this matters for investors and partners
+
+- **A massive market.** We address the huge but inefficient ecosystem of
+  millions of Laravel and PHP developers who are looking for a scalable
+  way forward without abandoning their existing code bases or frontends
+  (Inertia/Vue).
+- **Drastic infrastructure savings.** Under identical load, server costs
+  drop because the interpreter bootstrapping overhead is eliminated
+  entirely.
+- **Ready for the AI era.** Strict compile-time guardrails make OpenGrid
+  purpose-built for autonomous, reliable code generation by AI agents.
+
+### Open for visionaries: sponsoring and contribution
+
+OpenGrid is on a trajectory to establish a new category in backend
+engineering. To accelerate this vision and expand the ecosystem, we are
+opening doors for strategic partnerships:
+
+- **Investors and sponsors.** Do you share the vision of fundamentally
+  rethinking the web stack and bridging the gap between high-level
+  developer experience and native high-performance systems? We are open
+  to conversations about partnerships, sponsorships and strategic
+  investments that drive OpenGrid toward enterprise readiness.
+- **Contributors and open-source pioneers.** Do you want to help shape
+  the future of a Framework-Integrated Language? Whether it is core
+  architecture, JIT optimization or toolchain development, we welcome
+  brilliant minds who want to push this milestone forward. Good first
+  areas: the JIT (Cranelift, Rust), the dialect's PHP coverage (probes
+  against PHP 8.4, `.agents/PHPT_REPORT.md`), the database layer, the
+  comparison apps of the benchmark, documentation. Open an issue before a
+  large change; `.agents/Tools.md` explains the test suite and the commit
+  gate.
+
+Get in touch through a GitHub issue or discussion in this repository.
 
 ## License
 
