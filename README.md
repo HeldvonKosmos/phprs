@@ -257,6 +257,13 @@ Beyond throughput (details and all tables in [BENCHMARKS.md](BENCHMARKS.md)):
 | First second after a cold start, as share of steady throughput | 98 % | 90 % | Spring Boot 32 %, ASP.NET Core 53 % |
 | Logic per request, cost per element (`hydrate`) | 10.7 µs | 14.0 µs | ASP.NET Core 11.6 µs, AdonisJS 6.5 µs |
 
+How each runtime behaves right after a cold start, under constant load,
+as a share of its own steady throughput (first 30 s, `hydrate:100`, 16
+connections; the JIT runtimes climb, the compiled and interpreted ones
+start at full speed):
+
+![Warm-up curve after a cold start, hydrate:100](bench/results/2026-10-28-e0af77d5/warmcurve-hydrate-100.svg)
+
 Read the numbers with these caveats, which the full report spells out:
 
 - **The JIT translated nothing in this benchmark.** It covers numeric
