@@ -257,6 +257,26 @@ Beyond throughput (details and all tables in [BENCHMARKS.md](BENCHMARKS.md)):
 | First second after a cold start, as share of steady throughput | 98 % | 90 % | Spring Boot 32 %, ASP.NET Core 53 % |
 | Logic per request, cost per element (`hydrate`) | 10.7 µs | 14.0 µs | ASP.NET Core 11.6 µs, AdonisJS 6.5 µs |
 
+**Memory footprint** of the whole stack (PSS over every process of a
+target, MiB; `show` at 16 connections; sorted by idle):
+
+| Framework | idle | under load (peak) | after 10 000 requests |
+|---|---:|---:|---:|
+| Goravel (Go) | 36 | 44 | 42 |
+| ASP.NET Core | 69 | 98 | 96 |
+| Rails (4 Puma workers) | 131 | 284 | 280 |
+| **OpenGrid (4 workers, incl. its embedded SurrealDB)** | **142** | **142** | **136** |
+| Phoenix (BEAM) | 165 | 175 | 168 |
+| FastAPI (4 Uvicorn workers) | 189 | 198 | 200 |
+| Laravel (FrankenPHP, 4 workers) | 206 | 218 | 218 |
+| AdonisJS (4 Bun processes) | 230 | 423 | 333 |
+| Spring Boot (JVM, heap fixed at 512 MiB) | 397 | 548 | 548 |
+
+OpenGrid is the only side whose memory does not grow under load: the
+object store is per request, and the 142 MiB include the embedded
+SurrealDB it opens at start for its job poller (not used by this
+benchmark).
+
 How each runtime behaves right after a cold start, under constant load,
 as a share of its own steady throughput (first 30 s, `hydrate:100`, 16
 connections; the JIT runtimes climb, the compiled and interpreted ones
