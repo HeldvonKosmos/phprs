@@ -1,32 +1,61 @@
-# OpenGrid
+# OpenGrid (.grd) — the next-generation web architecture
 
-**A framework-integrated programming language that brings Laravel's developer
-experience to native performance.**
+**Stop running heavy frameworks on top of engines. Run code inside the
+framework.**
 
-OpenGrid is a web framework with a Rust core (Loco, Axum) whose application
-layer is written in **grd**, a strict dialect of PHP. Controllers, models,
-routes, middleware, validation, facades: you write them the way you would in
-Laravel. They run on an embedded virtual machine inside one Rust process,
-next to native Rust classes for everything performance-critical: HTTP,
-routing, the database layer, sessions, queues, mail, auth.
+For thirty years web development has stacked frameworks as interpreted
+layers on top of general-purpose runtimes, and every request has paid
+for it: boot the runtime, load the framework, bind the container, resolve
+the pipeline, then run the business logic. OpenGrid breaks with that
+model. It merges the framework mechanics directly into a compiled,
+high-performance Rust core and lets you write the application in
+**grd**, a strict dialect of PHP that keeps the developer experience of
+Laravel: controllers, models, routes, middleware, validation, facades,
+the same names and the same flow. The result is a **Framework-Integrated
+Language (FIL)**: the framework is not loaded by the runtime, it *is* the
+runtime.
+
+The numbers below are from the reproducible benchmark in this repository
+(nine frameworks, identical API, identical SQL on the same SQLite build,
+every side in its best production configuration; details in
+[BENCHMARKS.md](BENCHMARKS.md)):
+
+| | OpenGrid | Laravel (Octane on FrankenPHP) | best of the other seven |
+|---|---:|---:|---|
+| Health check, requests/s | **138 023** | 7 549 (**18×**) | ASP.NET Core 277 815 |
+| Database list query, requests/s | **38 640** | 5 137 (**7.5×**) | ASP.NET Core 36 896 |
+| Single record, requests/s | **67 814** | 6 053 (**11×**) | ASP.NET Core 92 861 |
+| Insert, requests/s | **1 347** | 849 (**1.6×**) | Goravel 1 284 |
+| Memory, idle / under load | **142 / 142 MiB** | 206 / 218 MiB | Goravel 36 / 44 MiB |
+| Cold start to first response | **72 ms** | 463 ms | Goravel 29 ms |
+| Hot reload in production | **4 ms** | 436 ms | – |
+
+Among all nine frameworks OpenGrid is first on the list query and the
+insert, second on the single record behind ASP.NET Core, and third on
+the health check; it starts in 72 ms and its memory does not grow under
+load.
 
 > **Status: experimental.** OpenGrid is a research project. The language,
 > the APIs and the file layout still change without notice, and there has
-> been no security review. **Do not use it in production.** What it is good
-> for today: trying the idea, measuring it, and helping to build it.
+> been no security review. **Do not use it in production.** What it is
+> good for today: trying the idea, measuring it, and helping to build it.
 
-## The idea in one paragraph
+## Why this matters
 
-PHP frameworks are loved for their developer experience and criticized for
-their speed; systems languages are the other way round. OpenGrid keeps the
-PHP syntax and the Laravel conventions, removes the parts of PHP that make
-it slow and unsafe to optimize (dynamic typing of variables, `include`,
-superglobals, Composer autoloading), and runs the result on a VM and a
-Cranelift JIT that are compiled into the same binary as the framework. The
-framework itself is Rust; the dialect only calls into it. The thesis is
-that this gives Laravel-style code the throughput, memory footprint and
-cold start of a compiled service, and the benchmark below is how we test
-that thesis.
+- **A massive market.** Millions of Laravel and PHP developers run an
+  ecosystem that is loved for its productivity and criticized for its
+  cost per request. They are looking for a way to scale without giving up
+  their mental model, their code base or their frontends (Inertia/Vue).
+- **Infrastructure savings.** Under identical load the same work needs a
+  fraction of the servers when the interpreter bootstrap disappears and
+  the framework runs as compiled code: 7–18× more requests per second
+  than Laravel at equal durability, and a fixed cost per request of
+  0.2–0.6 ms against 2.2–2.9 ms.
+- **Ready for the AI era.** Coding agents produce plausible code at
+  speed; without guardrails, review becomes the bottleneck. In grd every
+  variable keeps the type of its first assignment, `include`, `eval`,
+  superglobals and references do not exist, and the compiler rejects what
+  PHP would have run: the compiler becomes the reviewer.
 
 ## Goals, and what is deliberately not a goal
 
@@ -91,36 +120,13 @@ requests, which removes the bootstrap but not the interpreter underneath;
 HHVM and Hack showed in the 2010s that a PHP-family language can get faster
 while it runs when the engine watches real execution.
 
-OpenGrid turns the stack around: the framework is not loaded by the
-runtime, it *is* the runtime. Routing, request lifecycle, data access,
-middleware, sessions and queues are compiled Rust; the dialect is embedded
-in that binary and only calls into it. There is nothing to boot per
-request, no translation layer between framework and engine, and the JIT
-can treat framework calls as what they are: native functions. Everything
-in the benchmark below follows from that one decision.
-
-## The interpreter alone is slower than PHP
-
-Honesty first: measured as a pure language runtime, grd is **behind PHP**.
-In the script benchmarks `c1`–`c3` (request-shaped work, runtime
-functions, numeric compute; `bench/complex/`), the current grd binary with
-PGO takes **1.7× to 4.0× the time of PHP 8.4 with opcache**, depending on
-the workload (c2 1.7×, c1 2.8×, c3 4.0×); against PHP's own tracing JIT,
-grd's JIT lands at 1.7×–3.1×. Interpreter work (array handling, method
-calls, string building) is where the gap is, and it is being closed step
-by step (the history of these factors is in `.agents/BENCHMARKS.md` §2).
-
-The thesis behind the project was that this deficit would be more than
-compensated once the framework lives inside the engine, because a web
-request spends most of its time in routing, I/O, data access and
-serialization, not in the script. The framework benchmark confirms it by
-a wide margin: the same controller logic that runs 2–4× slower than PHP in
-isolation answers 7–18× more requests per second than Laravel on
-FrankenPHP once both sit inside their frameworks, with a fixed cost per
-request of 0.2–0.6 ms against Laravel's 2.2–2.9 ms. Where the interpreter
-still shows is the per-element cost at large payloads (table (f′) in
-[BENCHMARKS.md](BENCHMARKS.md)), which is exactly what the next JIT work
-packages target.
+OpenGrid turns the stack around. Routing, request lifecycle, data access,
+middleware, sessions and queues are compiled Rust (Loco, Axum, Tokio);
+the dialect runs on a VM and a Cranelift JIT that are compiled into the
+same binary and only call into it. There is nothing to boot per request,
+no translation layer between framework and engine, and the JIT can treat
+framework calls as what they are: native functions. Everything in the
+benchmark follows from that one decision.
 
 ## What the code looks like
 
@@ -207,8 +213,8 @@ underneath:
   the request is an object; there is no service container to configure.
 - **One process.** HTTP server, worker pool, jobs, scheduler and the
   embedded database run in the `opengrid` binary. Hot reload in
-  development is a file watcher (4 ms in the benchmark below); production
-  has no reload at all.
+  development is a file watcher (4 ms in the benchmark); production has
+  no reload at all.
 - **The database is declarative.** Each module ships its schema as
   `schema.surql`; `opengrid task migrate_push` applies it. The default
   store is an embedded SurrealDB (SurrealKV); raw SQL on SQLite is
@@ -218,7 +224,7 @@ The language is documented in `.agents/DIALECT.md`, the runtime model in
 `.agents/RUNTIME_ARCHITECTURE.md`, the deliberate differences from Laravel
 in `.agents/LARAVEL_BREAKING_CHANGES.md`.
 
-## Benchmark (short version)
+## The benchmark
 
 Nine frameworks run the same small API (health check, list, show, create,
 login with bcrypt) with **identical raw SQL statements on the same SQLite
@@ -244,18 +250,6 @@ Requests per second at 16 connections:
 Against Laravel, OpenGrid answers **18× more health checks, 7.5× more list
 requests, 11× more show requests and 1.6× more creates** per second; login
 is bound by bcrypt (cost 10 on every side) and is the same everywhere.
-Against the whole field, OpenGrid is first on `list` and `create`, second
-on `show` behind ASP.NET Core, and third on the empty `health` route.
-
-Beyond throughput (details and all tables in [BENCHMARKS.md](BENCHMARKS.md)):
-
-| | OpenGrid | Laravel | best other |
-|---|---:|---:|---|
-| Memory (PSS, idle / under load) | 142 / 142 MiB | 206 / 218 MiB | Goravel 36 / 44 MiB |
-| Cold start to first response (4 workers) | 72 ms | 463 ms (caches built) | Goravel 29 ms |
-| Hot reload (production) | 4 ms | 436 ms (`octane:reload`) | – |
-| First second after a cold start, as share of steady throughput | 98 % | 90 % | Spring Boot 32 %, ASP.NET Core 53 % |
-| Logic per request, cost per element (`hydrate`) | 10.7 µs | 14.0 µs | ASP.NET Core 11.6 µs, AdonisJS 6.5 µs |
 
 **Memory footprint** of the whole stack (PSS over every process of a
 target, MiB; `show` at 16 connections; sorted by idle):
@@ -277,10 +271,13 @@ object store is per request, and the 142 MiB include the embedded
 SurrealDB it opens at start for its job poller (not used by this
 benchmark).
 
-How each runtime behaves right after a cold start, under constant load,
-as a share of its own steady throughput (first 30 s, `hydrate:100`, 16
-connections; the JIT runtimes climb, the compiled and interpreted ones
-start at full speed):
+**Cold start and warm-up.** Start to the first response with four
+workers: Goravel 29 ms, **OpenGrid 72 ms**, ASP.NET Core 175 ms, Laravel
+463 ms (caches built), Rails 731 ms, Spring Boot 1 172 ms. How each
+runtime behaves right after that start, under constant load, as a share
+of its own steady throughput (first 30 s, `hydrate:100`, 16 connections):
+the JIT runtimes climb for 3–6 s, the compiled and interpreted ones start
+at full speed.
 
 ![Warm-up curve after a cold start, hydrate:100](bench/results/2026-10-28-e0af77d5/warmcurve-hydrate-100.svg)
 
@@ -289,9 +286,9 @@ Read the numbers with these caveats, which the full report spells out:
 - **The JIT translated nothing in this benchmark.** It covers numeric
   code today; the controller code (strings, arrays, method calls) ran in
   the interpreter. Extending it to framework code is the next work package.
-- OpenGrid's cost per element at large `n` is 2–8× that of the JIT
+- OpenGrid's cost per element at large payloads is 2–8× that of the JIT
   runtimes (Spring, .NET, Bun), which is where the interpreter shows (see
-  "The interpreter alone is slower than PHP" above).
+  the next section).
 - `create` is limited by SQLite's write lock on every side; `login` by
   bcrypt. Both measure the shared library more than the framework.
 - The warm-up before each measured point was 60 s (one framework was not
@@ -299,6 +296,29 @@ Read the numbers with these caveats, which the full report spells out:
 - One machine (AMD Ryzen 7 8845HS, 16 threads, clock capped at 4.5 GHz),
   one configuration. Every deviation of a comparison app from its
   framework's defaults is listed in `bench/frameworks/DEVIATIONS.md`.
+
+## The interpreter alone is slower than PHP
+
+Honesty first: measured as a pure language runtime, grd is **behind PHP**.
+In the script benchmarks `c1`–`c3` (request-shaped work, runtime
+functions, numeric compute; `bench/complex/`), the current grd binary with
+PGO takes **1.7× to 4.0× the time of PHP 8.4 with opcache**, depending on
+the workload (c2 1.7×, c1 2.8×, c3 4.0×); against PHP's own tracing JIT,
+grd's JIT lands at 1.7×–3.1×. Interpreter work (array handling, method
+calls, string building) is where the gap is, and it is being closed step
+by step (the history of these factors is in `.agents/BENCHMARKS.md` §2).
+
+The thesis behind the project was that this deficit would be more than
+compensated once the framework lives inside the engine, because a web
+request spends most of its time in routing, I/O, data access and
+serialization, not in the script. The framework benchmark confirms it by
+a wide margin: the same controller logic that runs 2–4× slower than PHP in
+isolation answers 7–18× more requests per second than Laravel on
+FrankenPHP once both sit inside their frameworks, with a fixed cost per
+request of 0.2–0.6 ms against Laravel's 2.2–2.9 ms. Where the interpreter
+still shows is the per-element cost at large payloads (table (f′) in
+[BENCHMARKS.md](BENCHMARKS.md)), which is exactly what the next JIT work
+packages target.
 
 ## Reproducing the benchmark
 
@@ -357,33 +377,7 @@ benchmark again. The roadmap with work packages and acceptance criteria is
 `.agents/ROADMAP.md`; decisions and their reasons are in
 `.agents/DECISIONS.md`; known gaps in `.agents/KNOWN_ISSUES.md`.
 
-## OpenGrid (.grd) — the next-generation web architecture
-
-We are breaking a 30-year-old dogma in software engineering: instead of
-stacking heavy web frameworks as interpreted layers on top of sluggish
-runtimes, OpenGrid merges the framework mechanics directly into a
-compiled, high-performance native Rust core.
-
-**The result, a Framework-Integrated Language (FIL):** OpenGrid delivers
-the developer experience of Laravel combined with native CPU speed, a
-minimal memory footprint and built-in guardrails for AI-generated code.
-The reproducible benchmarks above already show it: up to **18× higher
-throughput on health checks** and a **7.5× advantage on database list
-queries** compared with a Laravel/FrankenPHP setup.
-
-### Why this matters for investors and partners
-
-- **A massive market.** We address the huge but inefficient ecosystem of
-  millions of Laravel and PHP developers who are looking for a scalable
-  way forward without abandoning their existing code bases or frontends
-  (Inertia/Vue).
-- **Drastic infrastructure savings.** Under identical load, server costs
-  drop because the interpreter bootstrapping overhead is eliminated
-  entirely.
-- **Ready for the AI era.** Strict compile-time guardrails make OpenGrid
-  purpose-built for autonomous, reliable code generation by AI agents.
-
-### Open for visionaries: sponsoring and contribution
+## Open for visionaries: sponsoring and contribution
 
 OpenGrid is on a trajectory to establish a new category in backend
 engineering. To accelerate this vision and expand the ecosystem, we are
