@@ -28,6 +28,54 @@ that this gives Laravel-style code the throughput, memory footprint and
 cold start of a compiled service, and the benchmark below is how we test
 that thesis.
 
+## Where this comes from
+
+PHP started in 1995 as a set of tools for personal home pages: a script per
+page, run from scratch for every request, forgotten when the response is
+sent. That request-scoped model made PHP easy to deploy and easy to learn,
+and it is still the model today, thirty years and several engine
+generations later (PHP 3 and the Zend Engine in 1998, objects in PHP 5,
+the twice-as-fast PHP 7 in 2015, the tracing JIT of PHP 8 in 2020). Web
+frameworks grew on top of it, Laravel since 2011 the most popular of them,
+and every one of them pays the same bill on every request: boot the
+runtime, parse the framework, bind the container, resolve the pipeline,
+and only then run the business logic. Application servers such as Octane,
+RoadRunner and FrankenPHP keep the booted application in memory between
+requests, which removes the bootstrap but not the interpreter underneath;
+HHVM and Hack showed in the 2010s that a PHP-family language can get faster
+while it runs when the engine watches real execution.
+
+OpenGrid turns the stack around: the framework is not loaded by the
+runtime, it *is* the runtime. Routing, request lifecycle, data access,
+middleware, sessions and queues are compiled Rust; the dialect is embedded
+in that binary and only calls into it. There is nothing to boot per
+request, no translation layer between framework and engine, and the JIT
+can treat framework calls as what they are: native functions. Everything
+in the benchmark below follows from that one decision.
+
+## The interpreter alone is slower than PHP
+
+Honesty first: measured as a pure language runtime, grd is **behind PHP**.
+In the script benchmarks `c1`–`c3` (request-shaped work, runtime
+functions, numeric compute; `bench/complex/`), the current grd binary with
+PGO takes **1.7× to 4.0× the time of PHP 8.4 with opcache**, depending on
+the workload (c2 1.7×, c1 2.8×, c3 4.0×); against PHP's own tracing JIT,
+grd's JIT lands at 1.7×–3.1×. Interpreter work (array handling, method
+calls, string building) is where the gap is, and it is being closed step
+by step (the history of these factors is in `.agents/BENCHMARKS.md` §2).
+
+The thesis behind the project was that this deficit would be more than
+compensated once the framework lives inside the engine, because a web
+request spends most of its time in routing, I/O, data access and
+serialization, not in the script. The framework benchmark confirms it by
+a wide margin: the same controller logic that runs 2–4× slower than PHP in
+isolation answers 7–18× more requests per second than Laravel on
+FrankenPHP once both sit inside their frameworks, with a fixed cost per
+request of 0.2–0.6 ms against Laravel's 2.2–2.9 ms. Where the interpreter
+still shows is the per-element cost at large payloads (table (f′) in
+[BENCHMARKS.md](BENCHMARKS.md)), which is exactly what the next JIT work
+packages target.
+
 ## What the code looks like
 
 A module of the example application (`examples/test-app/modules/notes`):
@@ -169,7 +217,8 @@ Read the numbers with these caveats, which the full report spells out:
   code today; the controller code (strings, arrays, method calls) ran in
   the interpreter. Extending it to framework code is the next work package.
 - OpenGrid's cost per element at large `n` is 2–8× that of the JIT
-  runtimes (Spring, .NET, Bun), which is where the interpreter shows.
+  runtimes (Spring, .NET, Bun), which is where the interpreter shows (see
+  "The interpreter alone is slower than PHP" above).
 - `create` is limited by SQLite's write lock on every side; `login` by
   bcrypt. Both measure the shared library more than the framework.
 - The warm-up before each measured point was 60 s (one framework was not

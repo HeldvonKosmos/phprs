@@ -96,6 +96,29 @@ measurements (different SQLite, self-built FrankenPHP, Laravel without
 RoadRunner and PHP-FPM, longer warm-up, THESIS at 16 instead of 1
 connection).
 
+## The interpreter on its own (c1–c3)
+
+The framework run above did not include the script benchmarks; their last
+full measurement is from 2026-10-27 (commit 0fa624f, PGO binary, median of
+7 runs, same machine and method). They compare the grd runtime with PHP 8.4
+on three scripts in `bench/complex/`: `c1_request` (request-shaped work),
+`c2_runtime` (runtime functions, strings, arrays), `c3_compute` (numeric
+loops, recursion, objects). Factors are grd's time over PHP's time, sum of
+the measured phases; above 1 means grd is slower.
+
+| Comparison | c1 | c2 | c3 |
+|---|---:|---:|---:|
+| A: interpreter against interpreter (PHP without opcache, grd without JIT) | 2.7× | 1.8× | 2.9× |
+| B: PHP with opcache, JIT off, against grd without JIT | 2.8× | 1.7× | 4.0× |
+| C: JIT against JIT (PHP tracing JIT, grd Cranelift JIT) | 3.1× | 1.7× | 1.8× |
+
+So the language runtime alone is 1.7–4.0× behind PHP; the framework
+benchmark above is where the architecture (framework compiled into the
+engine, no per-request bootstrap, native framework calls) turns that into
+a lead of 7–18× over Laravel. The history of these factors since the first
+measurement (5.6×/3.4×/4.9× in comparison A) is in `.agents/BENCHMARKS.md`
+§2; `bench/run_all.sh --with-lang` adds the script benchmarks to a run.
+
 ## Reproducing
 
 ```sh
