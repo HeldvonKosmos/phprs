@@ -31,9 +31,18 @@ composer require --no-interaction -W "laravel/framework:$LARAVEL_FRAMEWORK" lara
 # benchmark runs Bun's SQLite 3.53.4 on every side): PHP 8.5 ZTS with the
 # embed SAPI and pdo_sqlite linked against ~/.local/opt/sqlite-3.53.4.
 # Laravel is not embedded; Octane starts it in the app directory as before.
+# FrankenPHP is needed for the benchmark only; the test suite uses this app
+# through the system PHP (vendor as the oracle). SETUP_FRANKENPHP=0 skips the
+# build (CI); without the variable a missing binary is built.
 FRANKENPHP_BIN=${FRANKENPHP_BIN:-$HOME/.local/opt/frankenphp-1.13.0/frankenphp}
-[ -x "$FRANKENPHP_BIN" ] || bash "$(dirname "$0")/../../frameworks/install_runtimes.sh" frankenphp
-ln -sfn "$FRANKENPHP_BIN" ./frankenphp
+if [ "${SETUP_FRANKENPHP:-1}" = 1 ]; then
+  [ -x "$FRANKENPHP_BIN" ] || bash "$(dirname "$0")/../../frameworks/install_runtimes.sh" frankenphp
+  ln -sfn "$FRANKENPHP_BIN" ./frankenphp
+elif [ -x "$FRANKENPHP_BIN" ]; then
+  ln -sfn "$FRANKENPHP_BIN" ./frankenphp
+else
+  echo "setup: FrankenPHP not built (SETUP_FRANKENPHP=0); the benchmark targets need bench/frameworks/install_runtimes.sh frankenphp"
+fi
 # Octane 2.x compares the RoadRunner version with 2023.3.0, but RoadRunner now
 # counts 3.x: Octane would call it too old and download it again on every
 # start (and an interrupted start leaves only rr.backup). A wrapper shows

@@ -1,8 +1,8 @@
 # The whole suite on every push to vm-core and main (TEST2, D18), with the
 # independent oracles required: PHP 8.4, Laravel 13.38 (vendor from
-# bench/framework/laravel/setup.sh) and the surreal binary. refs/platform is
-# company code and never available here, so that oracle is exempt; the
-# platform comparison stays local.
+# bench/framework/laravel/setup.sh) and the surreal binary. The oracle kind
+# `platform` (a private reference implementation, not part of the repository)
+# is never available here and is exempt; that comparison stays local.
 name: suite
 on:
   push:
@@ -40,7 +40,8 @@ jobs:
           curl -sSfL https://install.surrealdb.com | sh -s -- --version "$SURREAL_VERSION" "$HOME/.surrealdb"
           echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
       - name: Laravel comparison app (oracle for Support and validation)
-        run: phprs/bench/framework/laravel/setup.sh
+        # without FrankenPHP: the suite needs the app and its vendor only
+        run: SETUP_FRANKENPHP=0 phprs/bench/framework/laravel/setup.sh
       - name: suite
         working-directory: phprs
         run: GREEN_LOG="$RUNNER_TEMP/green.log" tools/green.sh
