@@ -20,10 +20,10 @@ if ($mode === 'project') {
     if (file_exists("$root/database/sources/main.surql")) {
         $files[] = "$root/database/sources/main.surql";
     }
-    foreach (glob("$root/vendor/intelliprocessapps/*/database/schema/blueprint.surql") ?: [] as $f) {
+    foreach (glob("$root/vendor/*/*/database/schema/blueprint.surql") ?: [] as $f) {
         $files[] = $f;
     }
-    foreach (glob("$root/vendor/intelliprocessapps/*/database/schema/manually.surql") ?: [] as $f) {
+    foreach (glob("$root/vendor/*/*/database/schema/manually.surql") ?: [] as $f) {
         $files[] = $f;
     }
 } else {

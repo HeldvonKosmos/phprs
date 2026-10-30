@@ -834,7 +834,7 @@ started 2026-10-28T20:56:34Z
 governor performance, 16 cpus, clock cap 4.50 GHz of 5.10 GHz
 cpu AMD Ryzen 7 8845HS w/ Radeon 780M Graphics, 2 threads per core
 cores app 8,10,12,14 (4 physical cores, 1 thread each); db 4-7 (2 physical cores, 2 threads each); load 0-3 (2 physical cores, 2 threads each)
-volume /dev/nvme0n1p3[/home/jonas/.local/share/containers/storage/volumes/opengrid_cargo-target/_data] btrfs rw,nosuid,nodev,re
+volume: btrfs on NVMe (container volume for target/; host path withheld)
 fill /dev/nvme0n1p3  476G  252G  215G  54% /workspaces/OpenGrid_Framework/target
 php 8.4.21, surreal 3.3.4 for linux on x86_64, oha 1.16.0
 sqlite 3.53.4 for all sides, same compile options (checked per target, D23, D24, BENCH3), FrankenPHP v1.13.0 PHP 8.5.11

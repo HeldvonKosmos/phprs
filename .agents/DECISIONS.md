@@ -745,7 +745,7 @@ Status: [final]
 1. **History:** the public repository begins with a single first commit from the cleaned-up state (orphan branch), without the history of the fork. **No Co-Authored-By or Claude session lines in commit messages, now or in the future** (applies immediately to all commits, also on vm-core); the pre-commit hook rejects such messages.
 2. **License:** the whole work under AGPL-3.0-or-later (LICENSE in the root directory, `license` in all own crates, SPDX header in own source files). Files with code from phprs or Loco (copied or derived) keep their license and their copyright notice in the header; NOTICE lists them, license texts under LICENSES/. `examples/laravel-app` keeps the MIT license of the Laravel skeleton. Report: list of the affected files.
 3. **English** throughout the repository: documents, comments, log and error messages (also GRD hints: "Hinweis:" → "help:"), test names and outputs, scripts; tests that check messages are adjusted. `.agents/` outside the repository stays German.
-4. **README:** section "Status" at the very top: experimental, not for production use; issues and pull requests are not processed; contact if interested: groth@opengrid.solutions.
+4. **README:** section "Status" at the very top: experimental, not for production use; issues and pull requests are not processed; contact address of the project if interested.
 5. Furthermore: confidentiality check before the first push, plan for approval, proof of reproducibility in a fresh clone.
 Status: [final]
 

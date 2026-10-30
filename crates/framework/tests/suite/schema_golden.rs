@@ -120,8 +120,17 @@ fn schema_port_matches_php_on_platform_files() {
         files.push(main);
     }
     for kind in ["blueprint.surql", "manually.surql"] {
-        let mut more: Vec<_> = std::fs::read_dir(tool.join("vendor/intelliprocessapps"))
-            .map(|r| r.filter_map(|e| e.ok()).map(|e| e.path().join("database/schema").join(kind)).filter(|p| p.exists()).collect())
+        // every package of every vendor (vendor/<vendor>/<package>/database/schema/<kind>)
+        let mut more: Vec<_> = std::fs::read_dir(tool.join("vendor"))
+            .map(|vendors| {
+                vendors
+                    .filter_map(|v| v.ok())
+                    .filter(|v| v.path().is_dir())
+                    .flat_map(|v| std::fs::read_dir(v.path()).map(|r| r.filter_map(|e| e.ok()).collect::<Vec<_>>()).unwrap_or_default())
+                    .map(|e| e.path().join("database/schema").join(kind))
+                    .filter(|p| p.exists())
+                    .collect()
+            })
             .unwrap_or_default();
         more.sort();
         files.extend(more);
