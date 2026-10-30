@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 // Complex string interpolation demo
 // - simple: "$name"
 // - simple-syntax accessor: "$arr[key]", "$arr[0]", "$obj->prop"

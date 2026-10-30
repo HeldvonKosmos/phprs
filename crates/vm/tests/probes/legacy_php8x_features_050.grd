@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 $d = new DateTime("2024-01-15 10:30:00");
 echo "default: " . $d->format("Y-m-d H:i:s T") . "\n";
 $d->setTimezone(new DateTimeZone("Asia/Tokyo"));

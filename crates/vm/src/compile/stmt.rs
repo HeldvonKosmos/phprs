@@ -125,7 +125,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            _ => self.err(s.span(), "nicht unterstützte Anweisung"),
+            _ => self.err(s.span(), "unsupported statement"),
         }
     }
 
@@ -263,7 +263,7 @@ impl Compiler {
                 return self.reject(dialect::REFERENCE, a);
             }
             if p.hooks.is_some() {
-                return self.err(p.span(), "Property-Hooks sind nicht unterstützt");
+                return self.err(p.span(), "property hooks are not supported");
             }
             let pname = var_name(p.variable.name).to_vec();
             if params.iter().any(|q| self.module.str(q.name) == pname.as_slice()) {
@@ -287,7 +287,7 @@ impl Compiler {
                             promote = Some(Visibility::Public);
                         }
                     }
-                    other => return self.err(other.span(), "ungültiger Parameter-Modifier"),
+                    other => return self.err(other.span(), "invalid parameter modifier"),
                 }
             }
             let variadic = p.ellipsis.is_some();
@@ -606,7 +606,7 @@ impl Compiler {
         }
         let loops = self.ub().loops.len();
         if depth > loops {
-            return self.err(span, "`break`/`continue` außerhalb einer Schleife");
+            return self.err(span, "`break`/`continue` outside a loop");
         }
         let idx = loops - depth;
         // a `finally` between here and the loop runs first (innermost only)
@@ -873,7 +873,7 @@ impl Compiler {
                 self.catch_classes(u.right, out)
             }
             Hint::Parenthesized(p) => self.catch_classes(p.hint, out),
-            other => self.err(other.span(), "ungültiger Typ in `catch`"),
+            other => self.err(other.span(), "invalid type in `catch`"),
         }
     }
 
@@ -1013,7 +1013,7 @@ impl Compiler {
                                 let nm = self.intern(n.name.value);
                                 args.push((Some(nm), init));
                             }
-                            other => return self.err(other.span(), "ungültiges Attribut-Argument"),
+                            other => return self.err(other.span(), "invalid attribute argument"),
                         }
                     }
                 }

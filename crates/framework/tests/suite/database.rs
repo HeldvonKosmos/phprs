@@ -1,6 +1,6 @@
 //! Database layer against the embedded SurrealDB (`mem://`): models declared
 //! in the dialect, Builder/Model/DB native. Expectations are my own until
-//! `builder_cases.php` arrives (DECISIONS: "geprüft gegen Eigenerwartung").
+//! `builder_cases.php` arrives (DECISIONS: "checked against our own expectations").
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

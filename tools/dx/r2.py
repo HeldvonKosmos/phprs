@@ -169,9 +169,9 @@ def main():
 
 def report(results):
     verdicts = ["runs as is", "dialect change", "API missing", "out of scope"]
-    names = {"runs as is": "läuft unverändert", "dialect change": "mit Dialektänderung", "API missing": "API fehlt", "out of scope": "nicht im Umfang"}
-    print(f"Stand: phprs {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD']).strip()}, laravel-docs {sh(['git', '-C', DOCS, 'rev-parse', '--short', 'HEAD']).strip() or '13.x'}; {len(results)} PHP-Blöcke in {len(CHAPTERS)} Kapiteln.\n")
-    print("| Kapitel | Blöcke | " + " | ".join(names[v] for v in verdicts) + " | davon Fragmente¹ |")
+    names = {"runs as is": "runs as is", "dialect change": "with a dialect change", "API missing": "API missing", "out of scope": "out of scope"}
+    print(f"State: phprs {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD']).strip()}, laravel-docs {sh(['git', '-C', DOCS, 'rev-parse', '--short', 'HEAD']).strip() or '13.x'}; {len(results)} PHP blocks in {len(CHAPTERS)} chapters.\n")
+    print("| Chapter | Blocks | " + " | ".join(names[v] for v in verdicts) + " | of which fragments¹ |")
     print("|---|---:|" + "---:|" * (len(verdicts) + 1))
     per = collections.defaultdict(collections.Counter)
     for r in results:
@@ -185,13 +185,13 @@ def report(results):
         print(f"| {ch} | {n} | " + " | ".join(str(c[v]) for v in verdicts) + f" | {c['fragment']} |")
     n = sum(tot[v] for v in verdicts)
     print(f"| **Summe** | {n} | " + " | ".join(f"{tot[v]} ({100 * tot[v] / n:.0f} %)" for v in verdicts) + f" | {tot['fragment']} |")
-    print("\n¹ Blöcke, die für sich allein nicht kompilieren (Methoden ohne Klasse, `...`); ihre APIs werden trotzdem geprüft.")
+    print("\n¹ Blocks that do not compile on their own (methods without a class, `...`); their APIs are checked anyway.")
     miss = collections.Counter(m for r in results if r["verdict"] == "API missing" for m in r["missing"])
-    print("\n### Fehlende APIs (Blöcke, häufigste 60)\n\n" + ", ".join(f"`{m}` ({k})" for m, k in miss.most_common(60)))
+    print("\n### Missing APIs (blocks, most frequent 60)\n\n" + ", ".join(f"`{m}` ({k})" for m, k in miss.most_common(60)))
     scope = collections.Counter(s for r in results for s in r["scope"])
-    print("\n### Nicht im Umfang (Blöcke je Thema)\n\n" + ", ".join(f"{s} ({k})" for s, k in scope.most_common()))
+    print("\n### Out of scope (blocks per topic)\n\n" + ", ".join(f"{s} ({k})" for s, k in scope.most_common()))
     codes = collections.Counter(c for r in results for c in r["codes"])
-    print("\n### Dialektänderungen (GRD-Codes, Blöcke)\n\n" + (", ".join(f"{c} ({k})" for c, k in codes.most_common()) or "keine"))
+    print("\n### Dialect changes (GRD codes, blocks)\n\n" + (", ".join(f"{c} ({k})" for c, k in codes.most_common()) or "none"))
 
 
 if __name__ == "__main__":

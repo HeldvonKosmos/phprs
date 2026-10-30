@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 var_dump(1 <=> 2);
 var_dump(1 === 1);
 var_dump(1 !== "1");

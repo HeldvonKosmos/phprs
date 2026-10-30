@@ -1,0 +1,137 @@
+{
+ "adonis-core": {
+  "idle": [
+   235754,
+   0
+  ],
+  "after": [
+   340736,
+   0
+  ],
+  "load_app_peak": 433147,
+  "load_app_mean": 404536.25641025644,
+  "load_all_peak": 433147,
+  "load_all_mean": 404536.25641025644,
+  "db_separate": false
+ },
+ "dotnet-core": {
+  "idle": [
+   70310,
+   0
+  ],
+  "after": [
+   98653,
+   0
+  ],
+  "load_app_peak": 100676,
+  "load_app_mean": 91762.09756097561,
+  "load_all_peak": 100676,
+  "load_all_mean": 91762.09756097561,
+  "db_separate": false
+ },
+ "fastapi-uvicorn-core": {
+  "idle": [
+   193855,
+   0
+  ],
+  "after": [
+   204705,
+   0
+  ],
+  "load_app_peak": 202657,
+  "load_app_mean": 202418.2,
+  "load_all_peak": 202657,
+  "load_all_mean": 202418.2,
+  "db_separate": false
+ },
+ "goravel-core": {
+  "idle": [
+   36496,
+   0
+  ],
+  "after": [
+   43386,
+   0
+  ],
+  "load_app_peak": 45355,
+  "load_app_mean": 43205.68292682927,
+  "load_all_peak": 45355,
+  "load_all_mean": 43205.68292682927,
+  "db_separate": false
+ },
+ "laravel-frankenphp-core": {
+  "idle": [
+   211209,
+   0
+  ],
+  "after": [
+   222779,
+   0
+  ],
+  "load_app_peak": 223398,
+  "load_app_mean": 222328.5,
+  "load_all_peak": 223398,
+  "load_all_mean": 222328.5,
+  "db_separate": false
+ },
+ "opengrid-embedded-pgo-core": {
+  "idle": [
+   144985,
+   0
+  ],
+  "after": [
+   139168,
+   0
+  ],
+  "load_app_peak": 144983,
+  "load_app_mean": 137915.82926829267,
+  "load_all_peak": 144983,
+  "load_all_mean": 137915.82926829267,
+  "db_separate": false
+ },
+ "phoenix-core": {
+  "idle": [
+   168818,
+   0
+  ],
+  "after": [
+   172415,
+   0
+  ],
+  "load_app_peak": 179683,
+  "load_app_mean": 177917.825,
+  "load_all_peak": 179683,
+  "load_all_mean": 177917.825,
+  "db_separate": false
+ },
+ "rails-threads3-core": {
+  "idle": [
+   133670,
+   0
+  ],
+  "after": [
+   286783,
+   0
+  ],
+  "load_app_peak": 290482,
+  "load_app_mean": 281885.9743589744,
+  "load_all_peak": 290482,
+  "load_all_mean": 281885.9743589744,
+  "db_separate": false
+ },
+ "spring-platform-core": {
+  "idle": [
+   406597,
+   0
+  ],
+  "after": [
+   561526,
+   0
+  ],
+  "load_app_peak": 561094,
+  "load_app_mean": 530936.225,
+  "load_all_peak": 561094,
+  "load_all_mean": 530936.225,
+  "db_separate": false
+ }
+}

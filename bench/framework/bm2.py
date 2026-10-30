@@ -342,23 +342,23 @@ def main():
             f.write("<?php " + version_php)
         fp_sqlite = sh([fp, "php-cli", f.name])
         os.unlink(f.name)
-    print(f"SQLite aller Seiten (D23, BENCH3): Referenz {php_sqlite} (Buns SQLite mit Buns Compile-Optionen, {SQLITE_LIB}), OpenGrid lädt {og_lib}, FrankenPHP (selbst gebaut) {fp_sqlite}; jede Seite vor dem Messen gegen die Referenz geprüft (Laufzeiten je Ziel unten); WAL, synchronous FULL, busy_timeout 5000 · ", end="")
+    print(f"SQLite of every side (D23, BENCH3): reference {php_sqlite} (Bun's SQLite with Bun's compile options, {SQLITE_LIB}), OpenGrid loads {og_lib}, FrankenPHP (self-built) {fp_sqlite}; every side checked against the reference before measuring (runtimes per target below); WAL, synchronous FULL, busy_timeout 5000 · ", end="")
     fp_bin = os.path.join(LARAVEL_APP, "frankenphp")
     if any("frankenphp" in t for t in a.targets.split(",")) and os.path.exists(fp_bin):
         print(f"{sh([fp_bin, 'version']).split(' Caddy')[0]} (Worker-Modus, eigenes PHP) · ", end="")
     # D25: SurrealDB is not measured; OpenGrid still opens its embedded one at start (job poller)
-    print(f"SurrealDB nicht gemessen (D25; OpenGrid öffnet beim Start nebenher seine eingebettete SurrealDB {sh(['surreal', 'version']).split()[0]} für den Job-Poller, ohne Abfragen je Anfrage) · ", end="")
+    print(f"SurrealDB not measured (D25; OpenGrid opens its embedded SurrealDB {sh(['surreal', 'version']).split()[0]} at start for the job poller, no queries per request) · ", end="")
     gov = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor"]) or "?"
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
     gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
-    print(f"Governor {gov} · ", end="")
-    print(f"JIT der OpenGrid-Worker {'an (OPENGRID_JIT=on; Jonas 28.10.)' if a.opengrid_jit else 'aus (D9)'} · ", end="")
+    print(f"governor {gov} · ", end="")
+    print(f"JIT of the OpenGrid workers {'on (OPENGRID_JIT=on; 2026-10-28)' if a.opengrid_jit else 'off (D9)'} · ", end="")
     # which PHP runs which target (FrankenPHP brings its own, newer PHP)
     fp_php = re.search(r"\bPHP (\d\S*)", sh([fp_bin, "version"])).group(1) if os.path.exists(fp_bin) else "–"
-    print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {fp_php} in FrankenPHP (selbst gebaut, ZTS), PHP {sh(['php', '-r', 'echo PHP_VERSION;'])} für artisan"
+    print(f"BM2 · Commit {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])} · {datetime.datetime.now():%Y-%m-%d %H:%M} · PHP {fp_php} in FrankenPHP (self-built, ZTS), PHP {sh(['php', '-r', 'echo PHP_VERSION;'])} for artisan"
           f" · {laravel} (Datenbank: SQLite)"
-          f" · {sh(['oha', '--version'])} · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({topology(a.app_cores)}), DB-Server {a.db_cores} ({topology(a.db_cores)}), Last {a.load_cores} ({topology(a.load_cores)})"
-          f" · {a.notes} Notizen vorab · je Messung {a.warmup} s Aufwärmen + {a.duration} s\n")
+          f" · {sh(['oha', '--version'])} · {a.workers} workers per side · cores: app {a.app_cores} ({topology(a.app_cores)}), database server {a.db_cores} ({topology(a.db_cores)}), load {a.load_cores} ({topology(a.load_cores)})"
+          f" · {a.notes} notes seeded · per measurement {a.warmup} s warm-up + {a.duration} s\n")
     results = {}
     runtimes = {}
     answers = {}
@@ -400,28 +400,28 @@ def main():
                 t.close()
     for e in a.endpoints.split(","):
         print(f"#### {e}\n")
-        print("| Ziel | Verbindungen | Anfragen/s | p50 ms | p99 ms | Fehler (nicht 2xx) | in Arbeit (Little) |")
+        print("| Target | Connections | Requests/s | p50 ms | p99 ms | Errors (non-2xx) | In flight (Little) |")
         print("|---|---:|---:|---:|---:|---:|---:|")
         for name in a.targets.split(","):
             for c in conc:
                 rps, p50, p99, bad, total, inflight = results[(e, name, c)]
                 print(f"| {name} | {c} | {rps:.0f} | {p50:.2f} | {p99:.2f} | {bad} von {total} | {inflight:.1f} |")
         print()
-    print("#### Laufzeiten je Ziel (BENCH3; SQLite je Seite gegen die Referenz geprüft)\n")
-    print("| Ziel | SQLite | Laufzeit |")
+    print("#### Runtimes per target (BENCH3; SQLite of every side checked against the reference)\n")
+    print("| Target | SQLite | Runtime |")
     print("|---|---|---|")
     for name, r in runtimes.items():
         print(f"| {name} | {r['sqlite']} | {', '.join(f'{k} {v}' for k, v in r.items() if k != 'sqlite')} |")
     print()
     if answers:
-        print("#### Antworten der Logik-Endpunkte (vor der Messung je einmal abgerufen)\n")
-        print("| Endpunkt | Ziel | Status | Bytes | Hash (kanonisches JSON) |")
+        print("#### Answers of the logic endpoints (fetched once before measuring)\n")
+        print("| Endpoint | Target | Status | Bytes | Hash (canonical JSON) |")
         print("|---|---|---:|---:|---|")
         for (e, name), (st, size, h) in sorted(answers.items()):
             print(f"| {e} | {name} | {st} | {size} | {h} |")
         for e in sorted({e for e, _ in answers}):
             if len({v[2] for (e2, _), v in answers.items() if e2 == e}) > 1:
-                print(f"\n**Abweichung:** `{e}` antwortet nicht in allen Zielen gleich.")
+                print(f"\n**Difference:** `{e}` does not answer the same on every target.")
                 print(f"WARNING {e}: answers differ between targets", file=sys.stderr)
         print()
     if a.json:

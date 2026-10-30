@@ -2,7 +2,7 @@
 name = "grd-vm"
 version = "0.1.0"
 edition = "2024"
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 description = "VM for the OpenGrid dialect (.grd): mago-based front end, slot-compiled op arrays, handle-based object store"
 publish = false
 

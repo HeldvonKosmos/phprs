@@ -3,7 +3,7 @@ name = "opengrid-pkg"
 version = "0.1.0"
 edition = "2024"
 description = "OpenGrid module manager: modules from Git into modules/, with a lock file (PKG1)"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 
 [lib]
 name = "opengrid_pkg"

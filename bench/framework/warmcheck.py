@@ -62,15 +62,15 @@ def main():
     needed = [v["needed"] for v in res.values()]
     # a target stable at no step: the longest step, and it is reported
     applied = max(steps[-1] if n is None else n for n in needed) if needed else steps[0]
-    print(f"Aufwärmprüfung (BENCH3) · je Ziel und Endpunkt frischer Server, Aufwärmen, dann 3 × {a.window} s bei {a.conc} Verbindungen; "
-          f"ausreichend bei höchstens {a.tolerance * 100:.0f} % Unterschied zwischen den Fenstern · Stufen {a.steps} s · "
-          f"**angewandt für alle Seiten: {applied} s**\n")
-    print("| Ziel | Endpunkt | Aufwärmen s | Fenster Anfragen/s | Unterschied | ausreichend ab |")
+    print(f"Warm-up check (BENCH3) · per target and endpoint a fresh server, warm-up, then 3 × {a.window} s at {a.conc} connections; "
+          f"sufficient when the windows differ by at most {a.tolerance * 100:.0f} % · steps {a.steps} s · "
+          f"**applied to every side: {applied} s**\n")
+    print("| Target | Endpoint | Warm-up s | Windows requests/s | Difference | Sufficient from |")
     print("|---|---|---:|---|---:|---|")
     for k, v in res.items():
         e, name = k.split("|")
         for x in v["tries"]:
-            print(f"| {name} | {e} | {x['warmup']} | {' / '.join(f'{r:.0f}' for r in x['rps'])} | {x['spread'] * 100:.1f} % | {'' if x is not v['tries'][-1] else (str(v['needed']) + ' s' if v['needed'] is not None else 'keine Stufe (nicht stabil)')} |")
+            print(f"| {name} | {e} | {x['warmup']} | {' / '.join(f'{r:.0f}' for r in x['rps'])} | {x['spread'] * 100:.1f} % | {'' if x is not v['tries'][-1] else (str(v['needed']) + ' s' if v['needed'] is not None else 'no step (not stable)')} |")
     print()
     if a.out:
         open(a.out, "w").write(f"{applied}\n")

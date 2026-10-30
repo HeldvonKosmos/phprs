@@ -1,0 +1,437 @@
+# run 1: run-1
+20:56:18 start gates:opengrid
+20:56:22 end gates:opengrid (4 s, exit 0)
+20:56:22 start gates:laravel
+20:56:25 end gates:laravel (3 s, exit 0)
+20:56:25 start gates:adonis
+20:56:26 end gates:adonis (1 s, exit 0)
+20:56:26 start gates:goravel
+20:56:26 end gates:goravel (0 s, exit 0)
+20:56:26 start gates:rails
+20:56:28 end gates:rails (2 s, exit 0)
+20:56:28 start gates:fastapi
+20:56:30 end gates:fastapi (2 s, exit 0)
+20:56:30 start gates:spring
+20:56:32 end gates:spring (2 s, exit 0)
+20:56:32 start gates:dotnet
+20:56:33 end gates:dotnet (1 s, exit 0)
+20:56:33 start gates:phoenix
+20:56:34 end gates:phoenix (1 s, exit 0)
+20:56:35 start sqlite
+20:56:41 end sqlite (6 s, exit 0)
+20:56:41 start warmcheck
+21:06:16 end warmcheck (575 s, exit 0)
+21:06:16 start bm2:opengrid
+21:41:41 end bm2:opengrid (2125 s, exit 0)
+21:41:41 start bm2:laravel
+21:59:16 end bm2:laravel (1055 s, exit 0)
+21:59:16 start bm2:adonis
+22:16:53 end bm2:adonis (1057 s, exit 0)
+22:16:53 start bm2:goravel
+22:34:34 end bm2:goravel (1061 s, exit 0)
+22:34:34 start bm2:rails
+22:52:08 end bm2:rails (1054 s, exit 0)
+22:52:08 start bm2:fastapi
+23:09:45 end bm2:fastapi (1057 s, exit 0)
+23:09:45 start bm2:spring
+23:27:28 end bm2:spring (1063 s, exit 0)
+23:27:28 start bm2:dotnet
+23:45:19 end bm2:dotnet (1071 s, exit 0)
+23:45:19 start bm2:phoenix
+00:02:56 end bm2:phoenix (1057 s, exit 0)
+00:02:56 start thesis:opengrid
+00:38:15 end thesis:opengrid (2119 s, exit 0)
+00:38:15 start thesis:laravel
+00:55:50 end thesis:laravel (1055 s, exit 0)
+00:55:50 start thesis:adonis
+01:13:32 end thesis:adonis (1062 s, exit 0)
+01:13:32 start thesis:goravel
+01:31:08 end thesis:goravel (1056 s, exit 0)
+01:31:08 start thesis:rails
+01:48:43 end thesis:rails (1055 s, exit 0)
+01:48:43 start thesis:fastapi
+02:06:18 end thesis:fastapi (1055 s, exit 0)
+02:06:18 start thesis:spring
+02:23:59 end thesis:spring (1061 s, exit 0)
+02:23:59 start thesis:dotnet
+02:41:43 end thesis:dotnet (1064 s, exit 0)
+02:41:43 start thesis:phoenix
+02:59:17 end thesis:phoenix (1054 s, exit 0)
+02:59:17 start load:opengrid
+03:08:54 end load:opengrid (577 s, exit 0)
+03:08:54 start load:laravel
+03:18:23 end load:laravel (569 s, exit 0)
+03:18:23 start load:adonis
+03:27:54 end load:adonis (571 s, exit 0)
+03:27:54 start load:goravel
+03:37:26 end load:goravel (572 s, exit 0)
+03:37:26 start load:rails
+03:46:56 end load:rails (570 s, exit 0)
+03:46:56 start load:fastapi
+03:56:25 end load:fastapi (569 s, exit 0)
+03:56:25 start load:spring
+04:05:58 end load:spring (573 s, exit 0)
+04:05:58 start load:dotnet
+04:15:38 end load:dotnet (580 s, exit 0)
+04:15:38 start load:phoenix
+04:25:06 end load:phoenix (568 s, exit 0)
+04:25:07 start curve:opengrid
+04:25:38 end curve:opengrid (31 s, exit 0)
+04:25:38 start curve:laravel
+04:26:10 end curve:laravel (32 s, exit 0)
+04:26:10 start curve:adonis
+04:26:41 end curve:adonis (31 s, exit 0)
+04:26:41 start curve:goravel
+04:27:11 end curve:goravel (30 s, exit 0)
+04:27:11 start curve:rails
+04:27:43 end curve:rails (32 s, exit 0)
+04:27:43 start curve:fastapi
+04:28:14 end curve:fastapi (31 s, exit 0)
+04:28:14 start curve:spring
+04:28:46 end curve:spring (32 s, exit 0)
+04:28:46 start curve:dotnet
+04:29:17 end curve:dotnet (31 s, exit 0)
+04:29:17 start curve:phoenix
+04:29:48 end curve:phoenix (31 s, exit 0)
+04:29:48 start memory:opengrid
+04:30:03 end memory:opengrid (15 s, exit 0)
+04:30:03 start memory:laravel
+04:30:21 end memory:laravel (18 s, exit 0)
+04:30:21 start memory:adonis
+04:30:36 end memory:adonis (15 s, exit 0)
+04:30:36 start memory:goravel
+04:30:51 end memory:goravel (15 s, exit 0)
+04:30:51 start memory:rails
+04:31:07 end memory:rails (16 s, exit 0)
+04:31:07 start memory:fastapi
+04:31:23 end memory:fastapi (16 s, exit 0)
+04:31:23 start memory:spring
+04:31:39 end memory:spring (16 s, exit 0)
+04:31:39 start memory:dotnet
+04:31:54 end memory:dotnet (15 s, exit 0)
+04:31:54 start memory:phoenix
+04:32:10 end memory:phoenix (16 s, exit 0)
+04:32:10 start coldstart:opengrid
+04:32:13 end coldstart:opengrid (3 s, exit 0)
+04:32:13 start coldstart:laravel
+04:32:34 end coldstart:laravel (21 s, exit 0)
+04:32:34 start coldstart:adonis
+04:32:43 end coldstart:adonis (9 s, exit 0)
+04:32:43 start coldstart:goravel
+04:32:44 end coldstart:goravel (1 s, exit 0)
+04:32:44 start coldstart:rails
+04:32:59 end coldstart:rails (15 s, exit 0)
+04:32:59 start coldstart:fastapi
+04:33:10 end coldstart:fastapi (11 s, exit 0)
+04:33:10 start coldstart:spring
+04:33:30 end coldstart:spring (20 s, exit 0)
+04:33:30 start coldstart:dotnet
+04:33:33 end coldstart:dotnet (3 s, exit 0)
+04:33:33 start coldstart:phoenix
+04:33:40 end coldstart:phoenix (7 s, exit 0)
+04:33:40 start hotreload:adonis
+04:34:02 end hotreload:adonis (22 s, exit 0)
+04:34:02 start hotreload:goravel
+04:34:31 end hotreload:goravel (29 s, exit 0)
+04:34:31 start hotreload:rails
+04:34:37 end hotreload:rails (6 s, exit 0)
+04:34:37 start hotreload:fastapi
+04:34:45 end hotreload:fastapi (8 s, exit 0)
+04:34:45 start hotreload:spring
+04:35:10 end hotreload:spring (25 s, exit 0)
+04:35:10 start hotreload:dotnet
+04:35:41 end hotreload:dotnet (31 s, exit 0)
+04:35:41 start hotreload:phoenix
+04:35:47 end hotreload:phoenix (6 s, exit 0)
+04:35:47 start report
+04:35:47 end report (0 s, exit 0)
+# run 2: run-2
+04:35:49 start gates:opengrid
+04:35:52 end gates:opengrid (3 s, exit 0)
+04:35:52 start gates:laravel
+04:35:55 end gates:laravel (3 s, exit 0)
+04:35:55 start gates:adonis
+04:35:56 end gates:adonis (1 s, exit 0)
+04:35:56 start gates:goravel
+04:35:56 end gates:goravel (0 s, exit 0)
+04:35:56 start gates:rails
+04:35:58 end gates:rails (2 s, exit 0)
+04:35:58 start gates:fastapi
+04:35:59 end gates:fastapi (1 s, exit 0)
+04:35:59 start gates:spring
+04:36:01 end gates:spring (2 s, exit 0)
+04:36:01 start gates:dotnet
+04:36:02 end gates:dotnet (1 s, exit 0)
+04:36:02 start gates:phoenix
+04:36:03 end gates:phoenix (1 s, exit 0)
+04:36:04 start sqlite
+04:36:09 end sqlite (5 s, exit 0)
+04:36:09 start bm2:opengrid
+05:11:35 end bm2:opengrid (2126 s, exit 0)
+05:11:35 start bm2:laravel
+05:29:25 end bm2:laravel (1070 s, exit 0)
+05:29:25 start bm2:adonis
+05:47:02 end bm2:adonis (1057 s, exit 0)
+05:47:02 start bm2:goravel
+06:04:42 end bm2:goravel (1060 s, exit 0)
+06:04:42 start bm2:rails
+06:22:16 end bm2:rails (1054 s, exit 0)
+06:22:16 start bm2:fastapi
+06:39:57 end bm2:fastapi (1061 s, exit 0)
+06:39:57 start bm2:spring
+06:57:40 end bm2:spring (1063 s, exit 0)
+06:57:40 start bm2:dotnet
+07:15:32 end bm2:dotnet (1072 s, exit 0)
+07:15:32 start bm2:phoenix
+07:33:09 end bm2:phoenix (1057 s, exit 0)
+07:33:09 start thesis:opengrid
+08:08:29 end thesis:opengrid (2120 s, exit 0)
+08:08:29 start thesis:laravel
+08:26:04 end thesis:laravel (1055 s, exit 0)
+08:26:04 start thesis:adonis
+08:43:41 end thesis:adonis (1057 s, exit 0)
+08:43:41 start thesis:goravel
+09:01:17 end thesis:goravel (1056 s, exit 0)
+09:01:17 start thesis:rails
+09:18:52 end thesis:rails (1055 s, exit 0)
+09:18:52 start thesis:fastapi
+09:36:32 end thesis:fastapi (1060 s, exit 0)
+09:36:32 start thesis:spring
+09:54:12 end thesis:spring (1060 s, exit 0)
+09:54:12 start thesis:dotnet
+10:11:56 end thesis:dotnet (1064 s, exit 0)
+10:11:56 start thesis:phoenix
+10:29:31 end thesis:phoenix (1055 s, exit 0)
+10:29:31 start load:opengrid
+10:39:08 end load:opengrid (577 s, exit 0)
+10:39:08 start load:laravel
+10:48:37 end load:laravel (569 s, exit 0)
+10:48:37 start load:adonis
+10:58:08 end load:adonis (571 s, exit 0)
+10:58:08 start load:goravel
+11:07:40 end load:goravel (573 s, exit 0)
+11:07:41 start load:rails
+11:17:10 end load:rails (569 s, exit 0)
+11:17:10 start load:fastapi
+11:26:40 end load:fastapi (570 s, exit 0)
+11:26:40 start load:spring
+11:36:13 end load:spring (573 s, exit 0)
+11:36:13 start load:dotnet
+11:45:52 end load:dotnet (579 s, exit 0)
+11:45:52 start load:phoenix
+11:55:21 end load:phoenix (569 s, exit 0)
+11:55:21 start curve:opengrid
+11:55:52 end curve:opengrid (31 s, exit 0)
+11:55:52 start curve:laravel
+11:56:24 end curve:laravel (32 s, exit 0)
+11:56:24 start curve:adonis
+11:56:55 end curve:adonis (31 s, exit 0)
+11:56:55 start curve:goravel
+11:57:25 end curve:goravel (30 s, exit 0)
+11:57:25 start curve:rails
+11:57:57 end curve:rails (32 s, exit 0)
+11:57:57 start curve:fastapi
+11:58:28 end curve:fastapi (31 s, exit 0)
+11:58:28 start curve:spring
+11:59:00 end curve:spring (32 s, exit 0)
+11:59:00 start curve:dotnet
+11:59:31 end curve:dotnet (31 s, exit 0)
+11:59:31 start curve:phoenix
+12:00:02 end curve:phoenix (31 s, exit 0)
+12:00:02 start memory:opengrid
+12:00:17 end memory:opengrid (15 s, exit 0)
+12:00:17 start memory:laravel
+12:00:35 end memory:laravel (18 s, exit 0)
+12:00:35 start memory:adonis
+12:00:50 end memory:adonis (15 s, exit 0)
+12:00:50 start memory:goravel
+12:01:05 end memory:goravel (15 s, exit 0)
+12:01:05 start memory:rails
+12:01:22 end memory:rails (17 s, exit 0)
+12:01:22 start memory:fastapi
+12:01:37 end memory:fastapi (15 s, exit 0)
+12:01:37 start memory:spring
+12:01:54 end memory:spring (17 s, exit 0)
+12:01:54 start memory:dotnet
+12:02:09 end memory:dotnet (15 s, exit 0)
+12:02:09 start memory:phoenix
+12:02:25 end memory:phoenix (16 s, exit 0)
+12:02:25 start coldstart:opengrid
+12:02:27 end coldstart:opengrid (2 s, exit 0)
+12:02:27 start coldstart:laravel
+12:02:48 end coldstart:laravel (21 s, exit 0)
+12:02:48 start coldstart:adonis
+12:02:57 end coldstart:adonis (9 s, exit 0)
+12:02:57 start coldstart:goravel
+12:02:58 end coldstart:goravel (1 s, exit 0)
+12:02:58 start coldstart:rails
+12:03:14 end coldstart:rails (16 s, exit 0)
+12:03:14 start coldstart:fastapi
+12:03:24 end coldstart:fastapi (10 s, exit 0)
+12:03:24 start coldstart:spring
+12:03:44 end coldstart:spring (20 s, exit 0)
+12:03:44 start coldstart:dotnet
+12:03:47 end coldstart:dotnet (3 s, exit 0)
+12:03:47 start coldstart:phoenix
+12:03:55 end coldstart:phoenix (8 s, exit 0)
+12:03:55 start hotreload:adonis
+12:04:16 end hotreload:adonis (21 s, exit 0)
+12:04:16 start hotreload:goravel
+12:04:43 end hotreload:goravel (27 s, exit 0)
+12:04:43 start hotreload:rails
+12:04:48 end hotreload:rails (5 s, exit 0)
+12:04:48 start hotreload:fastapi
+12:04:57 end hotreload:fastapi (9 s, exit 0)
+12:04:57 start hotreload:spring
+12:05:24 end hotreload:spring (27 s, exit 0)
+12:05:24 start hotreload:dotnet
+12:05:55 end hotreload:dotnet (31 s, exit 0)
+12:05:55 start hotreload:phoenix
+12:06:01 end hotreload:phoenix (6 s, exit 0)
+12:06:01 start report
+12:06:01 end report (0 s, exit 0)
+# run 3: run-3
+12:06:02 start gates:opengrid
+12:06:06 end gates:opengrid (4 s, exit 0)
+12:06:06 start gates:laravel
+12:06:08 end gates:laravel (2 s, exit 0)
+12:06:08 start gates:adonis
+12:06:09 end gates:adonis (1 s, exit 0)
+12:06:09 start gates:goravel
+12:06:10 end gates:goravel (1 s, exit 0)
+12:06:10 start gates:rails
+12:06:11 end gates:rails (1 s, exit 0)
+12:06:11 start gates:fastapi
+12:06:13 end gates:fastapi (2 s, exit 0)
+12:06:13 start gates:spring
+12:06:15 end gates:spring (2 s, exit 0)
+12:06:15 start gates:dotnet
+12:06:16 end gates:dotnet (1 s, exit 0)
+12:06:16 start gates:phoenix
+12:06:17 end gates:phoenix (1 s, exit 0)
+12:06:18 start sqlite
+12:06:23 end sqlite (5 s, exit 0)
+12:06:23 start bm2:opengrid
+12:41:48 end bm2:opengrid (2125 s, exit 0)
+12:41:48 start bm2:laravel
+12:59:24 end bm2:laravel (1056 s, exit 0)
+12:59:24 start bm2:adonis
+13:17:01 end bm2:adonis (1057 s, exit 0)
+13:17:01 start bm2:goravel
+13:34:42 end bm2:goravel (1061 s, exit 0)
+13:34:42 start bm2:rails
+13:52:17 end bm2:rails (1055 s, exit 0)
+13:52:17 start bm2:fastapi
+14:09:53 end bm2:fastapi (1056 s, exit 0)
+14:09:53 start bm2:spring
+14:27:36 end bm2:spring (1063 s, exit 0)
+14:27:36 start bm2:dotnet
+14:45:28 end bm2:dotnet (1072 s, exit 0)
+14:45:28 start bm2:phoenix
+15:03:05 end bm2:phoenix (1057 s, exit 0)
+15:03:06 start thesis:opengrid
+15:38:25 end thesis:opengrid (2119 s, exit 0)
+15:38:25 start thesis:laravel
+15:56:00 end thesis:laravel (1055 s, exit 0)
+15:56:00 start thesis:adonis
+16:13:37 end thesis:adonis (1057 s, exit 0)
+16:13:37 start thesis:goravel
+16:31:13 end thesis:goravel (1056 s, exit 0)
+16:31:13 start thesis:rails
+16:48:48 end thesis:rails (1055 s, exit 0)
+16:48:48 start thesis:fastapi
+17:06:23 end thesis:fastapi (1055 s, exit 0)
+17:06:23 start thesis:spring
+17:24:04 end thesis:spring (1061 s, exit 0)
+17:24:04 start thesis:dotnet
+17:41:47 end thesis:dotnet (1063 s, exit 0)
+17:41:47 start thesis:phoenix
+17:59:21 end thesis:phoenix (1054 s, exit 0)
+17:59:22 start load:opengrid
+18:08:59 end load:opengrid (577 s, exit 0)
+18:08:59 start load:laravel
+18:18:28 end load:laravel (569 s, exit 0)
+18:18:28 start load:adonis
+18:27:59 end load:adonis (571 s, exit 0)
+18:27:59 start load:goravel
+18:37:31 end load:goravel (572 s, exit 0)
+18:37:31 start load:rails
+18:47:01 end load:rails (570 s, exit 0)
+18:47:01 start load:fastapi
+18:56:30 end load:fastapi (569 s, exit 0)
+18:56:30 start load:spring
+19:06:03 end load:spring (573 s, exit 0)
+19:06:03 start load:dotnet
+19:15:42 end load:dotnet (579 s, exit 0)
+19:15:42 start load:phoenix
+19:25:11 end load:phoenix (569 s, exit 0)
+19:25:11 start curve:opengrid
+19:25:42 end curve:opengrid (31 s, exit 0)
+19:25:42 start curve:laravel
+19:26:13 end curve:laravel (31 s, exit 0)
+19:26:13 start curve:adonis
+19:26:44 end curve:adonis (31 s, exit 0)
+19:26:44 start curve:goravel
+19:27:15 end curve:goravel (31 s, exit 0)
+19:27:15 start curve:rails
+19:27:47 end curve:rails (32 s, exit 0)
+19:27:47 start curve:fastapi
+19:28:18 end curve:fastapi (31 s, exit 0)
+19:28:18 start curve:spring
+19:28:50 end curve:spring (32 s, exit 0)
+19:28:50 start curve:dotnet
+19:29:21 end curve:dotnet (31 s, exit 0)
+19:29:21 start curve:phoenix
+19:29:52 end curve:phoenix (31 s, exit 0)
+19:29:52 start memory:opengrid
+19:30:07 end memory:opengrid (15 s, exit 0)
+19:30:07 start memory:laravel
+19:30:25 end memory:laravel (18 s, exit 0)
+19:30:25 start memory:adonis
+19:30:40 end memory:adonis (15 s, exit 0)
+19:30:40 start memory:goravel
+19:30:55 end memory:goravel (15 s, exit 0)
+19:30:55 start memory:rails
+19:31:12 end memory:rails (17 s, exit 0)
+19:31:12 start memory:fastapi
+19:31:28 end memory:fastapi (16 s, exit 0)
+19:31:28 start memory:spring
+19:31:45 end memory:spring (17 s, exit 0)
+19:31:45 start memory:dotnet
+19:32:00 end memory:dotnet (15 s, exit 0)
+19:32:00 start memory:phoenix
+19:32:16 end memory:phoenix (16 s, exit 0)
+19:32:16 start coldstart:opengrid
+19:32:18 end coldstart:opengrid (2 s, exit 0)
+19:32:18 start coldstart:laravel
+19:32:40 end coldstart:laravel (22 s, exit 0)
+19:32:40 start coldstart:adonis
+19:32:49 end coldstart:adonis (9 s, exit 0)
+19:32:49 start coldstart:goravel
+19:32:50 end coldstart:goravel (1 s, exit 0)
+19:32:50 start coldstart:rails
+19:33:08 end coldstart:rails (18 s, exit 0)
+19:33:08 start coldstart:fastapi
+19:33:20 end coldstart:fastapi (12 s, exit 0)
+19:33:20 start coldstart:spring
+19:33:40 end coldstart:spring (20 s, exit 0)
+19:33:40 start coldstart:dotnet
+19:33:43 end coldstart:dotnet (3 s, exit 0)
+19:33:43 start coldstart:phoenix
+19:33:50 end coldstart:phoenix (7 s, exit 0)
+19:33:50 start hotreload:adonis
+19:34:12 end hotreload:adonis (22 s, exit 0)
+19:34:12 start hotreload:goravel
+19:34:45 end hotreload:goravel (33 s, exit 0)
+19:34:45 start hotreload:rails
+19:34:51 end hotreload:rails (6 s, exit 0)
+19:34:51 start hotreload:fastapi
+19:35:00 end hotreload:fastapi (9 s, exit 0)
+19:35:00 start hotreload:spring
+19:35:29 end hotreload:spring (29 s, exit 0)
+19:35:29 start hotreload:dotnet
+19:36:00 end hotreload:dotnet (31 s, exit 0)
+19:36:00 start hotreload:phoenix
+19:36:06 end hotreload:phoenix (6 s, exit 0)
+19:36:06 start report
+19:36:06 end report (0 s, exit 0)

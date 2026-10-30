@@ -120,7 +120,7 @@ def main():
     ids = [t[0] for t in tests]
     dups = sorted({i for i in ids if ids.count(i) > 1})
     if a.markdown:
-        print("| Id | Art | übersprungen |")
+        print("| Id | Kind | Skipped |")
         print("|---|---|---|")
         for t in tests:
             print(f"| `{t[0]}` | {t[4]} | {'ja: ' + t[6] if t[5] else ''} |")

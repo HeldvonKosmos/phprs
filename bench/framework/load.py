@@ -93,9 +93,9 @@ def main():
     conc = [int(c) for c in a.conc.split(",")]
     levels = [int(x) for x in a.levels.split(",")]
     res = {}
-    print(f"Gleichzeitigkeit und offene Last (BENCH1) · {a.workers} Worker je Seite · Kerne: App {a.app_cores} ({bm2.topology(a.app_cores)}), "
-          f"DB {a.db_cores}, Last {a.load_cores} · je Punkt {a.warmup} s Aufwärmen + {a.duration} s · offene Last mit oha -q --latency-correction "
-          f"über {a.open_conc} Verbindungen, Stufen in % der Rate bei {a.capacity_conc} Verbindungen\n")
+    print(f"Concurrency and open-loop load (BENCH1) · {a.workers} workers per side · cores: app {a.app_cores} ({bm2.topology(a.app_cores)}), "
+          f"database {a.db_cores}, load {a.load_cores} · per point {a.warmup} s warm-up + {a.duration} s · open loop with oha -q --latency-correction "
+          f"over {a.open_conc} connections, levels in % of the rate at {a.capacity_conc} connections\n")
     for name in a.targets.split(","):
         with tempfile.TemporaryDirectory(prefix=f"load-{name}-") as work:
             t = bm2.Target(name, a, work)
@@ -136,7 +136,7 @@ def main():
                 t.close()
     for e in a.endpoints.split(","):
         print(f"#### {e}: geschlossene Last\n")
-        print("| Ziel | Verbindungen | Anfragen/s | p50 ms | p99 ms | p99.9 ms | fehlgeschlagen | Last-Kerne belegt |")
+        print("| Target | Connections | Requests/s | p50 ms | p99 ms | p99.9 ms | Failed | Load cores busy |")
         print("|---|---:|---:|---:|---:|---:|---:|---:|")
         for name in a.targets.split(","):
             for c in conc:
@@ -144,19 +144,19 @@ def main():
                 flag = " (Lastgenerator am Limit)" if x["load_busy"] > 90 else ""
                 print(f"| {name} | {c} | {x['rps']:.0f} | {x['p50']:.2f} | {x['p99']:.2f} | {x['p999']:.2f} | {x['bad']} von {x['total']} | {x['load_busy']:.0f} %{flag} |")
         print(f"\n#### {e}: offene Last (feste Rate) und Knie\n")
-        print("| Ziel | Kapazität req/s | " + " | ".join(f"{lv} %: p50 / p99 / p99.9 ms" for lv in levels) + " | Knie | Spitze: p99 / p99.9 ms (ohne → mit) | fehlgeschlagen |")
+        print("| Target | Capacity req/s | " + " | ".join(f"{lv} %: p50 / p99 / p99.9 ms" for lv in levels) + " | Knee | Spike: p99 / p99.9 ms (without → with) | Failed |")
         print("|---|---:|" + "---|" * len(levels) + "---|---|---:|")
         for name in a.targets.split(","):
             r = res[f"{e}|{name}"]
             base = r["open"][levels[0]]["p99"]
-            knee = next((f"ab {lv} %" for lv in levels[1:] if r["open"][lv]["p99"] > 2 * base), f"keins bis {levels[-1]} %")
+            knee = next((f"at {lv} %" for lv in levels[1:] if r["open"][lv]["p99"] > 2 * base), f"none up to {levels[-1]} %")
             cells = [f"{r['open'][lv]['p50']:.2f} / {r['open'][lv]['p99']:.2f} / {r['open'][lv]['p999']:.2f}" for lv in levels]
             s = r["spike"]
             bad = sum(r["open"][lv]["bad"] for lv in levels) + s["base"]["bad"] + s["spike"]["bad"]
             print(f"| {name} | {r['capacity']:.0f} | " + " | ".join(cells) + f" | {knee} | {base:.2f} / {r['open'][levels[0]]['p999']:.2f} → {s['base']['p99']:.2f} / {s['base']['p999']:.2f} | {bad} |")
         print()
-    print(f"Knie: erste Stufe, deren p99 mehr als doppelt so hoch ist wie bei {levels[0]} %. Spitze: {levels[0]} % Grundlast für {a.spike_total} s, ab Sekunde "
-          f"{a.spike_at} für {a.spike_len} s zusätzlich 65 % (zusammen 90 %); gezeigt p99/p99.9 der Grundlast ohne und mit Spitze.\n")
+    print(f"Knee: the first level whose p99 is more than twice the p99 at {levels[0]} %. Spike: {levels[0]} % base load for {a.spike_total} s, from second "
+          f"{a.spike_at} an additional 65 % for {a.spike_len} s (90 % together); shown: p99/p99.9 of the base load without and with the spike.\n")
     if a.json:
         json.dump(res, open(a.json, "w"), indent=1)
 

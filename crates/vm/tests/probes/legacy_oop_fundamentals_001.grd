@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 class V extends Exception {}
 class W extends RuntimeException {
     public function __construct(string $m, private string $extra = "e") { parent::__construct("[" . $m . "]", 7); }

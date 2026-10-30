@@ -100,7 +100,7 @@ fn local_variables_keep_their_type_at_run_time() {
     };
     // a typed local (first value evident) takes only its type, also from values the compiler cannot see
     let out = run("<?grd $a = [1, 'x']; $v = 0; $v = $a[0]; try { $v = $a[1]; } catch (TypeError $e) { echo $e->getMessage(); }");
-    assert!(out.contains("GRD021: die lokale Variable $v ist int, zugewiesen wird string"), "{out}");
+    assert!(out.contains("GRD021: the local variable $v is int, but string is assigned"), "{out}");
     // a local whose first value has no evident type is `mixed` (D10, 22:20)
     let out = run("<?grd $a = [5, null, 'x', [1]]; $v = $a[0]; $v = $a[1]; $v = $a[2]; $v = $a[3]; echo 'ok';");
     assert_eq!(out, "ok");

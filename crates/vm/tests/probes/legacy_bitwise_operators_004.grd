@@ -1,2 +1,2 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
         echo 1 << 64;

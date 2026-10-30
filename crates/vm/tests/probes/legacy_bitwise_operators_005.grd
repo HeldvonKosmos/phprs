@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
         $flags = 0b1010;
         $mask = 0b0110;
         echo ($flags & $mask) == 0b0010 ? "yes" : "no";

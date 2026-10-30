@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
         $user = ["name" => "Bo", "id" => 7];
         $msg = "user {$user['name']} (#{$user['id']})";
         echo $msg . "!";

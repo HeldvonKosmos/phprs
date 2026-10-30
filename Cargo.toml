@@ -16,8 +16,8 @@ lto = true
 codegen-units = 1
 strip = true
 
-# Debuginfo klein halten (24.10.2026, NACHRICHT 5c): die ~270 Abhängigkeiten ohne
-# Debuginfo, eigener Code nur mit Zeilentabellen. Vorher: 2,1 GB je Test-Binary,
+# Keep debug info small (2026-10-24): the ~270 dependencies without debug info,
+# our own code with line tables only. Before: 2.1 GB per test binary,
 # target/debug 221 GB.
 [profile.dev]
 opt-level = 0
@@ -34,8 +34,8 @@ incremental = true
 [profile.test.package."*"]
 debug = false
 
-# Messungen (Benchmarks, Vergleich mit PHP): Release-Optimierung, aber schneller
-# zu bauen als `release` (Thin-LTO, 16 Codegen-Einheiten). Nicht für Auslieferung.
+# Measurements (benchmarks, comparison with PHP): release optimization, but faster
+# to build than `release` (thin LTO, 16 codegen units). Not for distribution.
 [profile.profiling]
 inherits = "release"
 lto = "thin"

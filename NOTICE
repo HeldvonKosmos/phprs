@@ -1,12 +1,41 @@
 OpenGrid
 ========
 
-This repository began as a fork of phprs (https://github.com/yingkitw/phprs,
-Apache License 2.0, see LICENSE). The original interpreter served as a
-quarry for builtin behaviour and for test material; its last state in this
-tree is tagged `legacy-core-last` (and the unmodified upstream as
-`upstream-baseline`). The current interpreter (crates/vm, "grd-vm") and the
-framework (crates/framework) are new code written for the OpenGrid dialect.
+Copyright (C) 2026 OpenGrid Solutions and contributors.
 
-Test scripts harvested from the phprs test suite live under
-crates/vm/tests/probes/legacy_* with PHP 8.4 output as the reference.
+OpenGrid is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version. See LICENSE for the full text. The program is distributed
+WITHOUT ANY WARRANTY; see the license for details.
+
+Parts under the Apache License 2.0
+----------------------------------
+
+This repository began as a fork of phprs (https://github.com/yingkitw/phprs,
+Apache License 2.0). The original interpreter has been replaced; the current
+VM (crates/vm), JIT (crates/jit), framework (crates/framework) and module
+manager (crates/pkg) are new code licensed under the AGPL-3.0-or-later as
+stated above. The following files still come from phprs and remain under the
+Apache License 2.0 (text in LICENSE-APACHE); each carries an
+`SPDX-License-Identifier: Apache-2.0` notice:
+
+- crates/vm/tests/probes/legacy_*.grd — 157 test scripts harvested from the
+  phprs test suite (their `.out` files hold the output of PHP 8.4 and are
+  not derived from phprs);
+- .cargo/config.toml — the build configuration (machine-specific settings
+  removed).
+
+Loco (https://github.com/loco-rs/loco, Apache License 2.0) is used as a
+dependency; crates/framework/src/app.rs implements its `Hooks` trait against
+the documented signature. No Loco source code was copied.
+
+Comparison applications of the benchmark (bench/*-app)
+-------------------------------------------------------
+
+The applications under bench/ were generated from the starter kits of the
+frameworks they compare (Laravel, AdonisJS, Goravel, Rails, FastAPI, Spring
+Boot, ASP.NET Core, Phoenix) and keep the licenses of those starter kits
+(MIT or equivalent; see the LICENSE file inside an app where the starter
+kit ships one). The benchmark endpoints added to them are part of OpenGrid
+and licensed under the AGPL-3.0-or-later.

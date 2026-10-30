@@ -87,7 +87,7 @@ impl Compiler {
                 Ok(())
             }
             Expression::Error(s) => self.err(*s, "Syntaxfehler"),
-            _ => self.err(span, "nicht unterstützter Ausdruck"),
+            _ => self.err(span, "unsupported expression"),
         }
     }
 
@@ -347,7 +347,7 @@ impl Compiler {
             O::BoolCast(..) | O::BooleanCast(..) => UnOp::CastBool,
             O::ArrayCast(..) => UnOp::CastArray,
             O::ObjectCast(..) => UnOp::CastObject,
-            O::UnsetCast(s, _) | O::VoidCast(s, _) => return self.err(*s, "dieser Cast ist nicht erlaubt"),
+            O::UnsetCast(s, _) | O::VoidCast(s, _) => return self.err(*s, "this cast is not allowed"),
         };
         self.compile_expr(u.operand)?;
         self.emit(Op::Un(op));
@@ -478,7 +478,7 @@ impl Compiler {
                     self.compile_expr(v.value)?;
                     self.emit(Op::ArraySpread);
                 }
-                ArrayElement::Missing(m) => return self.err(m.comma, "leeres Array-Element ist nur in Destructuring erlaubt"),
+                ArrayElement::Missing(m) => return self.err(m.comma, "an empty array element is only allowed in destructuring"),
             }
         }
         Ok(())
@@ -676,7 +676,7 @@ impl Compiler {
                             self.emit(Op::FetchClassConst(cr, name));
                         }
                     }
-                    ClassLikeConstantSelector::Expression(x) => return self.err(x.span(), "dynamische Klassenkonstanten sind nicht erlaubt"),
+                    ClassLikeConstantSelector::Expression(x) => return self.err(x.span(), "dynamic class constants are not allowed"),
                     ClassLikeConstantSelector::Missing(s) => return self.err(*s, "Konstantenname fehlt"),
                 }
                 Ok(())
@@ -754,7 +754,7 @@ impl Compiler {
                         self.emit(Op::CallStatic { class: cr, name, spec });
                         Ok(())
                     }
-                    other => self.err(other.span(), "dynamische statische Methodennamen sind nicht erlaubt"),
+                    other => self.err(other.span(), "dynamic static method names are not allowed"),
                 }
             }
         }
@@ -836,7 +836,7 @@ impl Compiler {
             Expression::Variable(Variable::Direct(d)) => {
                 let name = var_name(d.name);
                 if name == b"this" {
-                    return self.err(d.span(), "`$this` kann nicht zugewiesen werden");
+                    return self.err(d.span(), "`$this` cannot be assigned");
                 }
                 if dialect::is_superglobal(name) {
                     return self.reject(dialect::SUPERGLOBAL, d.span());
@@ -895,7 +895,7 @@ impl Compiler {
                 }
                 Ok((base, segs))
             }
-            Expression::Access(Access::NullSafeProperty(p)) => self.err(p.span(), "`?->` kann nicht zugewiesen werden"),
+            Expression::Access(Access::NullSafeProperty(p)) => self.err(p.span(), "`?->` cannot be assigned"),
             Expression::Access(Access::StaticProperty(sp)) => {
                 let cr = self.class_ref_required(sp.class)?;
                 let name = match &sp.property {
@@ -904,7 +904,7 @@ impl Compiler {
                 };
                 Ok((PathBase::StaticProp(cr, name), Vec::new()))
             }
-            Expression::Access(Access::ClassConstant(c)) => self.err(c.span(), "Konstanten können nicht zugewiesen werden"),
+            Expression::Access(Access::ClassConstant(c)) => self.err(c.span(), "constants cannot be assigned"),
             Expression::List(l) => self.reject(dialect::LIST, l.span()),
             other => {
                 // e.g. `getObj()->x = 1`, `(new Foo)->x = 1`
@@ -1018,7 +1018,7 @@ impl Compiler {
                 }
                 ArrayElement::Value(v) => (None, v.value),
                 ArrayElement::KeyValue(kv) => (Some(kv.key), kv.value),
-                ArrayElement::Variadic(v) => return self.err(v.span(), "`...` ist in Destructuring nicht erlaubt"),
+                ArrayElement::Variadic(v) => return self.err(v.span(), "`...` is not allowed in destructuring"),
             };
             self.emit(Op::Dup);
             match key_is_expr {
@@ -1187,7 +1187,7 @@ impl Compiler {
         match p {
             PartialApplication::Function(f) => {
                 if !is_fcc(&f.argument_list) {
-                    return self.err(f.span(), "partielle Anwendung ist nicht unterstützt; nur `f(...)`");
+                    return self.err(f.span(), "partial application is not supported; only `f(...)`");
                 }
                 match f.function {
                     Expression::Identifier(id) => {
@@ -1203,7 +1203,7 @@ impl Compiler {
             }
             PartialApplication::Method(m) => {
                 if !is_fcc(&m.argument_list) {
-                    return self.err(m.span(), "partielle Anwendung ist nicht unterstützt; nur `f(...)`");
+                    return self.err(m.span(), "partial application is not supported; only `f(...)`");
                 }
                 self.compile_expr(m.object)?;
                 match &m.method {
@@ -1216,7 +1216,7 @@ impl Compiler {
             }
             PartialApplication::StaticMethod(s) => {
                 if !is_fcc(&s.argument_list) {
-                    return self.err(s.span(), "partielle Anwendung ist nicht unterstützt; nur `f(...)`");
+                    return self.err(s.span(), "partial application is not supported; only `f(...)`");
                 }
                 let cr = self.class_ref_required(s.class)?;
                 match &s.method {

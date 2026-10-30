@@ -1,1 +1,2 @@
-<?grd echo ( int ) "4", "|", (	string	) 9;
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
+echo ( int ) "4", "|", (	string	) 9;

@@ -165,7 +165,7 @@ fn rollout_start_without_baseline_says_what_to_do() {
         kit::write_temporary(&root, &with_table("DEFINE TABLE extra SCHEMALESS;\n")).unwrap();
         let (id, _) = kit::rollout_plan(&db, &root, "x").await.expect("plan");
         let e = kit::rollout_start(&db, &root, Some(&id)).await.unwrap_err();
-        assert!(e.0.contains("zuerst `rollout baseline`"), "{e}");
+        assert!(e.0.contains("run `rollout baseline` first"), "{e}");
     });
     std::fs::remove_dir_all(&root).unwrap();
 }

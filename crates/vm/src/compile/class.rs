@@ -42,7 +42,7 @@ impl Compiler {
                 Modifier::Abstract(_) => is_abstract = true,
                 Modifier::Final(_) => is_final = true,
                 Modifier::Readonly(_) => is_readonly = true,
-                other => return self.err(other.span(), "ungültiger Klassen-Modifier"),
+                other => return self.err(other.span(), "invalid class modifier"),
             }
         }
         if is_abstract && is_final {
@@ -133,7 +133,7 @@ impl Compiler {
                         spec.names.push(Some(nm));
                         spec.spread.push(false);
                     }
-                    other => return self.err(other.span(), "ungültiges Argument"),
+                    other => return self.err(other.span(), "invalid argument"),
                 }
             }
         }
@@ -281,7 +281,7 @@ impl Compiler {
                     if let TraitUseSpecification::Concrete(c) = &tu.specification
                         && !c.adaptations.is_empty()
                     {
-                        return self.err(c.span(), "Trait-Anpassungen (`insteadof`, `as`) sind nicht unterstützt");
+                        return self.err(c.span(), "trait adaptations (`insteadof`, `as`) are not supported");
                     }
                     for t in tu.trait_names.iter() {
                         let r = self.names.resolve_class(t.value());
@@ -326,7 +326,7 @@ impl Compiler {
                     }
                 }
                 ClassLikeMember::Property(Property::Hooked(h)) => {
-                    return self.err(h.span(), "Property-Hooks sind nicht unterstützt");
+                    return self.err(h.span(), "property hooks are not supported");
                 }
                 ClassLikeMember::EnumCase(c) => {
                     let (name, value) = match &c.item {
@@ -433,7 +433,7 @@ impl Compiler {
                         return self.err(m.span(), twice("abstract"));
                     }
                 }
-                other => return self.err(other.span(), "asymmetrische Sichtbarkeit ist nicht unterstützt"),
+                other => return self.err(other.span(), "asymmetric visibility is not supported"),
             }
         }
         Ok((vis, is_final, is_static, is_readonly))

@@ -1,0 +1,2034 @@
+{
+ "hydrate:0|adonis-core|16": [
+  24313.45176263032,
+  0.573489,
+  3.5488999999999997,
+  0,
+  734895,
+  15.973221819602756
+ ],
+ "collect:0|adonis-core|16": [
+  24903.275410471597,
+  0.576735,
+  2.3398730000000003,
+  0,
+  704841,
+  15.973096659155852
+ ],
+ "json:0|adonis-core|16": [
+  34100.93806064348,
+  0.477656,
+  2.21805,
+  0,
+  968443,
+  15.9632685939814
+ ],
+ "hydrate:10|adonis-core|16": [
+  17617.03761789473,
+  0.840771,
+  3.64395,
+  0,
+  528312,
+  15.979313472721365
+ ],
+ "hydrate:100|adonis-core|16": [
+  9608.29352841423,
+  1.225638,
+  4.838901,
+  0,
+  289138,
+  15.984536863224346
+ ],
+ "hydrate:1000|adonis-core|16": [
+  2166.4727686370725,
+  7.115724,
+  16.756204,
+  0,
+  64768,
+  15.995125354843712
+ ],
+ "collect:10|adonis-core|16": [
+  17324.741607400832,
+  0.850289,
+  3.381056,
+  0,
+  519319,
+  15.97946816767065
+ ],
+ "collect:100|adonis-core|16": [
+  9900.607680023084,
+  1.5256429999999999,
+  4.8392100000000005,
+  0,
+  276419,
+  15.986133471986562
+ ],
+ "collect:1000|adonis-core|16": [
+  2755.437561040515,
+  5.549653,
+  14.267717,
+  0,
+  82603,
+  15.995130985338076
+ ],
+ "validate:10|adonis-core|16": [
+  23480.178486639386,
+  0.579901,
+  3.4848470000000002,
+  0,
+  702458,
+  15.973616918384172
+ ],
+ "validate:100|adonis-core|16": [
+  9545.737120576207,
+  1.369884,
+  5.440314,
+  0,
+  285087,
+  15.983830926935852
+ ],
+ "validate:1000|adonis-core|16": [
+  1376.0052446781328,
+  9.754845999999999,
+  31.963988,
+  0,
+  41112,
+  15.997564483613044
+ ],
+ "json:10|adonis-core|16": [
+  31767.931259056735,
+  0.43741800000000003,
+  2.4573080000000003,
+  0,
+  901502,
+  15.965374424673202
+ ],
+ "json:100|adonis-core|16": [
+  23325.33563458675,
+  0.5797209999999999,
+  3.5346219999999997,
+  0,
+  700386,
+  15.97264524424639
+ ],
+ "json:1000|adonis-core|16": [
+  8089.7577423086805,
+  1.658618,
+  6.67018,
+  0,
+  242349,
+  15.97916178141511
+ ],
+ "answer|hydrate:0|adonis-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|adonis-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|adonis-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|adonis-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|adonis-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|adonis-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|adonis-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|adonis-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|adonis-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|adonis-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|adonis-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|adonis-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|adonis-core": [
+  200,
+  1205,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|adonis-core": [
+  200,
+  12129,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|adonis-core": [
+  200,
+  124063,
+  "839a30758d39"
+ ],
+ "runtime|adonis-core": {
+  "sqlite": "3.53.4",
+  "bun": "1.4.3",
+  "workers": 4,
+  "sqlite compiler": "clang-23.1.2"
+ },
+ "hydrate:0|dotnet-core|16": [
+  56563.72572970969,
+  0.232245,
+  1.0222689999999999,
+  0,
+  1692117,
+  15.93346719737772
+ ],
+ "collect:0|dotnet-core|16": [
+  56131.00851242966,
+  0.21405,
+  1.253863,
+  0,
+  1684629,
+  15.93394125788775
+ ],
+ "json:0|dotnet-core|16": [
+  130251.8295998787,
+  0.096946,
+  0.698078,
+  0,
+  3919585,
+  15.860517086831901
+ ],
+ "hydrate:10|dotnet-core|16": [
+  28615.102435554723,
+  0.437227,
+  2.784374,
+  0,
+  861152,
+  15.964178552856634
+ ],
+ "hydrate:100|dotnet-core|16": [
+  9125.437526100606,
+  1.449948,
+  5.650045,
+  0,
+  273457,
+  15.985518303968334
+ ],
+ "hydrate:1000|dotnet-core|16": [
+  1261.4011138772541,
+  11.83856,
+  22.18422,
+  0,
+  37834,
+  15.998591505590774
+ ],
+ "collect:10|dotnet-core|16": [
+  29279.966937118195,
+  0.445263,
+  2.311678,
+  0,
+  877597,
+  15.962962567692049
+ ],
+ "collect:100|dotnet-core|16": [
+  10303.208894153957,
+  1.3094789999999998,
+  4.742727,
+  0,
+  307649,
+  15.984344222495823
+ ],
+ "collect:1000|dotnet-core|16": [
+  1609.432121933102,
+  9.742626000000001,
+  16.384483,
+  0,
+  48007,
+  15.998080288164608
+ ],
+ "validate:10|dotnet-core|16": [
+  81513.11072695139,
+  0.163263,
+  0.695814,
+  0,
+  2440527,
+  15.911959580704591
+ ],
+ "validate:100|dotnet-core|16": [
+  25177.190633989863,
+  0.547018,
+  1.505474,
+  0,
+  755367,
+  15.966441951317377
+ ],
+ "validate:1000|dotnet-core|16": [
+  2571.2731306054775,
+  4.769097,
+  22.834329,
+  0,
+  76893,
+  15.994261255156495
+ ],
+ "json:10|dotnet-core|16": [
+  108732.19898209357,
+  0.11705399999999999,
+  0.723677,
+  0,
+  3269663,
+  15.876866976022644
+ ],
+ "json:100|dotnet-core|16": [
+  49241.59470764767,
+  0.260449,
+  1.477431,
+  0,
+  1479649,
+  15.9437579450378
+ ],
+ "json:1000|dotnet-core|16": [
+  7651.422518960073,
+  1.7129720000000002,
+  7.084613,
+  0,
+  229258,
+  15.981273909949914
+ ],
+ "answer|hydrate:0|dotnet-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|dotnet-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|dotnet-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|dotnet-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|dotnet-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|dotnet-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|dotnet-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|dotnet-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|dotnet-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|dotnet-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|dotnet-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|dotnet-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|dotnet-core": [
+  200,
+  1205,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|dotnet-core": [
+  200,
+  12129,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|dotnet-core": [
+  200,
+  124063,
+  "839a30758d39"
+ ],
+ "runtime|dotnet-core": {
+  "sqlite": "3.53.4",
+  "dotnet": "10.0.14",
+  "processor_count": 4,
+  "server_gc": true,
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|fastapi-uvicorn-core|16": [
+  17438.074405592175,
+  0.8812180000000001,
+  1.7400440000000001,
+  0,
+  519174,
+  15.982485146747559
+ ],
+ "collect:0|fastapi-uvicorn-core|16": [
+  17097.3699598334,
+  0.893772,
+  1.8265600000000002,
+  0,
+  514514,
+  15.98299291751785
+ ],
+ "json:0|fastapi-uvicorn-core|16": [
+  20804.381734794013,
+  0.735569,
+  1.649951,
+  0,
+  621212,
+  15.979985515750414
+ ],
+ "hydrate:10|fastapi-uvicorn-core|16": [
+  10352.623161292928,
+  1.5476839999999998,
+  2.765909,
+  0,
+  309941,
+  15.988609143639383
+ ],
+ "hydrate:100|fastapi-uvicorn-core|16": [
+  3074.1626327339154,
+  5.110380999999999,
+  9.363197,
+  0,
+  92193,
+  15.997657761420953
+ ],
+ "hydrate:1000|fastapi-uvicorn-core|16": [
+  143.4731055502926,
+  92.306183,
+  240.16760000000002,
+  0,
+  5474,
+  16.044477249472433
+ ],
+ "collect:10|fastapi-uvicorn-core|16": [
+  12649.966651718136,
+  1.2163199999999998,
+  1.9980179999999998,
+  0,
+  378358,
+  15.987031608772236
+ ],
+ "collect:100|fastapi-uvicorn-core|16": [
+  7829.742891625428,
+  1.988169,
+  3.888389,
+  0,
+  234533,
+  15.990994238270515
+ ],
+ "collect:1000|fastapi-uvicorn-core|16": [
+  1858.1366207584942,
+  7.802588,
+  28.087577999999997,
+  0,
+  55714,
+  16.000532458101237
+ ],
+ "validate:10|fastapi-uvicorn-core|16": [
+  17445.79002618504,
+  0.864657,
+  1.9433129999999998,
+  0,
+  520427,
+  15.982214042952773
+ ],
+ "validate:100|fastapi-uvicorn-core|16": [
+  12273.514415413347,
+  1.2011509999999999,
+  2.701095,
+  0,
+  366192,
+  15.986448727817828
+ ],
+ "validate:1000|fastapi-uvicorn-core|16": [
+  1909.3876650605873,
+  6.859022,
+  34.319995,
+  0,
+  58743,
+  15.993257569085063
+ ],
+ "json:10|fastapi-uvicorn-core|16": [
+  13362.904266367728,
+  1.209618,
+  2.685314,
+  0,
+  402786,
+  15.986261015508676
+ ],
+ "json:100|fastapi-uvicorn-core|16": [
+  3701.8852467966794,
+  4.195838,
+  9.992483,
+  0,
+  111410,
+  15.99619474769872
+ ],
+ "json:1000|fastapi-uvicorn-core|16": [
+  213.36719528446957,
+  65.510105,
+  164.42683499999998,
+  0,
+  7352,
+  16.0313006464652
+ ],
+ "answer|hydrate:0|fastapi-uvicorn-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|fastapi-uvicorn-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|fastapi-uvicorn-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|fastapi-uvicorn-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|fastapi-uvicorn-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|fastapi-uvicorn-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|fastapi-uvicorn-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|fastapi-uvicorn-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|fastapi-uvicorn-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|fastapi-uvicorn-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|fastapi-uvicorn-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|fastapi-uvicorn-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|fastapi-uvicorn-core": [
+  200,
+  1215,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|fastapi-uvicorn-core": [
+  200,
+  12229,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|fastapi-uvicorn-core": [
+  200,
+  125063,
+  "839a30758d39"
+ ],
+ "runtime|fastapi-uvicorn-core": {
+  "sqlite": "3.53.4",
+  "python": "3.15.2",
+  "server": "uvicorn",
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|goravel-core|16": [
+  34926.471784596666,
+  0.324051,
+  2.1732240000000003,
+  0,
+  1047863,
+  15.966832999944357
+ ],
+ "collect:0|goravel-core|16": [
+  34451.886375272916,
+  0.32976099999999997,
+  2.198923,
+  0,
+  1033481,
+  15.968540417556554
+ ],
+ "json:0|goravel-core|16": [
+  57589.31059882696,
+  0.199573,
+  1.777575,
+  0,
+  1724401,
+  15.945510762235019
+ ],
+ "hydrate:10|goravel-core|16": [
+  14047.660742563303,
+  0.800303,
+  5.269045,
+  0,
+  421774,
+  15.984032044692782
+ ],
+ "hydrate:100|goravel-core|16": [
+  3349.980105709734,
+  4.4923269999999995,
+  11.077021,
+  0,
+  100466,
+  15.996030412380753
+ ],
+ "hydrate:1000|goravel-core|16": [
+  518.7252437040135,
+  29.119188,
+  65.45951799999999,
+  0,
+  15478,
+  16.013911739016137
+ ],
+ "collect:10|goravel-core|16": [
+  17626.751767038073,
+  0.6516789999999999,
+  4.436629,
+  0,
+  528196,
+  15.980623167786987
+ ],
+ "collect:100|goravel-core|16": [
+  7131.050877757978,
+  2.056801,
+  5.7160020000000005,
+  0,
+  213773,
+  15.99132035027645
+ ],
+ "collect:1000|goravel-core|16": [
+  1340.033880393635,
+  10.855817,
+  29.415153,
+  0,
+  40210,
+  16.003058723266463
+ ],
+ "validate:10|goravel-core|16": [
+  11032.390843978355,
+  1.090379,
+  6.460317,
+  0,
+  331192,
+  15.986961854035378
+ ],
+ "validate:100|goravel-core|16": [
+  1685.1851341113945,
+  8.526285,
+  27.421598,
+  0,
+  50520,
+  15.998299000533084
+ ],
+ "validate:1000|goravel-core|16": [
+  177.17793909642265,
+  80.48285700000001,
+  248.320945,
+  0,
+  5265,
+  16.062490105553305
+ ],
+ "json:10|goravel-core|16": [
+  29333.499996505816,
+  0.374287,
+  3.247812,
+  0,
+  882977,
+  15.970042507679631
+ ],
+ "json:100|goravel-core|16": [
+  6051.6883034743805,
+  2.183523,
+  10.091462,
+  0,
+  181705,
+  15.991540329441799
+ ],
+ "json:1000|goravel-core|16": [
+  834.3673928221444,
+  16.729883,
+  55.693512,
+  0,
+  24511,
+  16.00880280392463
+ ],
+ "answer|hydrate:0|goravel-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|goravel-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|goravel-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|goravel-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|goravel-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|goravel-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|goravel-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|goravel-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|goravel-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|goravel-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|goravel-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|goravel-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|goravel-core": [
+  200,
+  1205,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|goravel-core": [
+  200,
+  12129,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|goravel-core": [
+  200,
+  124063,
+  "839a30758d39"
+ ],
+ "runtime|goravel-core": {
+  "sqlite": "3.53.4",
+  "go": "go1.27.2",
+  "goravel": "v1.18.0",
+  "gomaxprocs": 4,
+  "driver": "mattn/go-sqlite3 3.53.4",
+  "gogc": "",
+  "goamd64": "v3",
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|laravel-frankenphp-core|16": [
+  5657.665961028841,
+  2.7138090000000004,
+  6.056652,
+  0,
+  169889,
+  15.993120208095927
+ ],
+ "collect:0|laravel-frankenphp-core|16": [
+  5600.070101423163,
+  2.747403,
+  6.143962,
+  0,
+  169234,
+  15.993720411906486
+ ],
+ "json:0|laravel-frankenphp-core|16": [
+  6440.817757355792,
+  2.338882,
+  5.330622,
+  0,
+  191141,
+  15.992380792896611
+ ],
+ "hydrate:10|laravel-frankenphp-core|16": [
+  4978.382437320007,
+  3.037559,
+  6.720086,
+  0,
+  148429,
+  15.99428932048596
+ ],
+ "hydrate:100|laravel-frankenphp-core|16": [
+  3635.5382304053223,
+  4.166262,
+  8.582371,
+  0,
+  109541,
+  15.996122824204917
+ ],
+ "hydrate:1000|laravel-frankenphp-core|16": [
+  933.9693992296312,
+  16.78762,
+  23.396601,
+  0,
+  27941,
+  16.008360554773887
+ ],
+ "collect:10|laravel-frankenphp-core|16": [
+  5001.546425164764,
+  3.04311,
+  6.655539999999999,
+  0,
+  149975,
+  15.994374545070118
+ ],
+ "collect:100|laravel-frankenphp-core|16": [
+  3898.620420944491,
+  3.9518920000000004,
+  8.334736000000001,
+  0,
+  117277,
+  15.995706172371808
+ ],
+ "collect:1000|laravel-frankenphp-core|16": [
+  1416.5094029937895,
+  11.015792999999999,
+  17.248263,
+  0,
+  42443,
+  16.00143883598528
+ ],
+ "validate:10|laravel-frankenphp-core|16": [
+  2050.86313137463,
+  7.60038,
+  12.765134,
+  0,
+  61572,
+  16.00008504762864
+ ],
+ "validate:100|laravel-frankenphp-core|16": [
+  347.96011722891535,
+  45.708554,
+  54.003925,
+  0,
+  10398,
+  16.035742616111417
+ ],
+ "validate:1000|laravel-frankenphp-core|16": [
+  36.09518614023378,
+  444.228993,
+  791.503619,
+  0,
+  1036,
+  16.402837414767937
+ ],
+ "json:10|laravel-frankenphp-core|16": [
+  5960.874527649358,
+  2.5269310000000003,
+  5.644233,
+  0,
+  177450,
+  15.99308050728295
+ ],
+ "json:100|laravel-frankenphp-core|16": [
+  5329.245130188459,
+  2.853136,
+  6.079927,
+  0,
+  159514,
+  15.993837761915007
+ ],
+ "json:1000|laravel-frankenphp-core|16": [
+  1302.3382663874784,
+  12.060697000000001,
+  19.349788,
+  0,
+  39325,
+  16.004167404759905
+ ],
+ "answer|hydrate:0|laravel-frankenphp-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|laravel-frankenphp-core": [
+  200,
+  13,
+  "47aec4b16657"
+ ],
+ "answer|json:0|laravel-frankenphp-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|laravel-frankenphp-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|laravel-frankenphp-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|laravel-frankenphp-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|laravel-frankenphp-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|laravel-frankenphp-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|laravel-frankenphp-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|laravel-frankenphp-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|laravel-frankenphp-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|laravel-frankenphp-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|laravel-frankenphp-core": [
+  200,
+  1205,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|laravel-frankenphp-core": [
+  200,
+  12129,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|laravel-frankenphp-core": [
+  200,
+  124063,
+  "839a30758d39"
+ ],
+ "runtime|laravel-frankenphp-core": {
+  "sqlite": "3.53.4",
+  "php": "8.5.11",
+  "sapi": "frankenphp",
+  "laravel": "13.38.0",
+  "opcache_jit": "tracing",
+  "opcache_validate_timestamps": "0",
+  "opcache_preload": false,
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|opengrid-embedded-core|16": [
+  59114.40826292139,
+  0.233437,
+  0.7870079999999999,
+  0,
+  1773742,
+  15.938778061162099
+ ],
+ "collect:0|opengrid-embedded-core|16": [
+  55868.30238506708,
+  0.239649,
+  0.9927320000000001,
+  0,
+  1675594,
+  15.941958563278348
+ ],
+ "json:0|opengrid-embedded-core|16": [
+  80094.8074815853,
+  0.191937,
+  0.421027,
+  0,
+  2403631,
+  15.918924228075754
+ ],
+ "hydrate:10|opengrid-embedded-core|16": [
+  25462.248196125965,
+  0.5708840000000001,
+  1.498942,
+  0,
+  762647,
+  15.973561311390588
+ ],
+ "hydrate:100|opengrid-embedded-core|16": [
+  8804.344119356057,
+  1.766314,
+  4.572209,
+  0,
+  262241,
+  15.988779542829587
+ ],
+ "hydrate:1000|opengrid-embedded-core|16": [
+  1418.8369533042053,
+  11.075547,
+  15.766353,
+  0,
+  42434,
+  16.00018597868067
+ ],
+ "collect:10|opengrid-embedded-core|16": [
+  20685.497411502536,
+  0.7092790000000001,
+  2.014208,
+  0,
+  619318,
+  15.977853937201786
+ ],
+ "collect:100|opengrid-embedded-core|16": [
+  7572.295847247281,
+  2.0807059999999997,
+  4.937317999999999,
+  0,
+  227156,
+  15.990780983450941
+ ],
+ "collect:1000|opengrid-embedded-core|16": [
+  1346.5039397354974,
+  11.792489999999999,
+  16.622655,
+  0,
+  40111,
+  16.004059313841516
+ ],
+ "validate:10|opengrid-embedded-core|16": [
+  57488.39563776832,
+  0.237495,
+  1.006308,
+  0,
+  1715785,
+  15.93980049616849
+ ],
+ "validate:100|opengrid-embedded-core|16": [
+  10145.717921136318,
+  1.509181,
+  4.345515000000001,
+  0,
+  302968,
+  15.987428716129969
+ ],
+ "validate:1000|opengrid-embedded-core|16": [
+  1272.166755222347,
+  12.199240999999999,
+  17.70583,
+  0,
+  38006,
+  16.003215080754806
+ ],
+ "json:10|opengrid-embedded-core|16": [
+  65013.13103807595,
+  0.232796,
+  0.498966,
+  0,
+  1959928,
+  15.929535081642168
+ ],
+ "json:100|opengrid-embedded-core|16": [
+  29848.309279613197,
+  0.482314,
+  1.323936,
+  0,
+  894309,
+  15.966553576044513
+ ],
+ "json:1000|opengrid-embedded-core|16": [
+  4328.181424499451,
+  3.6603120000000002,
+  6.880952,
+  0,
+  129399,
+  15.993702494862694
+ ],
+ "hydrate:0|opengrid-embedded-pgo-core|16": [
+  59341.63580408056,
+  0.233858,
+  0.797949,
+  0,
+  1776950,
+  15.939028862514013
+ ],
+ "collect:0|opengrid-embedded-pgo-core|16": [
+  56157.8587602215,
+  0.24012999999999998,
+  0.9582160000000001,
+  0,
+  1681364,
+  15.942098685327808
+ ],
+ "json:0|opengrid-embedded-pgo-core|16": [
+  82314.43914948196,
+  0.187369,
+  0.405978,
+  0,
+  2475589,
+  15.917348283950483
+ ],
+ "hydrate:10|opengrid-embedded-pgo-core|16": [
+  25675.469591412308,
+  0.562727,
+  1.5184090000000001,
+  0,
+  772832,
+  15.973438442567675
+ ],
+ "hydrate:100|opengrid-embedded-pgo-core|16": [
+  8761.89891943913,
+  1.766164,
+  4.589653,
+  0,
+  262272,
+  15.98787665432434
+ ],
+ "hydrate:1000|opengrid-embedded-pgo-core|16": [
+  1417.9813900747126,
+  11.106437,
+  15.533297999999998,
+  0,
+  42084,
+  16.00113444064539
+ ],
+ "collect:10|opengrid-embedded-pgo-core|16": [
+  21086.966471013642,
+  0.693498,
+  1.83722,
+  0,
+  634318,
+  15.977044731309938
+ ],
+ "collect:100|opengrid-embedded-pgo-core|16": [
+  7869.488941482103,
+  2.004981,
+  4.841785000000001,
+  0,
+  234760,
+  15.989483206682158
+ ],
+ "collect:1000|opengrid-embedded-pgo-core|16": [
+  1386.27705885736,
+  11.340315,
+  16.466545999999997,
+  0,
+  41547,
+  16.0042552973482
+ ],
+ "validate:10|opengrid-embedded-pgo-core|16": [
+  57613.91170881784,
+  0.234078,
+  1.064138,
+  0,
+  1734389,
+  15.94031114935517
+ ],
+ "validate:100|opengrid-embedded-pgo-core|16": [
+  9836.890953053255,
+  1.552574,
+  4.388407000000001,
+  0,
+  295150,
+  15.987300406264144
+ ],
+ "validate:1000|opengrid-embedded-pgo-core|16": [
+  1224.5756622696022,
+  12.921343,
+  18.246595,
+  0,
+  36503,
+  16.003584263969433
+ ],
+ "json:10|opengrid-embedded-pgo-core|16": [
+  67154.58021458895,
+  0.226303,
+  0.48184299999999997,
+  0,
+  2020030,
+  15.927254908981977
+ ],
+ "json:100|opengrid-embedded-pgo-core|16": [
+  31352.375343317453,
+  0.456825,
+  1.25307,
+  0,
+  946482,
+  15.965981749382122
+ ],
+ "json:1000|opengrid-embedded-pgo-core|16": [
+  4536.598875857913,
+  3.50278,
+  6.660579,
+  0,
+  135973,
+  15.992192823030194
+ ],
+ "answer|hydrate:0|opengrid-embedded-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|opengrid-embedded-core": [
+  200,
+  13,
+  "47aec4b16657"
+ ],
+ "answer|json:0|opengrid-embedded-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|opengrid-embedded-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|opengrid-embedded-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|opengrid-embedded-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|opengrid-embedded-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|opengrid-embedded-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|opengrid-embedded-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|opengrid-embedded-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|opengrid-embedded-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|opengrid-embedded-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|opengrid-embedded-core": [
+  200,
+  1205,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|opengrid-embedded-core": [
+  200,
+  12129,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|opengrid-embedded-core": [
+  200,
+  124063,
+  "839a30758d39"
+ ],
+ "answer|hydrate:0|opengrid-embedded-pgo-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|opengrid-embedded-pgo-core": [
+  200,
+  13,
+  "47aec4b16657"
+ ],
+ "answer|json:0|opengrid-embedded-pgo-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|opengrid-embedded-pgo-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|opengrid-embedded-pgo-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|opengrid-embedded-pgo-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|opengrid-embedded-pgo-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|opengrid-embedded-pgo-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|opengrid-embedded-pgo-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|opengrid-embedded-pgo-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|opengrid-embedded-pgo-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|opengrid-embedded-pgo-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|opengrid-embedded-pgo-core": [
+  200,
+  1205,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|opengrid-embedded-pgo-core": [
+  200,
+  12129,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|opengrid-embedded-pgo-core": [
+  200,
+  124063,
+  "839a30758d39"
+ ],
+ "runtime|opengrid-embedded-core": {
+  "sqlite": "3.53.4",
+  "grd": "8.4.0-grd",
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "runtime|opengrid-embedded-pgo-core": {
+  "sqlite": "3.53.4",
+  "grd": "8.4.0-grd",
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|phoenix-core|16": [
+  7589.860693731401,
+  2.084293,
+  3.638421,
+  0,
+  229897,
+  15.99068546092894
+ ],
+ "collect:0|phoenix-core|16": [
+  7576.7725858114745,
+  2.085556,
+  3.6096150000000002,
+  0,
+  227169,
+  15.991497782318875
+ ],
+ "json:0|phoenix-core|16": [
+  17584.675534336493,
+  0.873794,
+  2.182251,
+  0,
+  526132,
+  15.981838089934712
+ ],
+ "hydrate:10|phoenix-core|16": [
+  6134.768520475154,
+  2.536971,
+  4.838369999999999,
+  0,
+  184630,
+  15.99279714284927
+ ],
+ "hydrate:100|phoenix-core|16": [
+  2454.8624606346943,
+  6.316552,
+  11.810396,
+  0,
+  73066,
+  15.998068957672437
+ ],
+ "hydrate:1000|phoenix-core|16": [
+  419.23301834411643,
+  37.928303,
+  50.347851999999996,
+  0,
+  12564,
+  16.02329969961259
+ ],
+ "collect:10|phoenix-core|16": [
+  5874.7503701008745,
+  2.657052,
+  4.886611,
+  0,
+  175983,
+  15.993310640976885
+ ],
+ "collect:100|phoenix-core|16": [
+  3131.7977981890376,
+  4.989178000000001,
+  9.086202,
+  0,
+  94449,
+  15.99787483392086
+ ],
+ "collect:1000|phoenix-core|16": [
+  458.34387056792883,
+  34.740570999999996,
+  45.145575,
+  0,
+  13694,
+  16.023169767708797
+ ],
+ "validate:10|phoenix-core|16": [
+  15540.156681367478,
+  0.9847370000000001,
+  3.076686,
+  0,
+  463868,
+  15.982894904097137
+ ],
+ "validate:100|phoenix-core|16": [
+  8344.565733931438,
+  1.722319,
+  4.955837,
+  0,
+  250815,
+  15.9893467595794
+ ],
+ "validate:1000|phoenix-core|16": [
+  1382.3006917306923,
+  11.23246,
+  21.274468000000002,
+  0,
+  41455,
+  16.00393470282383
+ ],
+ "json:10|phoenix-core|16": [
+  15456.730369550673,
+  0.9906579999999999,
+  2.902593,
+  0,
+  451117,
+  15.983529371001412
+ ],
+ "json:100|phoenix-core|16": [
+  7923.722194659393,
+  1.8385529999999999,
+  5.107385,
+  0,
+  236551,
+  15.989147331910269
+ ],
+ "json:1000|phoenix-core|16": [
+  1110.2945797365658,
+  13.793756,
+  27.565974,
+  0,
+  33284,
+  16.003015462902876
+ ],
+ "answer|hydrate:0|phoenix-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|phoenix-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|phoenix-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|phoenix-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|phoenix-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|phoenix-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|phoenix-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|phoenix-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|phoenix-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|phoenix-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|phoenix-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|phoenix-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|phoenix-core": [
+  200,
+  1215,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|phoenix-core": [
+  200,
+  12229,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|phoenix-core": [
+  200,
+  125062,
+  "839a30758d39"
+ ],
+ "runtime|phoenix-core": {
+  "sqlite": "3.53.4",
+  "elixir": "1.20.4",
+  "otp": "29",
+  "schedulers": 4,
+  "jit": true,
+  "phoenix": "1.8.16",
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|rails-threads3-core|16": [
+  11136.767728144403,
+  1.251287,
+  4.64526,
+  0,
+  325700,
+  15.984270686004946
+ ],
+ "collect:0|rails-threads3-core|16": [
+  11060.775899657005,
+  1.2664469999999999,
+  4.466727000000001,
+  0,
+  328444,
+  15.984166310666934
+ ],
+ "json:0|rails-threads3-core|16": [
+  13263.426759672231,
+  1.040654,
+  4.2071499999999995,
+  0,
+  389236,
+  15.981201515823432
+ ],
+ "hydrate:10|rails-threads3-core|16": [
+  8524.782193987108,
+  1.609062,
+  6.124363,
+  0,
+  254544,
+  15.986131724796996
+ ],
+ "hydrate:100|rails-threads3-core|16": [
+  4568.596204314056,
+  3.122773,
+  10.663761000000001,
+  0,
+  135164,
+  15.990182744662263
+ ],
+ "hydrate:1000|rails-threads3-core|16": [
+  901.9720570492364,
+  17.466552,
+  28.935046,
+  0,
+  27087,
+  16.005454150949447
+ ],
+ "collect:10|rails-threads3-core|16": [
+  8998.630993395289,
+  1.5256429999999999,
+  5.728625,
+  0,
+  270351,
+  15.985484576538527
+ ],
+ "collect:100|rails-threads3-core|16": [
+  5276.742910423033,
+  2.5838710000000003,
+  9.811678,
+  0,
+  158477,
+  15.98991051994326
+ ],
+ "collect:1000|rails-threads3-core|16": [
+  1458.594491474983,
+  10.629413000000001,
+  26.566086,
+  0,
+  43373,
+  15.998668123171077
+ ],
+ "validate:10|rails-threads3-core|16": [
+  10001.91798545392,
+  1.37287,
+  6.189827,
+  0,
+  302903,
+  15.984505040342091
+ ],
+ "validate:100|rails-threads3-core|16": [
+  3049.774214427473,
+  4.8251539999999995,
+  12.747361,
+  0,
+  91675,
+  15.996095318644572
+ ],
+ "validate:1000|rails-threads3-core|16": [
+  391.1263889575569,
+  40.386194,
+  74.025332,
+  0,
+  11704,
+  16.02782080988521
+ ],
+ "json:10|rails-threads3-core|16": [
+  12830.150148262956,
+  1.094136,
+  3.9628520000000003,
+  0,
+  386957,
+  15.982436657355972
+ ],
+ "json:100|rails-threads3-core|16": [
+  8728.345100512699,
+  1.523799,
+  6.245746,
+  0,
+  263706,
+  15.983562794148442
+ ],
+ "json:1000|rails-threads3-core|16": [
+  2235.368842624031,
+  6.421131,
+  20.143919,
+  0,
+  65451,
+  15.992449956070336
+ ],
+ "answer|hydrate:0|rails-threads3-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|rails-threads3-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|rails-threads3-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|rails-threads3-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|rails-threads3-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|rails-threads3-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|rails-threads3-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|rails-threads3-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|rails-threads3-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|rails-threads3-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|rails-threads3-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|rails-threads3-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|rails-threads3-core": [
+  200,
+  1215,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|rails-threads3-core": [
+  200,
+  12229,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|rails-threads3-core": [
+  200,
+  125063,
+  "839a30758d39"
+ ],
+ "runtime|rails-threads3-core": {
+  "sqlite": "3.53.4",
+  "ruby": "4.0.9",
+  "yjit": true,
+  "rails": "8.1.4",
+  "puma_threads": 3,
+  "jemalloc": true,
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ },
+ "hydrate:0|spring-platform-core|16": [
+  31997.796408156653,
+  0.41507499999999997,
+  1.546202,
+  0,
+  968150,
+  15.968389221928673
+ ],
+ "collect:0|spring-platform-core|16": [
+  31846.676963622245,
+  0.420776,
+  1.520112,
+  0,
+  963403,
+  15.968309961978607
+ ],
+ "json:0|spring-platform-core|16": [
+  64782.86328396712,
+  0.19774899999999998,
+  1.105567,
+  0,
+  1946682,
+  15.939305963765607
+ ],
+ "hydrate:10|spring-platform-core|16": [
+  19482.36466882402,
+  0.672238,
+  2.6828410000000003,
+  0,
+  584411,
+  15.978969211783783
+ ],
+ "hydrate:100|spring-platform-core|16": [
+  6297.785031950823,
+  2.206146,
+  7.43852,
+  0,
+  187311,
+  15.988954781948182
+ ],
+ "hydrate:1000|spring-platform-core|16": [
+  880.6366264946444,
+  16.642436,
+  45.873561,
+  0,
+  26217,
+  16.005589907217068
+ ],
+ "collect:10|spring-platform-core|16": [
+  19348.675893556087,
+  0.677548,
+  2.711223,
+  0,
+  579790,
+  15.979124328000626
+ ],
+ "collect:100|spring-platform-core|16": [
+  6706.740749734246,
+  2.090906,
+  6.652817,
+  0,
+  200579,
+  15.989310110029894
+ ],
+ "collect:1000|spring-platform-core|16": [
+  947.6645807215106,
+  15.476531999999999,
+  42.315635,
+  0,
+  28197,
+  15.999298959732839
+ ],
+ "validate:10|spring-platform-core|16": [
+  47301.5354690807,
+  0.26950599999999997,
+  1.767756,
+  0,
+  1424992,
+  15.952836414007502
+ ],
+ "validate:100|spring-platform-core|16": [
+  29826.507684015276,
+  0.42889099999999997,
+  3.034162,
+  0,
+  891411,
+  15.96756920143317
+ ],
+ "validate:1000|spring-platform-core|16": [
+  6041.200777541363,
+  2.170858,
+  10.102807,
+  0,
+  181210,
+  15.978663996429209
+ ],
+ "json:10|spring-platform-core|16": [
+  59324.28131560566,
+  0.223438,
+  1.297606,
+  0,
+  1761010,
+  15.942712572348368
+ ],
+ "json:100|spring-platform-core|16": [
+  38443.823309371954,
+  0.339831,
+  2.187711,
+  0,
+  1145832,
+  15.960001967623375
+ ],
+ "json:1000|spring-platform-core|16": [
+  9707.54332878375,
+  1.3901729999999999,
+  7.575563,
+  0,
+  291256,
+  15.982113210884329
+ ],
+ "answer|hydrate:0|spring-platform-core": [
+  200,
+  11,
+  "8fe32e407a10"
+ ],
+ "answer|collect:0|spring-platform-core": [
+  200,
+  13,
+  "8575166139f6"
+ ],
+ "answer|json:0|spring-platform-core": [
+  200,
+  22,
+  "c0da23c453e9"
+ ],
+ "answer|hydrate:10|spring-platform-core": [
+  200,
+  1996,
+  "e869273507c8"
+ ],
+ "answer|hydrate:100|spring-platform-core": [
+  200,
+  19952,
+  "238ac58182ac"
+ ],
+ "answer|hydrate:1000|spring-platform-core": [
+  200,
+  200403,
+  "9b378c204c55"
+ ],
+ "answer|collect:10|spring-platform-core": [
+  200,
+  247,
+  "7b5005abc1f6"
+ ],
+ "answer|collect:100|spring-platform-core": [
+  200,
+  257,
+  "5a82740f3503"
+ ],
+ "answer|collect:1000|spring-platform-core": [
+  200,
+  267,
+  "12f26caaee2a"
+ ],
+ "answer|validate:10|spring-platform-core": [
+  200,
+  12,
+  "639dfcf97bc7"
+ ],
+ "answer|validate:100|spring-platform-core": [
+  200,
+  13,
+  "40da4feb8c89"
+ ],
+ "answer|validate:1000|spring-platform-core": [
+  200,
+  14,
+  "968865bd4759"
+ ],
+ "answer|json:10|spring-platform-core": [
+  200,
+  1215,
+  "8c0eb45a4e0f"
+ ],
+ "answer|json:100|spring-platform-core": [
+  200,
+  12229,
+  "5e3933601bb3"
+ ],
+ "answer|json:1000|spring-platform-core": [
+  200,
+  125063,
+  "839a30758d39"
+ ],
+ "runtime|spring-platform-core": {
+  "sqlite": "3.53.4",
+  "java": "25.0.5",
+  "aot_cache": true,
+  "spring_boot": "4.1.2",
+  "available_processors": 4,
+  "max_heap_mib": 512,
+  "gc": [
+   "G1 Young Generation",
+   "G1 Concurrent GC",
+   "G1 Old Generation"
+  ],
+  "virtual_threads": false,
+  "sqlite compiler": "gcc-15.2.1 20260123 (Red Hat 15.2.1-7)"
+ }
+}

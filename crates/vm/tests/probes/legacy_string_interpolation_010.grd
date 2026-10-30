@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
         $arr = ["key" => "v1", 0 => "v2", 1 => "v3"];
         $k = "key";
         echo "$arr[key] $arr[0] $arr[1] $arr[$k]";

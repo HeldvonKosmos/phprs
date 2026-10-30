@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--cores", default=bm2.APP_CORES)
     a = ap.parse_args()
     binary = os.path.abspath(a.opengrid)
-    print(f"Binary {binary} · Kerne {a.cores} · {a.runs} Starts je Worker-Zahl · Zeit bis zur ersten 200 von /health\n")
+    print(f"Binary {binary} · cores {a.cores} · {a.runs} starts per worker count · time to the first 200 of /health\n")
     print("| Worker | Median ms | min ms | max ms |")
     print("|---:|---:|---:|---:|")
     with tempfile.TemporaryDirectory(prefix="startup-") as work:
@@ -69,7 +69,7 @@ def main():
         t0 = time.monotonic()
         r = subprocess.run(["taskset", "-c", re.split("[-,]", a.cores)[0], os.path.abspath(a.grd), "compile"] + files, capture_output=True)
         dt = (time.monotonic() - t0) * 1000
-        print(f"\nKompilieren aller {len(files)} .grd-Dateien des Projekts allein (`grd compile`, ein Prozess, ein Kern): {dt:.0f} ms (Exit {r.returncode})")
+        print(f"\nCompiling all {len(files)} .grd files of the project alone (`grd compile`, one process, one core): {dt:.0f} ms (exit {r.returncode})")
 
 
 if __name__ == "__main__":

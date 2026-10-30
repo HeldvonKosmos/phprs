@@ -1,0 +1,89 @@
+# OpenGrid Workbench — podman compose -f .devpod/compose.yml up -d
+#
+# workbench : development container (Rust, PHP reference, Claude Code), fish as the shell
+# redis     : cache and queue backend (M3 cache, M6 jobs)
+# mailpit   : SMTP catcher with a web UI for the mailer (M6)
+#
+# Entry:  podman compose -f .devpod/compose.yml exec workbench fish
+#
+# Git access inside the container: ~/.gitconfig, ~/.git-credentials, ~/.config/gh and ~/.ssh
+# are mounted from the host. For HTTPS remotes, once on the host
+#   gh auth login && gh auth setup-git
+# is enough; git inside the container then uses gh as its credential helper. For SSH remotes
+# the host's agent socket is passed through (SSH_AUTH_SOCK must be set on the host).
+# If one of the files is missing on the host, Podman creates it as an empty directory;
+# comment out the line in that case.
+
+name: opengrid
+
+services:
+  workbench:
+    build:
+      context: ..
+      dockerfile: .devpod/Containerfile
+      args:
+        USERNAME: dev
+        USER_UID: "1000"
+        USER_GID: "1000"
+    container_name: opengrid-workbench
+    hostname: opengrid
+    userns_mode: keep-id
+    security_opt:
+      - label=disable
+    working_dir: /workspaces/OpenGrid_Framework
+    command: ["sleep", "infinity"]
+    init: true
+    tty: true
+    stdin_open: true
+    environment:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+      CARGO_TARGET_DIR: /workspaces/OpenGrid_Framework/target
+      DISABLE_AUTOUPDATER: "1"
+      # SQLite is the default
+      DATABASE_URL: sqlite:///workspaces/OpenGrid_Framework/storage/opengrid.sqlite?mode=rwc
+      REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SSH_AUTH_SOCK: /ssh-agent
+    volumes:
+      - ..:/workspaces/OpenGrid_Framework:Z
+      - cargo-registry:/home/dev/.cargo/registry
+      - cargo-git:/home/dev/.cargo/git
+      - cargo-target:/workspaces/OpenGrid_Framework/target
+      # Claude Code: Login, Einstellungen, Sitzungen
+      - ${HOME}/.claude:/home/dev/.claude:Z
+      - ${HOME}/.claude.json:/home/dev/.claude.json:Z
+      # Git identity and credentials
+      - ${HOME}/.gitconfig:/home/dev/.gitconfig:ro,Z
+      - ${HOME}/.git-credentials:/home/dev/.git-credentials:ro,Z   # falls credential.helper=store
+      - ${HOME}/.config/gh:/home/dev/.config/gh:Z                   # gh auth login → gh auth setup-git
+      - ${HOME}/.ssh:/home/dev/.ssh:ro,Z                            # SSH remotes and known_hosts
+      - ${SSH_AUTH_SOCK}:/ssh-agent                                 # SSH-Agent des Hosts
+    ports:
+      - "5150:5150"
+    depends_on:
+      redis:
+        condition: service_started
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: opengrid-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+
+  mailpit:
+    image: docker.io/axllent/mailpit:latest
+    container_name: opengrid-mailpit
+    ports:
+      - "8025:8025"   # Web-UI
+      - "1025:1025"   # SMTP
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:

@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 class E { public string $v = ""; public function __construct(string $v = "dflt") { $this->v = $v; } }
 class Q { public function __call($n, $a) { return "called:" . $n; } }
 $x = new E(); $y = new E; $z = new E("given"); $q = new Q();

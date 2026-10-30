@@ -1842,12 +1842,12 @@ pub(crate) fn grd021_error(module: &Module, unit: &CodeUnit, slot: Slot, old: Op
     };
     let (was, now) = (old.map(tn).unwrap_or("null"), tn(new));
     let hint = match (was, now) {
-        ("int", "float") => " (beginne mit 0.0 oder (float), wenn sie Kommazahlen aufnehmen soll)",
-        ("float", "int") => " (schreibe den Wert als Kommazahl oder mit (float))",
+        ("int", "float") => " (start with 0.0 or (float) if it is to hold floats)",
+        ("float", "int") => " (write the value as a float literal or cast it with (float))",
         (_, "null") => " (soll sie null aufnehmen, beginne mit $x = null)",
         _ => "",
     };
-    Throw::type_error(format!("GRD021: die lokale Variable ${name} ist {was}, zugewiesen wird {now}{hint}"))
+    Throw::type_error(format!("GRD021: the local variable ${name} is {was}, but {now} is assigned{hint}"))
 }
 
 /// Arithmetic and comparison of two numbers without the generic path

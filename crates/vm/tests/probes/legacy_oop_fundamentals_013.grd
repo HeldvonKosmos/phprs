@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 class K { public function n() { return static::class . "|" . self::class . "|" . __CLASS__; } }
 class L extends K {}
 echo (new L)->n(), "|", (new K)->n();

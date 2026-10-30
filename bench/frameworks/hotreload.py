@@ -105,9 +105,9 @@ def main():
         res[app] = {"ms": times, "failed": failed, "how": how, "boot_ms": boot}
         med = f"{statistics.median(times):.0f} ms" if times else "–"
         print(f"  {app:<8} hot reload ({how}) {med}, {failed} without new answer within {a.timeout} s; dev server up in {boot:.0f} ms", file=sys.stderr)
-    print(f"Hot-Reload im Entwicklungsmodus jedes Frameworks (BENCH3; **Entwicklungsmodus, nicht die gemessene Produktionsaufstellung**) · "
-          f"je App {a.runs} Änderungen der leeren Route, Zeit bis zur neuen Antwort (alle 20 ms abgefragt), Median (min–max)\n")
-    print("| Framework | Entwicklungsmodus | bis zur neuen Antwort ms | ohne neue Antwort | Dev-Server bereit ms |")
+    print(f"Hot reload in each framework's development mode (BENCH3; **development mode, not the production setup that was measured**) · "
+          f"{a.runs} changes of the empty route per app, time until the new answer (polled every 20 ms), median (min–max)\n")
+    print("| Framework | Development mode | To the new answer ms | Without new answer | Dev server ready ms |")
     print("|---|---|---:|---:|---:|")
     for app, r in res.items():
         t = r["ms"]

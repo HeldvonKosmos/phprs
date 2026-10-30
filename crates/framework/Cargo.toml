@@ -3,7 +3,7 @@ name = "opengrid-framework"
 version = "0.1.0"
 edition = "2024"
 description = "OpenGrid: Loco hooks, VM worker pool, catch-all routing and the native classes of the dialect"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 
 [lib]
 name = "opengrid_framework"

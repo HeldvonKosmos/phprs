@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 function d(int $x = 3, string $s = "ab", ?array $a = null, bool $b = true, float $f = -1.5) {
     return $x . $s . ($a === null ? "N" : count($a)) . ($b ? "T" : "F") . $f;
 }

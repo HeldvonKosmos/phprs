@@ -31,7 +31,7 @@ pub fn missing(kind: Oracle, what: &str) {
     let required = std::env::var("OPENGRID_REQUIRE_ORACLES").is_ok_and(|v| v == "1");
     let exempt = std::env::var("OPENGRID_ORACLES_EXCEPT").is_ok_and(|v| v.split(',').any(|k| k.trim() == kind.key()));
     if required && !exempt {
-        panic!("ORAKEL FEHLT ({}): {what} — OPENGRID_REQUIRE_ORACLES=1 verlangt es", kind.key());
+        panic!("ORACLE MISSING ({}): {what} — OPENGRID_REQUIRE_ORACLES=1 requires it", kind.key());
     }
-    eprintln!("\n*** ÜBERSPRUNGEN ({}): {what} ***\n", kind.key());
+    eprintln!("\n*** SKIPPED ({}): {what} ***\n", kind.key());
 }

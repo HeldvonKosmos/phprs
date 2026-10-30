@@ -59,14 +59,14 @@ pub struct Violation {
 
 impl Violation {
     pub fn message(&self) -> String {
-        format!("die lokale Variable ${} ist {}, zugewiesen wird {}", self.var, self.declared.name(), self.assigned.name())
+        format!("the local variable ${} is {}, but {} is assigned", self.var, self.declared.name(), self.assigned.name())
     }
     pub fn hint(&self) -> &'static str {
         match (self.declared, self.assigned) {
-            (T::Float, T::Int) => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; schreibe den Wert als Kommazahl (1.0) oder mit (float).",
-            (T::Int, T::Float) => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; beginne mit 0.0 oder (float), wenn sie Kommazahlen aufnehmen soll.",
-            (_, T::Null) => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; soll sie null aufnehmen, beginne mit `$x = null;` (Typ ?T).",
-            _ => "Eine lokale Variable behält den Typ ihrer ersten Zuweisung; nimm für den anderen Wert eine eigene Variable.",
+            (T::Float, T::Int) => "A local variable keeps the type of its first assignment; write the value as a float literal (1.0) or cast it with (float).",
+            (T::Int, T::Float) => "A local variable keeps the type of its first assignment; start with 0.0 or (float) if it is to hold floats.",
+            (_, T::Null) => "A local variable keeps the type of its first assignment; if it is to hold null, start with `$x = null;` (type ?T).",
+            _ => "A local variable keeps the type of its first assignment; use a separate variable for the other value.",
         }
     }
 }

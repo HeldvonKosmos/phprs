@@ -151,7 +151,7 @@ impl Vm {
                 if let Some(mf) = &manifest
                     && mf.name != mod_name
                 {
-                    return Err(ProjectError::Link { code: "GRD107", message: format!("Manifest nennt `{}`, der Ordner heißt `{mod_name}`", mf.name), file: m.join("module.toml").to_string_lossy().into_owned() });
+                    return Err(ProjectError::Link { code: "GRD107", message: format!("the manifest names `{}`, the directory is called `{mod_name}`", mf.name), file: m.join("module.toml").to_string_lossy().into_owned() });
                 }
                 manifests.insert(mod_name.clone(), manifest);
                 let app = m.join("app");
@@ -179,7 +179,7 @@ impl Vm {
             if cf.module.classes.len() != 1 {
                 return Err(ProjectError::Link {
                     code: "GRD102",
-                    message: format!("eine Datei, eine Klasse: hier {}", cf.module.classes.len()),
+                    message: format!("one file, one class: this one has {}", cf.module.classes.len()),
                     file,
                 });
             }
@@ -187,14 +187,14 @@ impl Vm {
             if !declared.eq_ignore_ascii_case(&cf.expected) {
                 return Err(ProjectError::Link {
                     code: "GRD101",
-                    message: format!("Klasse `{declared}` passt nicht zum Pfad; erwartet `{}`", cf.expected),
+                    message: format!("class `{declared}` does not match the path; expected `{}`", cf.expected),
                     file,
                 });
             }
             let main = &cf.module.units[cf.module.main as usize];
             // a class file's main unit is only `Line…` ops plus the implicit return
             if main.ops.iter().any(|op| !matches!(op, crate::bytecode::Op::Line(_) | crate::bytecode::Op::PushNull | crate::bytecode::Op::Return | crate::bytecode::Op::Nop)) {
-                return Err(ProjectError::Link { code: "GRD103", message: "Klassendateien enthalten keinen ausführbaren Code".into(), file });
+                return Err(ProjectError::Link { code: "GRD103", message: "class files contain no executable code".into(), file });
             }
         }
 
@@ -204,7 +204,7 @@ impl Vm {
             if let Some(mf) = mf {
                 for d in &mf.depends {
                     if !manifests.contains_key(d) {
-                        return Err(ProjectError::Link { code: "GRD107", message: format!("Modul `{m}` hängt von `{d}` ab, das es nicht gibt"), file: modules_dir.join(m).join("module.toml").to_string_lossy().into_owned() });
+                        return Err(ProjectError::Link { code: "GRD107", message: format!("module `{m}` depends on `{d}`, which does not exist"), file: modules_dir.join(m).join("module.toml").to_string_lossy().into_owned() });
                     }
                 }
             }
@@ -215,7 +215,7 @@ impl Vm {
                 if other != module_name && !mf.depends.contains(&other) {
                     return Err(ProjectError::Link {
                         code: "GRD106",
-                        message: format!("Modul `{module_name}` benutzt `{name}` aus Modul `{other}`, ohne es in modules/{module_name}/module.toml unter depends zu nennen"),
+                        message: format!("module `{module_name}` uses `{name}` from module `{other}` without naming it under depends in modules/{module_name}/module.toml"),
                         file: file.to_string_lossy().into_owned(),
                     });
                 }
@@ -252,7 +252,7 @@ impl Vm {
                         None => {
                             return Err(ProjectError::Link {
                                 code: "GRD104",
-                                message: format!("Klasse `{}` nicht gefunden (kein passender Pfad unter modules/*/app)", m.str_lossy(*d)),
+                                message: format!("class `{}` not found (no matching path under modules/*/app)", m.str_lossy(*d)),
                                 file: cf.path.to_string_lossy().into_owned(),
                             });
                         }

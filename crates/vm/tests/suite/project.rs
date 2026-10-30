@@ -66,13 +66,13 @@ fn module_manifests_guard_module_boundaries() {
     // manifest without the dependency
     setup(Some("name = \"notes\"\n"));
     let err = load().unwrap_err();
-    assert!(err.contains("GRD106") && err.contains("Modul `notes` benutzt `Auth\\Models\\User` aus Modul `auth`"), "{err}");
+    assert!(err.contains("GRD106") && err.contains("module `notes` uses `Auth\\Models\\User` from module `auth`"), "{err}");
     // with the dependency
     setup(Some("name = \"notes\"\ndepends = [\"auth\"]\n"));
     assert_eq!(load(), Ok(()));
     // unknown dependency, wrong name
     setup(Some("name = \"notes\"\ndepends = [\"billing\"]\n"));
-    assert!(load().unwrap_err().contains("hängt von `billing` ab, das es nicht gibt"));
+    assert!(load().unwrap_err().contains("depends on `billing`, which does not exist"));
     setup(Some("name = \"todo\"\n"));
     assert!(load().unwrap_err().contains("GRD107"));
     // ::class strings count as references too
@@ -118,17 +118,17 @@ fn link_errors_of_the_layout() {
     let p = TempProject::new("grd102");
     p.write("modules/shop/app/Models/Item.grd", "<?grd\nnamespace Shop\\Models;\nfinal class Item {}\nfinal class Extra {}\n");
     let e = p.load().map(|_| ()).unwrap_err();
-    assert!(e.starts_with("error[GRD102]: eine Datei, eine Klasse: hier 2") && e.contains("Item.grd"), "{e}");
+    assert!(e.starts_with("error[GRD102]: one file, one class: this one has 2") && e.contains("Item.grd"), "{e}");
 
     let p = TempProject::new("grd103");
     p.write("modules/shop/app/Models/Item.grd", "<?grd\nnamespace Shop\\Models;\nfinal class Item {}\necho 'side effect';\n");
     let e = p.load().map(|_| ()).unwrap_err();
-    assert!(e.starts_with("error[GRD103]: Klassendateien enthalten keinen ausführbaren Code"), "{e}");
+    assert!(e.starts_with("error[GRD103]: class files contain no executable code"), "{e}");
 
     let p = TempProject::new("grd104");
     p.write("modules/shop/app/Models/Item.grd", "<?grd\nnamespace Shop\\Models;\nfinal class Item extends Base {}\n");
     let e = p.load().map(|_| ()).unwrap_err();
-    assert!(e.starts_with("error[GRD104]: Klasse `Shop\\Models\\Base` nicht gefunden (kein passender Pfad unter modules/*/app)"), "{e}");
+    assert!(e.starts_with("error[GRD104]: class `Shop\\Models\\Base` not found (no matching path under modules/*/app)"), "{e}");
 
     let p = TempProject::new("grd105");
     p.write("modules/shop/app/Models/A.grd", "<?grd\nnamespace Shop\\Models;\nclass A extends B {}\n");

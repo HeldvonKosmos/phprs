@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 $d1 = new DateTime("2024-03-15 12:30:45");
 $d2 = new DateTime("2024-01-01 00:00:00");
 $diff = $d1->diff($d2);

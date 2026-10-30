@@ -32,33 +32,33 @@ def stages(a, warm):
     n_bm2 = sum(len(targets.FRAMEWORKS[f][1]) for f in fws)
     per = lambda st: sum(len(targets.FIXED.get(st, {}).get(f, [None])) for f in fws)
     rows = []
-    rows.append(("gates", f"api.sh je Ziel: {n_bm2} Ziele ({len(fws)} Frameworks, alle Servervarianten)", sum(len(targets.FRAMEWORKS[f][1]) * (25 if f in ("opengrid", "laravel") else 20 + START_S[f]) for f in fws)))
+    rows.append(("gates", f"api.sh per target: {n_bm2} targets ({len(fws)} frameworks, every server variant)", sum(len(targets.FRAMEWORKS[f][1]) * (25 if f in ("opengrid", "laravel") else 20 + START_S[f]) for f in fws)))
     if not a.framework_only:
-        rows.append(("lang", "Sprache c1–c3, Vergleiche A/B/C, mit PGO, " + ("1 Lauf" if a.smoke else "Median aus 7"), 40 if a.smoke else 180))
+        rows.append(("lang", "language c1–c3, comparisons A/B/C, with PGO, " + ("1 run" if a.smoke else "median of 7"), 40 if a.smoke else 180))
     apps = [f for f in fws if f not in ("opengrid", "laravel")]
-    rows.append(("sqlite", f"SQLite 3.53.4 + Compile-Optionen: {sum(len(targets.FRAMEWORKS[f][1]) for f in apps)} App-Varianten (Abbruch bei Abweichung)", sum(len(targets.FRAMEWORKS[f][1]) * (START_S[f] + 4) for f in apps)))
+    rows.append(("sqlite", f"SQLite 3.53.4 + compile options: {sum(len(targets.FRAMEWORKS[f][1]) for f in apps)} app variants (abort on mismatch)", sum(len(targets.FRAMEWORKS[f][1]) * (START_S[f] + 4) for f in apps)))
     n = n_bm2 * len(bm2.ENDPOINTS) * 3
-    rows.append(("bm2", f"(a) BM2: {n_bm2} Ziele (Standardvarianten) × {len(bm2.ENDPOINTS)} Endpunkte × 1/16/64 Verbindungen = {n} Punkte", n * point + n_bm2 * SETUP_S))
+    rows.append(("bm2", f"(a) BM2: {n_bm2} targets (default variants) × {len(bm2.ENDPOINTS)} endpoints × 1/16/64 connections = {n} points", n * point + n_bm2 * SETUP_S))
     t = per("thesis")
     n = t * THESIS_ENDPOINTS
-    rows.append(("thesis", f"THESIS1: {t} Ziele × {THESIS_ENDPOINTS} Logik-Endpunkte (n = 0/10/100/1000) × 16 Verbindungen = {n} Punkte", n * point + t * 20))
+    rows.append(("thesis", f"THESIS1: {t} targets × {THESIS_ENDPOINTS} logic endpoints (n = 0/10/100/1000) × 16 connections = {n} points", n * point + t * 20))
     lt, le = per("load"), 1
     one = 3 * point + 4 * point + (6 if a.smoke else 19)
-    rows.append(("load", f"(g/h) Gleichzeitigkeit/offene Last: {lt} Ziele × `show` × (3 geschlossen + 4 Stufen + Spitze)", lt * le * one + lt * SETUP_S))
+    rows.append(("load", f"(g/h) concurrency/open-loop load: {lt} targets × `show` × (3 closed + 4 levels + spike)", lt * le * one + lt * SETUP_S))
     cv = per("load")
-    rows.append(("curve", f"Aufwärmkurve: {cv} Ziele × hydrate:100, frischer Server, 30 s Last ohne Aufwärmen, Anfragen je Sekunde", cv * (SETUP_S + (5 if a.smoke else 30) + 2)))
+    rows.append(("curve", f"warm-up curve: {cv} targets × hydrate:100, fresh server, 30 s of load without warm-up, requests per second", cv * (SETUP_S + (5 if a.smoke else 30) + 2)))
     m = per("memory")
-    rows.append(("memory", f"Speicher PSS: {m} Ziele (Ruhe, Last, nach 10 000 Anfragen; Spring mit festem Heap)", m * (SETUP_S + (8 if a.smoke else 25))))
+    rows.append(("memory", f"memory PSS: {m} targets (idle, load, after 10 000 requests; Spring with a fixed heap)", m * (SETUP_S + (8 if a.smoke else 25))))
     runs = 1 if a.smoke else 5
     cold = 0
     for f in fws:
         for _ in targets.FIXED["coldstart"].get(f, [None]):
             cases = 4 if f == "laravel" else 2  # worker counts × (Laravel: with/without caches)
             cold += SETUP_S + cases * runs * (START_S[f] + 2) + (10 if f in ("opengrid", "laravel") else 0)
-    rows.append(("coldstart", f"Kaltstart: {per('coldstart')} Ziele, 4/16 Worker, Laravel mit/ohne Caches, erste Anfrage; Hot-Reload OpenGrid/Laravel", cold))
+    rows.append(("coldstart", f"cold start: {per('coldstart')} targets, 4/16 workers, Laravel with/without caches, first request; hot reload OpenGrid/Laravel", cold))
     if apps:
-        rows.append(("hotreload", f"Hot-Reload im Entwicklungsmodus: {len(apps)} Frameworks, je 3 Änderungen (markiert: Entwicklungsmodus)", sum(HOT_S[f] for f in apps)))
-    rows.append(("report", "Tabellen aus den Rohdaten (report.py)", 5))
+        rows.append(("hotreload", f"hot reload in development mode: {len(apps)} frameworks, 3 changes each (marked: development mode)", sum(HOT_S[f] for f in apps)))
+    rows.append(("report", "tables from the raw data (report.py)", 5))
     return rows
 
 
@@ -73,9 +73,9 @@ def main():
     a = ap.parse_args()
     a.framework_only = not a.with_lang
     a.frameworks = [f for f in a.frameworks.replace(" ", ",").split(",") if f]
-    warm, source = a.warmup, "angenommen (vor der Prüfung)"
+    warm, source = a.warmup, "assumed (before the check)"
     if a.resume and os.path.exists(os.path.join(a.resume, "warmup.txt")):
-        warm, source = int(open(os.path.join(a.resume, "warmup.txt")).read().strip()), "aus warmcheck"
+        warm, source = int(open(os.path.join(a.resume, "warmup.txt")).read().strip()), "from warmcheck"
     build = 45 * 60 if a.framework_only else 60 * 60  # perf build 17 min + PGO (instrumented build, training, perf build), measured 28.10.: 26-45 min
     n_targets = sum(len(targets.FRAMEWORKS[f][1]) for f in a.frameworks)
     warmcheck = n_targets * (SETUP_S + 3 + 30) + (0 if a.smoke else 5 * (SETUP_S + 10 + 30))  # one endpoint (list); ~5 targets need a longer step
@@ -85,19 +85,19 @@ def main():
         return build + (0 if a.smoke else warmcheck) + sum(r[2] for r in rows) * a.runs
 
     rows = stages(a, warm)
-    print(f"Plan von bench/run_all.sh --runs {a.runs}{'' if a.framework_only else ' --with-lang'}{' --smoke' if a.smoke else ''} "
-          f"(Schätzung; Build und Aufwärmprüfung einmal, jede Stufe je Lauf; Aufwärmen {warm} s je Punkt, {source})\n")
-    print("| Stufe | Inhalt | geschätzt je Lauf |")
+    print(f"Plan of bench/run_all.sh --runs {a.runs}{'' if a.framework_only else ' --with-lang'}{' --smoke' if a.smoke else ''} "
+          f"(estimate; build and warm-up check once, every stage per run; warm-up {warm} s per point, {source})\n")
+    print("| Stage | Content | Estimated per run |")
     print("|---|---|---:|")
-    what = "perf opengrid (fat LTO, target-cpu=native), PGO opengrid" if a.framework_only else "profiling grd, perf opengrid, PGO grd und opengrid"
-    print(f"| build | Binaries aus HEAD: {what} (bench/pgo.sh); einmal | {build / 60:.0f} min |")
+    what = "perf opengrid (fat LTO, target-cpu=native), PGO opengrid" if a.framework_only else "profiling grd, perf opengrid, PGO grd and opengrid"
+    print(f"| build | binaries from HEAD: {what} (bench/pgo.sh); once | {build / 60:.0f} min |")
     if not a.smoke:
-        print(f"| warmcheck | Aufwärmprüfung: {n_targets} Ziele × `list`, 3 × 10 s ≤ 3 %, längere Stufe wo nötig; einmal | {warmcheck / 60:.0f} min |")
+        print(f"| warmcheck | warm-up check: {n_targets} targets × `list`, 3 × 10 s ≤ 3 %, longer step where needed; once | {warmcheck / 60:.0f} min |")
     for name, what, sec in rows:
         print(f"| {name} | {what} | {sec / 60:.0f} min |")
-    print(f"| **gesamt** | {a.runs} Läufe | **{total(warm) / 3600:.1f} h** |")
+    print(f"| **total** | {a.runs} runs | **{total(warm) / 3600:.1f} h** |")
     if not a.smoke:
-        print("\nGesamtdauer, falls die Aufwärmprüfung ein längeres Aufwärmen für alle Seiten verlangt: "
+        print("\nTotal duration if the warm-up check demands a longer warm-up for every side: "
               + ", ".join(f"{w} s: {total(w) / 3600:.1f} h" for w in (3, 10, 30, 60)) + ".")
 
 

@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
         $total = 0;
         $parts = "";
         for ($i = 1; $i <= 5; $i++) {

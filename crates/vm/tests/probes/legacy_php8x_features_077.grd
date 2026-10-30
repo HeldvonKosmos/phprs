@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 echo filter_var("42", 257);
 echo "|";
 echo filter_var("3.14", 259);

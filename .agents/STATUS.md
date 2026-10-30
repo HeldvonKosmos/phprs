@@ -1,0 +1,14 @@
+# Status  (2026-10-27 afternoon; phprs `vm-core` @ `ecfc59c`, pushed; `main` = `opengrid-0.1` = 2063893)
+
+Order, state and dependencies live **only** in `.agents/ROADMAP.md`. This file names the IDs and the re-entry point.
+
+**Currently in progress:** BENCH3 has been measured (commit e0af77d5, 2026-10-28 to 2026-10-29, 3 runs, 22.7 h instead of 6.8 h because the warm-up check demanded 60 s per point on account of AdonisJS); result and interpretation in BENCHMARKS.md §0 (OpenGrid ahead of Laravel on all core endpoints except login; among all nine first at list/create, second at show, third at health; cost per element of 10–13 µs is the interpreter share, target of JITW1/JITW2). Open for Jonas: warm-up rule for targets that do not stabilize, FastAPI response at large n (`jsonable_encoder`). Next JITW1 (profile, then JITD1 steps 2–4), then benchmark again. main = 9769757. REPO1 waits for Jonas (finding A).
+**Last full measurement:** framework 77d4cc5 (2026-10-27 10:47 UTC, with database self-measurement), language 0fa624f (09:18 UTC); BENCHMARKS §0.
+**Most recently completed:** MUT2 (0d1b4a6, 1264c04), JITC1 (58d4d77), DIA2 (79702ff), JITO1 step 0 (91ad783 `GRD_JIT_FORCE_EXIT`, 59806db differential test for objects, ccac03e two interpreter gaps) and step 1 (f10f325). Regression guard after MUT2/JITC1, DIA2 and JITO1 each within 4 % (BM2 show/create embedded, 0 errors).
+**Waiting for Jonas:** REPO1 finding A (ports of classes from a private reference implementation in `native/database/…`, already visible in the public fork; three options in REPO1_PRUEFUNG.md); approval of steps 2/3 of JIT_OBJECTS and any change to D8; ROADMAP §3.
+**Measurement condition:** clock limit on the host (`cpupower frequency-set --max 4.5GHz`), valid only until reboot; `run_all.sh` checks the governor and the same limit on all cores.
+**Re-entry after an interruption:** read ROADMAP §1, take the first ID not yet completed. UI1 after the image rebuild (check: `psql --version` = 17, `vp --version`, `playwright --version`).
+**Usage limit reached:** 2× (evening of 2026-10-24, then model switch to Claude Opus 5.5). After the 3rd time, write a summary (Jonas, 2026-10-23).
+
+**Tests** (`tools/green.sh`, whole suite with `OPENGRID_REQUIRE_ORACLES=1`): 196 test functions green; 270 probes (against PHP on every run), type matrix, Support, validation (167 cases against Laravel); differential tests now also for objects and with forced exits. Miri: `cargo +nightly miri test -p grd-jit --lib runtime` (nightly with Miri in the container, Containerfile extended). Commit only via `tools/commit.sh` (tests exactly the staged tree), hook `.githooks/pre-commit`; CI on `vm-core` and `main`.
+**Build:** `jobs = 2`, `taskset -c 0-7`, sccache 20 GiB; PGO binaries in `target-pgo/` from 411f934. Note: `cargo build -q` with colors swallows errors for `grep '^error'`; build with `--color never`.

@@ -1,1 +1,2 @@
-<?grd echo (float) "1.5", "|", (string) 5, "|", (bool) 0 ? "t" : "f", "|", (bool) "a" ? "t" : "f", "|", (double) 2, "|", (integer) "8";
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
+echo (float) "1.5", "|", (string) 5, "|", (bool) 0 ? "t" : "f", "|", (bool) "a" ? "t" : "f", "|", (double) 2, "|", (integer) "8";

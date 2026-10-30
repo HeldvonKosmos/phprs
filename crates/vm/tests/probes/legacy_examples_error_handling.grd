@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 // Error Handling Example (OpenGrid dialect)
 // Errors are exceptions. There are no warnings, notices or error handlers;
 // the Rust host owns the request lifecycle, so scripts throw and catch.

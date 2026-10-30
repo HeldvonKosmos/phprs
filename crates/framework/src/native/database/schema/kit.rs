@@ -191,7 +191,7 @@ fn folder_str(root: &Path) -> String {
 /// has no baseline answers "no manifest starts from there"; say what to do.
 fn hint_baseline(e: KitError) -> KitError {
     if e.0.contains("no manifest starts from there") {
-        KitError(format!("{} — zuerst `rollout baseline` ausführen (Startpunkt für Rollouts festhalten)", e.0))
+        KitError(format!("{} — run `rollout baseline` first (it records the starting point for rollouts)", e.0))
     } else {
         e
     }

@@ -1,2 +1,2 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
         echo 0xff, "|", 0XFF, "|", 0b1010, "|", 0o17, "|", 0777, "|", 1_000_000;

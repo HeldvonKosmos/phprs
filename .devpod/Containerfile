@@ -1,0 +1,156 @@
+# OpenGrid Workbench
+# Fedora base, Rust toolchain via rustup, Loco/SeaORM dependencies,
+# PHP as the reference interpreter, frontend tools (vite-plus, Playwright),
+# Claude Code from the official dnf repository.
+
+FROM registry.fedoraproject.org/fedora:42
+
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG RUST_TOOLCHAIN=stable
+
+# ---------------------------------------------------------------------------
+# System: build tools, libraries for sqlx/SeaORM (sqlite, openssl; no PostgreSQL any more, D24),
+# database clients, shell comfort, PHP 8.4 as the reference for the dialect.
+# ---------------------------------------------------------------------------
+RUN dnf -y install --setopt=install_weak_deps=False \
+        gcc gcc-c++ clang lld cmake make pkgconf-pkg-config \
+        openssl-devel sqlite-devel \
+        git git-lfs gh curl wget ca-certificates gnupg2 \
+        ripgrep fd-find jq bat tree htop diffutils valgrind valgrind-gdb \
+        ncurses-devel libyaml-devel libffi-devel zlib-ng-compat-devel readline-devel bzip2-devel xz-devel libuuid-devel gdbm-devel unzip autoconf oniguruma-devel libxml2-devel libcurl-devel jemalloc \
+        sqlite redis \
+        php-cli php-json php-mbstring \
+        php-fpm php-opcache php-xml php-pdo php-process php-sodium php-intl nginx composer \
+        nodejs npm sccache \
+        chromium-headless \
+        fish zsh sudo which procps-ng shadow-utils \
+        python3 python3-pip \
+    && dnf clean all
+
+# ---------------------------------------------------------------------------
+# Claude Code (official signed dnf repository, channel "stable")
+# Fingerprint of the signing key: 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE
+# ---------------------------------------------------------------------------
+RUN tee /etc/yum.repos.d/claude-code.repo <<'EOF'
+[claude-code]
+name=Claude Code
+baseurl=https://downloads.claude.ai/claude-code/rpm/stable
+enabled=1
+gpgcheck=1
+gpgkey=https://downloads.claude.ai/keys/claude-code.asc
+EOF
+RUN dnf -y install claude-code && dnf clean all
+
+# ---------------------------------------------------------------------------
+# Non-root user (devpod maps UID/GID to the host)
+# ---------------------------------------------------------------------------
+RUN groupadd --gid "${USER_GID}" "${USERNAME}" \
+    && useradd --uid "${USER_UID}" --gid "${USER_GID}" -m -s /usr/bin/fish "${USERNAME}" \
+    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
+
+USER ${USERNAME}
+ENV HOME=/home/${USERNAME}
+ENV CARGO_HOME=${HOME}/.cargo
+ENV RUSTUP_HOME=${HOME}/.rustup
+ENV PATH=${CARGO_HOME}/bin:${HOME}/.local/bin:${PATH}
+
+# ---------------------------------------------------------------------------
+# Rust: rustup + stable (Loco 1.2 / SeaORM 2.0 need >= 1.94, edition 2024),
+# rustfmt, clippy, rust-analyzer; everyday Cargo tools.
+# ---------------------------------------------------------------------------
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain "${RUST_TOOLCHAIN}" --profile minimal \
+    && rustup component add rustfmt clippy rust-analyzer rust-src
+# Miri for the JIT's runtime functions (JITO1, D20): nightly with miri/rust-src only
+RUN rustup toolchain install nightly --profile minimal --component miri,rust-src \
+    && cargo +nightly miri setup
+
+# cargo-binstall fetches prebuilt binaries instead of compiling everything (saves ~20 min of build)
+RUN curl -L --proto '=https' --tlsv1.2 -sSf \
+      https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
+    && cargo binstall -y --locked \
+        cargo-watch \
+        cargo-nextest \
+        cargo-expand \
+        cargo-edit \
+        cargo-deny \
+        cargo-llvm-cov \
+        sqlx-cli \
+        sea-orm-cli \
+        loco \
+        just \
+        hyperfine \
+        oha \
+    && rm -rf ${CARGO_HOME}/registry/cache
+
+# ---------------------------------------------------------------------------
+# Benchmarks (DECISIONS D11): php-fpm + nginx + composer above (Laravel comparison LV1;
+# Laravel Octane fetches its RoadRunner binary itself through bench/framework/laravel/setup.sh),
+# oha as the load generator (BM2), the SurrealDB server in the version of the Rust SDK
+# (Cargo.lock: surrealdb 3.3.4), the official binary only, SHA-256 checked.
+# ---------------------------------------------------------------------------
+ARG SURREAL_VERSION=3.3.4
+RUN mkdir -p ${HOME}/.local/bin && cd /tmp \
+    && curl -sSfL -o surreal.tgz https://download.surrealdb.com/v${SURREAL_VERSION}/surreal-v${SURREAL_VERSION}.linux-amd64.tgz \
+    && curl -sSfL -o surreal.sha256 https://download.surrealdb.com/v${SURREAL_VERSION}/surreal-v${SURREAL_VERSION}.linux-amd64.txt \
+    && echo "$(cat surreal.sha256)  surreal.tgz" | sha256sum -c - \
+    && tar xzf surreal.tgz -C ${HOME}/.local/bin surreal && rm surreal.tgz surreal.sha256
+
+# ---------------------------------------------------------------------------
+# Frontend tools (UI1): vite-plus (`vp dev`/`vp build`, called by `opengrid dev`/
+# `opengrid build`) and Playwright with headless Chromium for the end-to-end tests.
+# Installed for the user under ~/.local; Vue 3 and Tailwind are project dependencies
+# (package.json + lockfile of the app), not part of the image. Node 22 from Fedora
+# (vite-plus needs ^22.18). chromium-headless above brings the system libraries that
+# Playwright's own headless Chromium needs.
+# deno_core (SSR, feature `ssr`): the `v8` crate downloads the prebuilt V8 library
+# (~100 MB) into target/ on the first build (a mounted directory, survives rebuilds);
+# no system packages needed.
+# ---------------------------------------------------------------------------
+ARG VITE_PLUS_VERSION=1.4.0
+ARG PLAYWRIGHT_VERSION=1.64.1
+RUN npm config set prefix ${HOME}/.local \
+    && npm install -g vite-plus@${VITE_PLUS_VERSION} playwright@${PLAYWRIGHT_VERSION} \
+    && playwright install chromium-headless-shell \
+    && npm cache clean --force
+
+# Faster links and a usable default profile
+RUN mkdir -p ${CARGO_HOME} && tee ${CARGO_HOME}/config.toml <<'EOF'
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[build]
+# jobs = 2: more exhausted the memory (D7); sccache as the compiler cache
+jobs = 2
+incremental = true
+rustc-wrapper = "sccache"
+
+[net]
+git-fetch-with-cli = true
+
+[env]
+SCCACHE_CACHE_SIZE = "20G"
+EOF
+
+# fish as the default shell with Cargo on the PATH
+RUN mkdir -p ${HOME}/.config/fish/conf.d && tee ${HOME}/.config/fish/conf.d/opengrid.fish <<'EOF'
+fish_add_path $HOME/.cargo/bin $HOME/.local/bin
+set -gx RUST_BACKTRACE 1
+set -gx DATABASE_URL sqlite://storage/opengrid.sqlite?mode=rwc
+EOF
+
+WORKDIR /workspaces/OpenGrid_Framework
+CMD ["fish"]
+
+# BENCH3: runtimes of the comparison frameworks (Bun, Ruby with YJIT, CPython,
+# Temurin JDK, .NET, Erlang/OTP, Elixir, Go; PHP ZTS and FrankenPHP from source), pinned with checksums, into ~/.local/opt
+# (phprs/bench/frameworks/install_runtimes.sh; run as the dev user after the
+# repository is mounted:  phprs/bench/frameworks/install_runtimes.sh)

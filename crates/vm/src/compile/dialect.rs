@@ -11,103 +11,103 @@ pub struct Rule {
 
 pub const INCLUDE: Rule = Rule {
     code: "GRD001",
-    reason: "`include`/`require` sind im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`include`/`require` are not allowed in the OpenGrid dialect",
     hint: "Klassen werden per Namensraum automatisch geladen (DIALECT.md §2).",
 };
 pub const GLOBAL: Rule = Rule {
     code: "GRD002",
-    reason: "`global` ist im OpenGrid-Dialekt nicht erlaubt",
-    hint: "Geteilter Zustand gehört in den Container oder in Klassen-Properties.",
+    reason: "`global` is not allowed in the OpenGrid dialect",
+    hint: "Shared state belongs in the container or in class properties.",
 };
 pub const VARIABLE_VARIABLE: Rule = Rule {
     code: "GRD003",
-    reason: "variable Variablen (`$$x`, `${…}`) sind im OpenGrid-Dialekt nicht erlaubt",
+    reason: "variable variables (`$$x`, `${…}`) are not allowed in the OpenGrid dialect",
     hint: "Nutze ein Array.",
 };
 pub const LONG_ARRAY: Rule = Rule {
     code: "GRD004",
-    reason: "die `array(...)`-Schreibweise ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "the `array(...)` syntax is not allowed in the OpenGrid dialect",
     hint: "Schreibe `[...]`.",
 };
 pub const LIST: Rule = Rule {
     code: "GRD005",
-    reason: "`list()` ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`list()` is not allowed in the OpenGrid dialect",
     hint: "Schreibe `[$a, $b] = …`.",
 };
 pub const REFERENCE: Rule = Rule {
     code: "GRD006",
-    reason: "Referenzen (`&$x`, `function &f`, `foreach (… as &$v)`) sind im OpenGrid-Dialekt nicht erlaubt",
-    hint: "Out-Parameter werden Rückgabewerte: `$m = preg_match(...)`, `$a = sort($a)`.",
+    reason: "references (`&$x`, `function &f`, `foreach (… as &$v)`) are not allowed in the OpenGrid dialect",
+    hint: "Out parameters become return values: `$m = preg_match(...)`, `$a = sort($a)`.",
 };
 pub const HEREDOC: Rule = Rule {
     code: "GRD007",
-    reason: "Heredoc/Nowdoc sind im OpenGrid-Dialekt nicht erlaubt",
+    reason: "heredoc/nowdoc are not allowed in the OpenGrid dialect",
     hint: "Nutze normale Strings oder Templates.",
 };
 pub const STATIC_CLOSURE: Rule = Rule {
     code: "GRD008",
-    reason: "`static function`/`static fn` sind im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`static function`/`static fn` are not allowed in the OpenGrid dialect",
     hint: "Lass `static` weg.",
 };
 pub const DECLARE: Rule = Rule {
     code: "GRD009",
-    reason: "`declare(...)` außer `strict_types=1` ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`declare(...)` other than `strict_types=1` is not allowed in the OpenGrid dialect",
     hint: "`strict_types=1` gilt immer.",
 };
 pub const FORBIDDEN_BUILTIN: Rule = Rule {
     code: "GRD010",
-    reason: "diese Funktion ist im OpenGrid-Dialekt nicht verfügbar",
-    hint: "Prozess, Ausgabe, Fehlerbehandlung und Autoloading gehören dem Rust-Host (DIALECT.md §4.2).",
+    reason: "this function is not available in the OpenGrid dialect",
+    hint: "Process, output, error handling and autoloading belong to the Rust host (DIALECT.md §4.2).",
 };
 pub const GOTO: Rule = Rule {
     code: "GRD011",
-    reason: "`goto` ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`goto` is not allowed in the OpenGrid dialect",
     hint: "",
 };
 pub const SUPERGLOBAL: Rule = Rule {
     code: "GRD012",
-    reason: "Superglobals (`$_GET`, `$_POST`, `$GLOBALS`, …) sind im OpenGrid-Dialekt nicht erlaubt",
-    hint: "Der Request ist ein Objekt: `Request`, `Session`, `Cookie`.",
+    reason: "superglobals (`$_GET`, `$_POST`, `$GLOBALS`, …) are not allowed in the OpenGrid dialect",
+    hint: "The request is an object: `Request`, `Session`, `Cookie`.",
 };
 pub const STATIC_VAR: Rule = Rule {
     code: "GRD013",
-    reason: "`static $x` in Funktionen ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`static $x` in functions is not allowed in the OpenGrid dialect",
     hint: "Kein prozessweiter Zustand im Skript (DIALECT.md §5.4).",
 };
 pub const EVAL: Rule = Rule {
     code: "GRD014",
-    reason: "`eval` ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`eval` is not allowed in the OpenGrid dialect",
     hint: "",
 };
 pub const EXIT: Rule = Rule {
     code: "GRD015",
-    reason: "`exit`/`die` sind im OpenGrid-Dialekt nicht erlaubt",
-    hint: "Wirf eine Exception oder gib eine Response zurück.",
+    reason: "`exit`/`die` are not allowed in the OpenGrid dialect",
+    hint: "Throw an exception or return a response.",
 };
 pub const HALT_COMPILER: Rule = Rule {
     code: "GRD016",
-    reason: "`__halt_compiler` ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "`__halt_compiler` is not allowed in the OpenGrid dialect",
     hint: "",
 };
 pub const INLINE_HTML: Rule = Rule {
     code: "GRD017",
-    reason: "Inline-HTML außerhalb von `<?php` ist im OpenGrid-Dialekt nicht erlaubt",
-    hint: "Eine Datei, eine Klasse; Ausgabe ist ein Rückgabewert.",
+    reason: "inline HTML outside `<?php` is not allowed in the OpenGrid dialect",
+    hint: "One file, one class; output is a return value.",
 };
 pub const SHELL_EXEC: Rule = Rule {
     code: "GRD018",
-    reason: "Backtick-Ausführung ist im OpenGrid-Dialekt nicht erlaubt",
+    reason: "backtick execution is not allowed in the OpenGrid dialect",
     hint: "",
 };
 
 pub const BYREF_POP: Rule = Rule {
     code: "GRD019",
-    reason: "`array_pop`/`array_shift` verändern ihr Argument und sind im OpenGrid-Dialekt nicht verfügbar",
+    reason: "`array_pop`/`array_shift` modify their argument and are not available in the OpenGrid dialect",
     hint: "Nutze `[$wert, $rest] = Arr::pop($a)` bzw. `Arr::shift($a)`.",
 };
 pub const DISCARDED_RESULT: Rule = Rule {
     code: "GRD020",
-    reason: "der Rückgabewert dieser Funktion wird verworfen; im OpenGrid-Dialekt liefert sie das Ergebnis statt ihr Argument zu verändern",
+    reason: "the return value of this function is discarded; in the OpenGrid dialect it returns the result instead of modifying its argument",
     hint: "Schreibe `$a = sort($a);` bzw. `$m = preg_match(...)` (DIALECT.md §5.6).",
 };
 

@@ -2,6 +2,7 @@
 name = "grd-jit"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 description = "JIT tier of the grd VM: hot numeric functions and loops compiled to machine code with Cranelift (DECISIONS D6; the only crate with unsafe code)"
 publish = false
 

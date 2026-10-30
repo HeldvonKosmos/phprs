@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 $arr = ["p" => ["h" => ["k1" => 1, "k2" => 2]]];
 unset($arr["p"]["h"]["k1"]);
 echo isset($arr["p"]["h"]["k1"]) ? "k1:set" : "k1:unset";

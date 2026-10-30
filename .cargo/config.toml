@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Build configuration from yingkitw/phprs (Apache License 2.0, see NOTICE and
+# LICENSE-APACHE); the machine-specific `jobs` setting was removed, set it in
+# ~/.cargo/config.toml.
 [build]
-# Use parallel jobs for building
-jobs = 8
 
 [profile.dev]
 # Optimize dependencies in dev mode for faster test compilation

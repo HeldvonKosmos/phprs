@@ -148,26 +148,26 @@ def report(results):
     runnable = total["identical"] + total["rejected"] + total["dialect"] + total["gap"]
     sh = lambda c: subprocess.run(c, capture_output=True, text=True).stdout.strip()
     print(f"Stand: phprs {sh(['git', '-C', REPO, 'rev-parse', '--short', 'HEAD'])}, php-src php-8.4.21, PHP {sh(['php', '-r', 'echo PHP_VERSION;'])}; "
-          f"{len(results)} Tests, davon {runnable} ausführbar.\n")
-    print("| | Tests | Anteil an ausführbaren |\n|---|---:|---:|")
-    for k, name in zip(kinds, ["identisch", "beide lehnen ab (Kompilierfehler)", "dialektbedingt", "Lücke", "ausgeschlossen"]):
+          f"{len(results)} tests, {runnable} of them runnable.\n")
+    print("| | Tests | Share of runnable |\n|---|---:|---:|")
+    for k, name in zip(kinds, ["identical", "both reject (compile error)", "dialect-related", "gap", "excluded"]):
         share = f"{100 * total[k] / runnable:.1f} %" if k != "excluded" and runnable else "–"
         print(f"| {name} | {total[k]} | {share} |")
-    print("\n### Je Verzeichnis\n\n| Verzeichnis | ausführbar | identisch | beide lehnen ab | dialektbedingt | Lücke | ausgeschlossen |\n|---|---:|---:|---:|---:|---:|---:|")
+    print("\n### Per directory\n\n| Directory | Runnable | Identical | Both reject | Dialect-related | Gap | Excluded |\n|---|---:|---:|---:|---:|---:|---:|")
     per = collections.defaultdict(collections.Counter)
     for r in results:
         per[directory(r["test"])][r["kind"]] += 1
     for d, c in sorted(per.items(), key=lambda x: -sum(x[1].values())):
         run_ = c["identical"] + c["rejected"] + c["dialect"] + c["gap"]
         print(f"| {d} | {run_} | {c['identical']} | {c['rejected']} | {c['dialect']} | {c['gap']} | {c['excluded']} |")
-    for k, title in [("dialect", "Dialektbedingt nach Grund"), ("gap", "Lücken nach Grund"), ("excluded", "Ausgeschlossen nach Grund")]:
+    for k, title in [("dialect", "Dialect-related by reason"), ("gap", "Gaps by reason"), ("excluded", "Excluded by reason")]:
         reasons = collections.Counter(re.sub(r"^(missing function|missing class) .*", r"\1", r["reason"]) for r in results if r["kind"] == k)
         print(f"\n### {title}\n\n| Grund | Tests |\n|---|---:|")
         for reason, n in reasons.most_common(20):
             print(f"| {reason} | {n} |")
     for label, prefix in [("Fehlende Funktionen", "missing function "), ("Fehlende Klassen", "missing class ")]:
         c = collections.Counter(r["reason"][len(prefix):] for r in results if r.get("reason", "").startswith(prefix))
-        print(f"\n### {label} (häufigste 40)\n\n" + ", ".join(f"`{n}` ({k})" for n, k in c.most_common(40)))
+        print(f"\n### {label} (most frequent 40)\n\n" + ", ".join(f"`{n}` ({k})" for n, k in c.most_common(40)))
 
 
 if __name__ == "__main__":

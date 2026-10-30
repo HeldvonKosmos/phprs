@@ -1,1 +1,2 @@
-<?grd $x = "ab"; echo ($x), "|", (strlen($x));
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
+$x = "ab"; echo ($x), "|", (strlen($x));

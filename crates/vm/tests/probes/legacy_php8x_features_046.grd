@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 $it = new ArrayIterator(["a" => 1, "b" => 2]);
 echo $it->offsetGet("a") . "\n";
 echo ($it->offsetExists("b") ? "yes" : "no") . "\n";

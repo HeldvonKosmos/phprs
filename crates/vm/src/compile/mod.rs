@@ -48,7 +48,7 @@ impl std::fmt::Display for CompileError {
         if let Some(hint) = self.hint
             && !hint.is_empty()
         {
-            write!(f, "\n  = Hinweis: {hint}")?;
+            write!(f, "\n  = help: {hint}")?;
         }
         Ok(())
     }

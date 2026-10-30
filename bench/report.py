@@ -228,7 +228,8 @@ def bench1(d):
             for key, starts in r["start"].items():
                 w, caches = key.split("|")
                 print(f"| {t} | {w} | {dict(keep='built', none='none').get(caches, '–')} | {statistics.median(starts):.0f} | {statistics.median(r['first'][key]):.1f} | {statistics.median(r['warm'][key]):.2f} |")
-        how = {"Dateiwächter": "file watcher", "opcache-Prüfung": "opcache revalidation (revalidate_freq=2)", "octane:reload": "php artisan octane:reload"}
+        # the German keys are the labels older result files carry
+        how = {"Dateiwächter": "file watcher", "opcache-Prüfung": "opcache revalidation (revalidate_freq=2)", "opcache revalidation": "opcache revalidation (revalidate_freq=2)", "octane:reload": "php artisan octane:reload"}
         print("\n| Target | hot reload | to the new answer, ms (median of 3) |")
         print("|---|---|---:|")
         for t, r in cold.items():

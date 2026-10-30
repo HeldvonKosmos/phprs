@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 function id($x) { return $x; }
 echo id(true && false) ? "t" : "f";
 echo "|";

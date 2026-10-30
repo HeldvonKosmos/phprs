@@ -25,9 +25,9 @@ PHP_A = ["php", "-d", "opcache.enable_cli=0"]
 PHP_B = ["php", "-d", "opcache.enable_cli=1", "-d", "opcache.jit=disable"]
 PHP_C = ["php", "-d", "opcache.enable_cli=1", "-d", "opcache.jit=tracing", "-d", "opcache.jit_buffer_size=64M"]
 COMPARE = {
-    "A": ("PHP ohne Opcache, ohne JIT", "php-a", "grd ohne JIT (GRD_JIT=0)", "grd-int"),
-    "B": ("PHP mit Opcache, ohne JIT", "php-b", "grd ohne JIT (GRD_JIT=0)", "grd-int"),
-    "C": ("PHP mit Opcache-JIT (tracing)", "php-c", "grd mit JIT", "grd-jit"),
+    "A": ("PHP without opcache, without JIT", "php-a", "grd without JIT (GRD_JIT=0)", "grd-int"),
+    "B": ("PHP with opcache, without JIT", "php-b", "grd without JIT (GRD_JIT=0)", "grd-int"),
+    "C": ("PHP with opcache JIT (tracing)", "php-c", "grd with JIT", "grd-jit"),
 }
 
 
@@ -117,7 +117,7 @@ def main():
     cap = sh(["cat", "/sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq"])
     gov += f", max {int(cap) / 1e6:.2f} GHz" if cap.isdigit() else ""
     print(f"Commit {commit}{dirty} · {datetime.datetime.now():%Y-%m-%d %H:%M} · {sh(['php', '-r', 'echo PHP_VERSION;'])} (NTS, ohne Xdebug)"
-          f" · grd {os.path.relpath(grd, repo)}" + (f" · PGO {os.path.relpath(PGO_BIN, repo)}" if PGO_BIN else "") + f" · Kerne {a.cores} · Governor {gov} · Median aus {a.runs} Läufen, σ relativ\n")
+          f" · grd {os.path.relpath(grd, repo)}" + (f" · PGO {os.path.relpath(PGO_BIN, repo)}" if PGO_BIN else "") + f" · cores {a.cores} · governor {gov} · median of {a.runs} runs, relative σ\n")
 
     with tempfile.TemporaryDirectory() as tmp:
         open(os.path.join(tmp, "empty.php"), "w").write("<?php\n")
@@ -144,7 +144,7 @@ def main():
             for c in comps:
                 ln, lv, rn, rv = COMPARE[c]
                 print(f"### {b} · Vergleich {c}: {ln} gegen {rn}")
-                print(f"Prüfsummen: {'gleich' if ok else 'UNGLEICH ' + str(sums)} ({'/'.join(sorted(sums[lv]))})\n")
+                print(f"Checksums: {'equal' if ok else 'DIFFERENT ' + str(sums)} ({'/'.join(sorted(sums[lv]))})\n")
                 pv = rv + "-pgo" if PGO_BIN else None
                 print("| Phase | PHP ms | σ | grd ms | σ | grd/PHP |" + (" PGO ms | σ | PGO/PHP |" if pv else ""))
                 print("|---|---:|---:|---:|---:|---:|" + ("---:|---:|---:|" if pv else ""))
@@ -161,11 +161,11 @@ def main():
                 tot = lambda v: stat([sum(float(x[p]) for p in phases) for x in res[v]])
                 row("**Summe der Phasen**", tot(lv), tot(rv), pg(tot))
                 if c == "A":
-                    row("Übersetzung des Skripts", comp["php-a"], comp["grd-int"])
+                    row("Compiling the script", comp["php-a"], comp["grd-int"])
                 row("Prozessstart (leeres Skript)", startup[lv], startup[rv], pg(lambda v: startup[v]))
                 rest = lambda v, x: x["_wall"] - sum(float(x[p]) for p in phases) - startup[v][0] - (comp[v][0] if c == "A" and v in comp else 0)
                 restc = lambda v: stat([rest(v, x) for x in res[v]])
-                row("übrige Zeit (Daten erzeugen, Ausgabe, Abbau)", restc(lv), restc(rv), pg(restc))
+                row("remaining time (data generation, output, teardown)", restc(lv), restc(rv), pg(restc))
                 wall = lambda v: stat([x["_wall"] for x in res[v]])
                 row("**Wanduhr gesamt**", wall(lv), wall(rv), pg(wall))
                 print()

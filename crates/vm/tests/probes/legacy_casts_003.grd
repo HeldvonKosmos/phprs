@@ -1,1 +1,2 @@
-<?grd echo (int) "3" + 4, "|", (int) "3" * 2, "|", -(int) "5", "|", (int) !"";
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
+echo (int) "3" + 4, "|", (int) "3" * 2, "|", -(int) "5", "|", (int) !"";

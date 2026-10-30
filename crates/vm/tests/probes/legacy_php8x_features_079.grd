@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 echo array_key_first([10, 20, 30]);
 echo "|";
 echo array_key_last([10, 20, 30]);

@@ -126,15 +126,15 @@ def main():
             finally:
                 t.close()
     mib = lambda k: f"{k / 1024:.1f}"
-    print(f"Speicher (PSS aus /proc/<pid>/smaps_rollup, alle Prozesse eines Stacks, MiB) · {a.workers} Worker je Seite · Last: `{a.endpoint}` mit {a.conc} Verbindungen, {a.duration} s, "
-          f"Abtastung alle 0,25 s · danach {a.requests} Anfragen und 2 s Ruhe\n")
-    print("| Ziel | App: Ruhe | App: Last Spitze | App: Last Mittel | App: nach 10k | App + DB: Ruhe | App + DB: Last Spitze | App + DB: Last Mittel | App + DB: nach 10k |")
+    print(f"Memory (PSS from /proc/<pid>/smaps_rollup, every process of a stack, MiB) · {a.workers} workers per side · load: `{a.endpoint}` with {a.conc} connections, {a.duration} s, "
+          f"sampled every 0.25 s · then {a.requests} requests and 2 s idle\n")
+    print("| Target | App: idle | App: load peak | App: load mean | App: after 10k | App + DB: idle | App + DB: load peak | App + DB: load mean | App + DB: after 10k |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for name, r in res.items():
         emb = "" if r["db_separate"] else " (DB eingebettet)"
         print(f"| {name}{emb} | {mib(r['idle'][0])} | {mib(r['load_app_peak'])} | {mib(r['load_app_mean'])} | {mib(r['after'][0])} | "
               f"{mib(sum(r['idle']))} | {mib(r['load_all_peak'])} | {mib(r['load_all_mean'])} | {mib(sum(r['after']))} |")
-    print("\nSQLite läuft auf beiden Seiten im App-Prozess (App + DB = App); OpenGrid enthält zusätzlich seine beim Start geöffnete eingebettete SurrealDB (Job-Poller, D25).\n")
+    print("\nSQLite runs inside the app process on every side (app + DB = app); OpenGrid additionally contains the embedded SurrealDB it opens at start (job poller, D25).\n")
     if a.json:
         json.dump(res, open(a.json, "w"), indent=1)
 

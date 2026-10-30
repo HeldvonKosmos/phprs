@@ -105,12 +105,12 @@ def main():
             res[f"{e}|{name}"] = {"points": points, "bad": bad, **d}
             print(f"  {name:<28} {e:<12} steady {d['steady']:8.0f} req/s  first {d['first'] * 100:5.1f} %  warm 90 % at {d['warm90']} s, 97 % at {d['warm97']} s  non-2xx {bad}", file=sys.stderr)
     marks = [m for m in MARKS if m <= a.duration]
-    print(f"Aufwärmkurve (BENCH3) · je Ziel und Endpunkt frisch gestarteter Server, {a.duration} s gleichbleibende Last bei {a.conc} Verbindungen ohne Aufwärmen, "
-          f"Anfragen je {a.bin:g} s nach ihrem Ende gezählt · Dauerrate = Median der letzten {a.steady:g} s · warm ab = erste Sekunde, ab der das gleitende "
-          f"{a.smooth:g}-s-Mittel nicht mehr unter 90 % bzw. 97 % der Dauerrate fällt\n")
+    print(f"Warm-up curve (BENCH3) · per target and endpoint a freshly started server, {a.duration} s of constant load at {a.conc} connections without warm-up, "
+          f"requests counted per {a.bin:g} s by their end · steady rate = median of the last {a.steady:g} s · warm from = the first second from which the moving "
+          f"{a.smooth:g}-s mean no longer falls below 90 % or 97 % of the steady rate\n")
     for e in a.endpoints.split(","):
         print(f"#### {e}\n")
-        print("| Ziel | " + " | ".join(f"{m} s" for m in marks) + " | Dauerrate | 1. s / Dauer | warm 90 % ab | warm 97 % ab |")
+        print("| Target | " + " | ".join(f"{m} s" for m in marks) + " | Steady rate | 1st s / steady | Warm 90 % from | Warm 97 % from |")
         print("|---|" + "---:|" * (len(marks) + 4))
         for name in a.targets.split(","):
             r = res[f"{e}|{name}"]

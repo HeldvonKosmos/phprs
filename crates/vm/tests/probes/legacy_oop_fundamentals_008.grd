@@ -1,4 +1,4 @@
-<?grd
+<?grd // SPDX-License-Identifier: Apache-2.0 (test harvested from yingkitw/phprs, see NOTICE)
 class R {
     public array $h = [];
     public function on(string $n, callable $cb): void { $this->h[$n] = $cb; }

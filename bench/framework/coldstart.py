@@ -161,23 +161,23 @@ def main():
                     open(path, "w").write(src)
                     if laravel and name.startswith(("laravel-octane", "laravel-frankenphp")):
                         subprocess.run(["php", "artisan", "octane:reload", f"--server={'frankenphp' if 'frankenphp' in name else 'roadrunner'}"], cwd=bm2.LARAVEL_APP, env=e, capture_output=True)
-                how = "octane:reload" if name.startswith(("laravel-octane", "laravel-frankenphp")) else ("opcache-Prüfung" if laravel else "Dateiwächter")
+                how = "octane:reload" if name.startswith(("laravel-octane", "laravel-frankenphp")) else ("opcache revalidation" if laravel else "file watcher")
                 r["reload"] = {"ms": times, "how": how}
                 print(f"  {name:<26} hot reload ({how}) {statistics.median(times):.0f} ms", file=sys.stderr)
             finally:
                 t.close()
     bm2.start = orig_start
     med = lambda v: f"{statistics.median(v):.0f}"
-    print(f"Kaltstart und Bootstrap (BENCH1) · Kerne App {bm2.APP_CORES} ({bm2.topology(bm2.APP_CORES)}) · je Fall {a.runs} Starts, Median (min–max) · "
-          f"leere Route `/api/bench/sql/health`; erste Anfrage `{a.endpoint}` gegen den Median von {a.warm} folgenden\n")
-    print("| Ziel | Worker | Laravel-Caches | Start bis erste 200 ms | erste Anfrage ms | warm ms |")
+    print(f"Cold start and bootstrap (BENCH1) · app cores {bm2.APP_CORES} ({bm2.topology(bm2.APP_CORES)}) · {a.runs} starts per case, median (min–max) · "
+          f"empty route `/api/bench/sql/health`; first request `{a.endpoint}` against the median of the next {a.warm}\n")
+    print("| Target | Workers | Laravel caches | Start to first 200 ms | First request ms | Warm ms |")
     print("|---|---:|---|---:|---:|---:|")
     for name, r in res.items():
         for key, starts in r["start"].items():
             w, caches = key.split("|")
-            cache_label = {"keep": "vorab gebaut", "none": "ohne", "-": "–"}[caches]
+            cache_label = {"keep": "built", "none": "none", "-": "–"}[caches]
             print(f"| {name} | {w} | {cache_label} | {med(starts)} ({min(starts):.0f}–{max(starts):.0f}) | {statistics.median(r['first'][key]):.2f} | {statistics.median(r['warm'][key]):.2f} |")
-    print("\n| Ziel | Hot-Reload | bis zur neuen Antwort ms (Median aus 3) |")
+    print("\n| Target | Hot reload | To the new answer ms (median of 3) |")
     print("|---|---|---:|")
     for name, r in res.items():
         if not r["reload"]:
