@@ -28,6 +28,52 @@ that this gives Laravel-style code the throughput, memory footprint and
 cold start of a compiled service, and the benchmark below is how we test
 that thesis.
 
+## Goals, and what is deliberately not a goal
+
+**OpenGrid does not aim to be PHP-compatible.** The goal is to keep what
+developers love about PHP and Laravel, and to drop what has accumulated
+around it over thirty years.
+
+What stays:
+
+- **The developer experience of Laravel.** Routes, controllers,
+  middleware, models with filters and pagination, validation with
+  Laravel's rules and messages, facades, jobs, scheduler, mail, sessions,
+  auth: the same names, the same flow, the same mental model. If you can
+  read Laravel, you can read OpenGrid.
+- **PHP's syntax** and its way of thinking in requests: `$variables`,
+  arrays, classes, namespaces, closures, `foreach`, string interpolation.
+- **Instant feedback.** Edit a file, the next request runs it; no build
+  step in development.
+
+What is left behind on purpose (the full list with error codes is in
+`.agents/DIALECT.md` §4; every deviation from Laravel is recorded in
+`.agents/LARAVEL_BREAKING_CHANGES.md`):
+
+- **Dynamic typing of variables.** A variable keeps the type of its first
+  assignment, `/` always yields a float, integer overflow throws. This is
+  what makes the code analysable, lets the JIT compile without
+  speculation, and catches a class of mistakes that AI-generated PHP
+  produces in quantity.
+- **`include`/`require`, Composer autoloading, superglobals, references,
+  `eval`, `exit`, `goto`, `global`, static locals, variable variables,
+  heredoc, inline HTML.** A project is a set of modules resolved by
+  convention; the request is an object; output is a return value.
+- **Functions that modify their arguments** (`sort`, `array_pop`, …) now
+  return their result.
+- **The standard library's inconsistencies.** The dialect's builtins are
+  a curated, consistently named subset; `Str`, `Arr` and `Collection` are
+  tested against Laravel's behaviour, not against PHP's quirks.
+- **The service container and service providers.** Convention instead of
+  registration code.
+
+What is not a goal, at least for now: running existing PHP code
+unchanged, a package registry compatible with Composer, or matching PHP
+feature for feature. Porting a Laravel application to OpenGrid is meant
+to be a mechanical, module-by-module exercise with the compiler pointing
+at every line that relies on something left behind; it is not meant to be
+a copy.
+
 ## Where this comes from
 
 PHP started in 1995 as a set of tools for personal home pages: a script per
